@@ -35,6 +35,10 @@
 <body>
   <canvas id="game"></canvas>
   <div id="hud">Hack Arena</div>
+  <div id="zoom-readout" style="position:fixed;bottom:12px;left:50%;transform:translateX(-50%);
+    font:13px ui-monospace,monospace;color:rgba(255,255,255,0.5);z-index:40;
+    background:rgba(0,0,0,0.4);padding:4px 12px;border-radius:6px;
+    border:1px solid rgba(255,255,255,0.1)">zoom: —</div>
   <div class="stick-readout" id="readout-left">L stick idle</div>
   <div class="stick-readout" id="readout-right">R stick idle</div>
   <div class="joystick joystick-left" id="joystick-left"><div class="joystick-knob" id="knob-left"></div></div>
@@ -148,11 +152,19 @@ world.add(playerId, Actor,    { kind: ActorKind.PLAYER, name: 'Player', glyph: '
 world.add(playerId, Health,   { hp: 100, maxHp: 100 });
 world.add(playerId, FOV,      { distance: 220, angle: 1.4 });
 
-// ── Camera (zoomed in — rooms should feel big) ────────────────
+// ── Camera ─────────────────────────────────────────────────────
 const cam = createCamera();
 cam.x = cam.targetX = spawn.x;
 cam.y = cam.targetY = spawn.y;
-cam.scale = cam.targetScale = 2.5;
+cam.scale = cam.targetScale = 1.8;
+
+const ZOOM_MIN = 0.3, ZOOM_MAX = 6.0, ZOOM_STEP = 0.15;
+const zoomReadout = document.getElementById('zoom-readout');
+
+function setZoom(z) {
+  cam.targetScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+  zoomReadout.textContent = `zoom: ${cam.targetScale.toFixed(2)}x  [+/-]`;
+}
 
 // ── Joystick (reuse proven touch code) ─────────────────────────
 function normalizeVector(x, y) {
@@ -203,10 +215,19 @@ function releaseTouches(touches) { for (const t of touches) { if (leftStick.touc
 document.addEventListener('touchend',    e => releaseTouches(e.changedTouches));
 document.addEventListener('touchcancel', e => releaseTouches(e.changedTouches));
 
-// ── Keyboard fallback (WASD + arrow aim) ───────────────────────
+// ── Keyboard (WASD + arrows + zoom) ────────────────────────────
 const keys = {};
-window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
-window.addEventListener('keyup',   e => { keys[e.key.toLowerCase()] = false; });
+window.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if (e.key === '=' || e.key === '+') setZoom(cam.targetScale + ZOOM_STEP);
+  if (e.key === '-' || e.key === '_') setZoom(cam.targetScale - ZOOM_STEP);
+});
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+// Mouse wheel zoom
+window.addEventListener('wheel', e => {
+  e.preventDefault();
+  setZoom(cam.targetScale + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
+}, { passive: false });
 
 function keyboardInput() {
   let mx = 0, my = 0;
@@ -316,6 +337,7 @@ function renderFrame() {
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   hud.textContent = 'Hack Arena  seed:' + SEED.toString(16) + '  rooms:' + rooms.length + '  spawns:' + spawns.length + '  casts:' + runtimeEvents.casts;
+  zoomReadout.textContent = `zoom: ${cam.scale.toFixed(2)}x  [+/- or scroll]`;
   readL.textContent = leftStick.active
     ? `L x:${inp.moveX.toFixed(2)} y:${inp.moveY.toFixed(2)}`
     : (Math.abs(kb.mx) + Math.abs(kb.my) > 0 ? `KB ${kb.mx},${kb.my}` : 'L stick idle');
