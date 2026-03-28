@@ -13,3 +13,4 @@ export { Projectile } from './Projectile.js';
 export { Knockback } from './Knockback.js';
 export { Cooldown } from './Cooldown.js';
 export { Spawn } from './Spawn.js';
+export { PointLight } from './PointLight.js';

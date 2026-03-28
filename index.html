@@ -106,13 +106,14 @@
 <script type="module">
 // ── Imports ────────────────────────────────────────────────────
 import { World, RafLoop, composeScheduler } from './src/lib/ecs-js/index.js';
-import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV }
+import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV, PointLight }
   from './src/rules/components/index.js';
 import { generateCave, CaveProfile } from './src/rules/geometry/caveGen.js';
 import { moveWithSlide } from './src/rules/geometry/sweep.js';
 import { createCamera, updateCamera, applyCamera } from './src/display/camera/controller.js';
 import { followEntity } from './src/display/camera/follow.js';
 import { bakeCavePass } from './src/display/passes/cavePass.js';
+import { createTorchPass } from './src/display/passes/torchPass.js';
 
 // ── Canvas setup ───────────────────────────────────────────────
 const canvas = document.getElementById('game');
@@ -134,6 +135,7 @@ const spawn = spawns[0];
 
 // Pre-bake grid to offscreen canvas (one-time)
 const caveBake = bakeCavePass(caveData);
+const torchPass = createTorchPass(grid);
 console.log(`Cave: seed=${SEED.toString(16)} grid=${grid.cols}x${grid.rows} spawns=${spawns.length}`);
 
 // ── ECS world ──────────────────────────────────────────────────
@@ -151,6 +153,22 @@ world.add(playerId, Input);
 world.add(playerId, Actor,    { kind: ActorKind.PLAYER, name: 'Player', glyph: '@' });
 world.add(playerId, Health,   { hp: 100, maxHp: 100 });
 world.add(playerId, FOV,      { distance: 220, angle: 1.4 });
+
+// ── Torch entity (on the ground near spawn) ─────────────────────
+function findOpenNear(x, y, searchRadius) {
+  for (let r = 0; r < searchRadius; r += 8) {
+    for (let a = 0; a < Math.PI * 2; a += 0.4) {
+      const tx = x + Math.cos(a) * r, ty = y + Math.sin(a) * r;
+      if (grid.distanceMove(tx, ty) >= 20) return { x: tx, y: ty };
+    }
+  }
+  return { x, y };
+}
+
+const torchPos = findOpenNear(spawn.x + 50, spawn.y + 30, 200);
+const torchId = world.create();
+world.add(torchId, Position, { x: torchPos.x, y: torchPos.y });
+world.add(torchId, PointLight, { radius: 350, r: 255, g: 190, b: 120 });
 
 // ── Camera ─────────────────────────────────────────────────────
 const cam = createCamera();
@@ -326,6 +344,14 @@ function renderFrame() {
   ctx.textBaseline = 'middle';
   ctx.fillText('@', pos.x, pos.y + 1);
 
+  // Draw torch entities
+  for (const [id, lpos, pl] of world.query(Position, PointLight)) {
+    ctx.fillStyle = `rgb(${pl.r},${pl.g},${pl.b})`;
+    ctx.font = 'bold 18px ui-monospace, monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('\u2020', lpos.x, lpos.y);  // † dagger = torch
+  }
+
   const aimLen = col.radius + 14;
   ctx.beginPath();
   ctx.moveTo(pos.x + Math.cos(fac.angle) * col.radius, pos.y + Math.sin(fac.angle) * col.radius);
@@ -334,6 +360,21 @@ function renderFrame() {
   ctx.lineWidth = 2;
   ctx.lineCap = 'round';
   ctx.stroke();
+
+  // ── Torch lighting pass (query ECS for all PointLight entities) ──
+  const lights = [];
+  for (const [id, lpos, pl] of world.query(Position, PointLight)) {
+    if (!pl.enabled) continue;
+    // Flickering torch: gentle pulse + random jitter
+    const t = performance.now() * 0.001;
+    const flicker = 1.0 + 0.06 * Math.sin(t * 7.3) + 0.04 * Math.sin(t * 13.1) + 0.03 * (Math.random() - 0.5);
+    lights.push({
+      x: lpos.x, y: lpos.y,
+      radius: pl.radius * flicker,
+      color: [pl.r, pl.g, pl.b],
+    });
+  }
+  torchPass.render(ctx, lights, canvas.width, canvas.height, cam);
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   hud.textContent = 'Hack Arena  seed:' + SEED.toString(16) + '  spawns:' + spawns.length + '  casts:' + runtimeEvents.casts;
