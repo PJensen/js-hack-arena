@@ -124,17 +124,17 @@ const readR  = document.getElementById('readout-right');
 function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
 window.addEventListener('resize', resize); resize();
 
-// ── Generate cave (pure vector SDF) ────────────────────────────
+// ── Generate cave (pure Perlin SDF → grid) ─────────────────────
 const SEED = (Math.random() * 0xFFFFFFFF) >>> 0;
 const caveData = generateCave({
-  seed: SEED, width: 4000, height: 4000, profile: CaveProfile.CAVERNS, spawnCount: 4,
+  seed: SEED, width: 2000, height: 2000, profile: CaveProfile.CAVERNS, spawnCount: 4,
 });
-const { kernel, grid, bounds, spawns, rooms } = caveData;
+const { grid, bounds, spawns } = caveData;
 const spawn = spawns[0];
 
-// Pre-bake to offscreen canvas (vector → bitmap, one-time)
+// Pre-bake grid to offscreen canvas (one-time)
 const caveBake = bakeCavePass(caveData);
-console.log(`Cave: seed=${SEED.toString(16)} carves=${kernel.carves.length} rooms=${rooms.length} spawns=${spawns.length} grid=${grid.cols}x${grid.rows}`);
+console.log(`Cave: seed=${SEED.toString(16)} grid=${grid.cols}x${grid.rows} spawns=${spawns.length}`);
 
 // ── ECS world ──────────────────────────────────────────────────
 const world = new World({ seed: SEED });
@@ -336,7 +336,7 @@ function renderFrame() {
   ctx.stroke();
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  hud.textContent = 'Hack Arena  seed:' + SEED.toString(16) + '  rooms:' + rooms.length + '  spawns:' + spawns.length + '  casts:' + runtimeEvents.casts;
+  hud.textContent = 'Hack Arena  seed:' + SEED.toString(16) + '  spawns:' + spawns.length + '  casts:' + runtimeEvents.casts;
   zoomReadout.textContent = `zoom: ${cam.scale.toFixed(2)}x  [+/- or scroll]`;
   readL.textContent = leftStick.active
     ? `L x:${inp.moveX.toFixed(2)} y:${inp.moveY.toFixed(2)}`

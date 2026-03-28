@@ -1,14 +1,10 @@
 // rules/geometry/caveGen.js
-// Procedural cave generation — pure vector SDF.
-// Emits circles + capsules directly into a kernel. No grid. No rasterization.
-// The SDF primitives ARE the geometry — perfect at any zoom level.
-
-import { createKernel } from './kernel.js';
-import { bakeGrid } from './caveGrid.js';
+// Procedural cave generation — pure Perlin SDF baked to a grid.
+// The noise field IS the geometry. No carve primitives.
 
 // ── Perlin noise (2D, self-contained) ──────────────────────────
 
-function mulberry32(seed) {
+export function mulberry32(seed) {
   let t = seed >>> 0;
   return function () {
     t = (t + 0x6D2B79F5) | 0;
@@ -32,7 +28,7 @@ function buildPermutation(rng) {
 
 const GRAD2 = [[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]];
 
-function createPerlin2D(seed) {
+export function createPerlin2D(seed) {
   const rng = mulberry32(seed);
   const perm = buildPermutation(rng);
   function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
@@ -52,7 +48,7 @@ function createPerlin2D(seed) {
   };
 }
 
-function fbm(noise, x, y, octaves = 4, lacunarity = 2, gain = 0.5) {
+export function fbm(noise, x, y, octaves = 4, lacunarity = 2, gain = 0.5) {
   let amp = 1, freq = 1, sum = 0, max = 0;
   for (let i = 0; i < octaves; i++) {
     sum += amp * noise(x * freq, y * freq);
@@ -66,154 +62,128 @@ function fbm(noise, x, y, octaves = 4, lacunarity = 2, gain = 0.5) {
 // ── Cave profiles ──────────────────────────────────────────────
 
 export const CaveProfile = Object.freeze({
-  // Rooms feel BIG when zoomed in. Brush radii are world-units.
   CAVERNS: {
-    threshold: -0.08,    // liberal carving → large open areas
-    brushMin:  18,       // smallest carve
-    brushMax:  52,       // chambers
+    threshold: -0.08,
     octaves: 4,
-    scale: 0.012,        // higher freq → tighter features
-    passageWidth: 20,    // min corridor width (for connector capsules)
+    scale: 0.012,
   },
   TUNNELS: {
     threshold: 0.05,
-    brushMin:  20,
-    brushMax:  50,
     octaves: 5,
     scale: 0.015,
-    passageWidth: 22,
   },
   GROTTOS: {
     threshold: -0.15,
-    brushMin:  60,
-    brushMax: 160,
     octaves: 3,
     scale: 0.004,
-    passageWidth: 36,
   },
   WARRENS: {
     threshold: 0.12,
-    brushMin:  14,
-    brushMax:  32,
     octaves: 6,
     scale: 0.022,
-    passageWidth: 18,
   },
 });
 
-// ── Vector cave generator ──────────────────────────────────────
+// ── Grid bake (inline to avoid circular deps with caveGrid.js) ─
 
-/**
- * Sample Perlin noise and emit SDF circles where open.
- * Returns array of { x, y, r } for room centres (used by connector pass).
- */
-function carveRooms(kernel, noise, rng, width, height, profile) {
-  const { threshold, brushMin, brushMax, octaves, scale } = profile;
-  const margin = brushMax + 20;
-  const step = brushMin * 0.8;  // overlap ensures smooth walls
-  const rooms = [];
+function bakeGrid(seed, width, height, profile, cellSize) {
+  const noise = createPerlin2D(seed);
+  const cols = Math.ceil(width / cellSize) + 1;
+  const rows = Math.ceil(height / cellSize) + 1;
+  const total = cols * rows;
+  const moveGrid = new Float32Array(total);
 
-  for (let y = margin; y < height - margin; y += step) {
-    for (let x = margin; x < width - margin; x += step) {
-      const n = fbm(noise, x * scale, y * scale, octaves);
+  const { threshold, octaves, scale } = profile;
+  const margin = 60;
 
-      // Edge fade — close off near world boundaries
-      const edgeDist = Math.min(x - margin, width - margin - x,
-                                y - margin, height - margin - y);
-      const edgeFade = Math.min(1, edgeDist / (brushMax * 2));
+  for (let gy = 0; gy < rows; gy++) {
+    const wy = gy * cellSize;
+    const rowOff = gy * cols;
+    for (let gx = 0; gx < cols; gx++) {
+      const wx = gx * cellSize;
+      const n = fbm(noise, wx * scale, wy * scale, octaves);
 
-      if (n * edgeFade > threshold) {
-        const t = (n * edgeFade - threshold) / (1 - threshold);
-        const r = brushMin + (brushMax - brushMin) * Math.min(1, t);
-        // Jitter for organic edges
-        const jx = (rng() - 0.5) * step * 0.5;
-        const jy = (rng() - 0.5) * step * 0.5;
-        const cx = x + jx, cy = y + jy;
-        kernel.carveCircle(cx, cy, r, { affectsMove: true, affectsOccl: true });
-        // Track larger carves as room anchors
-        if (r > brushMin + (brushMax - brushMin) * 0.3) {
-          rooms.push({ x: cx, y: cy, r });
-        }
+      // Edge fade — force solid near world boundaries
+      const edgeDist = Math.min(wx - margin, width - margin - wx,
+                                wy - margin, height - margin - wy);
+      const edgeFade = Math.max(0, Math.min(1, edgeDist / (margin * 2)));
+
+      const val = n * edgeFade - threshold;
+      // Positive = open space; scale to world-unit clearance
+      moveGrid[rowOff + gx] = val > 0 ? val * 80 : 0;
+    }
+  }
+
+  const invCell = 1 / cellSize;
+
+  function distanceMove(px, py) {
+    const fx = px * invCell;
+    const fy = py * invCell;
+    const gx = Math.floor(fx);
+    const gy = Math.floor(fy);
+    if (gx < 0 || gy < 0 || gx >= cols - 1 || gy >= rows - 1) return 0;
+
+    const tx = fx - gx;
+    const ty = fy - gy;
+    const i00 = gy * cols + gx;
+    const i10 = i00 + 1;
+    const i01 = i00 + cols;
+    const i11 = i01 + 1;
+
+    const top    = moveGrid[i00] * (1 - tx) + moveGrid[i10] * tx;
+    const bottom = moveGrid[i01] * (1 - tx) + moveGrid[i11] * tx;
+    return top * (1 - ty) + bottom * ty;
+  }
+
+  return { distanceMove, cellSize, cols, rows, width, height, moveGrid };
+}
+
+// ── Spawn finding ──────────────────────────────────────────────
+
+function findSpawns(grid, width, height, count, minSpacing) {
+  const spawns = [];
+  const cx = width / 2, cy = height / 2;
+  const candidates = [];
+  const step = grid.cellSize * 4;
+
+  for (let y = 100; y < height - 100; y += step) {
+    for (let x = 100; x < width - 100; x += step) {
+      const d = grid.distanceMove(x, y);
+      if (d >= 20) {
+        candidates.push({ x, y, clearance: d, dc: Math.hypot(x - cx, y - cy) });
       }
     }
   }
-  return rooms;
-}
 
-/**
- * Connect rooms with capsule corridors so the cave is fully traversable.
- * Uses a greedy nearest-neighbour walk through room centres, then
- * connects any orphaned clusters.
- */
-function connectRooms(kernel, rooms, profile) {
-  if (rooms.length < 2) return;
+  candidates.sort((a, b) => b.clearance - a.clearance || a.dc - b.dc);
 
-  const pw = profile.passageWidth;
-  const connected = new Set([0]);
-  const unconnected = new Set(rooms.map((_, i) => i));
-  unconnected.delete(0);
-
-  // Greedy nearest-neighbour from room 0
-  let current = 0;
-  while (unconnected.size > 0) {
-    let bestDist = Infinity, bestIdx = -1;
-    for (const idx of unconnected) {
-      const dx = rooms[idx].x - rooms[current].x;
-      const dy = rooms[idx].y - rooms[current].y;
-      const d = dx * dx + dy * dy;
-      if (d < bestDist) { bestDist = d; bestIdx = idx; }
-    }
-    if (bestIdx === -1) break;
-
-    // Carve a capsule corridor between current and bestIdx
-    kernel.carveCapsule(
-      rooms[current].x, rooms[current].y,
-      rooms[bestIdx].x, rooms[bestIdx].y,
-      pw, { affectsMove: true, affectsOccl: true }
-    );
-
-    connected.add(bestIdx);
-    unconnected.delete(bestIdx);
-    current = bestIdx;
-  }
-}
-
-/**
- * Find spawn points in the widest open areas.
- * Checks actual SDF clearance — no grid approximation.
- */
-function findSpawns(kernel, rooms, count, minSpacing) {
-  // Sort rooms by radius (biggest = most open)
-  const sorted = rooms.slice().sort((a, b) => b.r - a.r);
-  const spawns = [];
-
-  for (const room of sorted) {
+  for (const c of candidates) {
     if (spawns.length >= count) break;
-    // Verify real SDF clearance
-    if (kernel.distanceMove(room.x, room.y) < 30) continue;
-    // Enforce spacing
     let ok = true;
     for (const s of spawns) {
-      if (Math.hypot(s.x - room.x, s.y - room.y) < minSpacing) { ok = false; break; }
+      if (Math.hypot(s.x - c.x, s.y - c.y) < minSpacing) { ok = false; break; }
     }
-    if (ok) spawns.push({ x: room.x, y: room.y });
+    if (ok) spawns.push({ x: c.x, y: c.y });
   }
+
+  if (spawns.length === 0) spawns.push({ x: cx, y: cy });
   return spawns;
 }
 
 // ── Main entry ─────────────────────────────────────────────────
 
 /**
- * Generate a vector cave.
+ * Generate a cave — pure Perlin noise baked to a grid.
  *
  * @param {object}  opts
  * @param {number}  opts.seed
- * @param {number}  [opts.width=4000]     – world-units (bigger = more rooms at zoom)
+ * @param {number}  [opts.width=4000]
  * @param {number}  [opts.height=4000]
  * @param {object}  [opts.profile=CaveProfile.CAVERNS]
+ * @param {number}  [opts.cellSize=4]
  * @param {number}  [opts.spawnCount=4]
  * @param {number}  [opts.spawnSpacing=400]
- * @returns {{ kernel, bounds, rooms, spawns }}
+ * @returns {{ grid, bounds, spawns }}
  */
 export function generateCave(opts) {
   const {
@@ -221,49 +191,17 @@ export function generateCave(opts) {
     width        = 4000,
     height       = 4000,
     profile      = CaveProfile.CAVERNS,
+    cellSize     = 4,
     spawnCount   = 4,
     spawnSpacing = 400,
   } = opts;
 
-  const noise  = createPerlin2D(seed);
-  const rng    = mulberry32(seed ^ 0xCAFE);
-  const kernel = createKernel();
-
-  // 1. Carve rooms (circles from Perlin field)
-  const rooms = carveRooms(kernel, noise, rng, width, height, profile);
-
-  // 2. Connect rooms with capsule corridors
-  connectRooms(kernel, rooms, profile);
-
-  // 3. Find spawn points
-  const spawns = findSpawns(kernel, rooms, spawnCount, spawnSpacing);
-
-  // Fallback: spiral from centre
-  if (spawns.length === 0) {
-    const cx = width / 2, cy = height / 2;
-    for (let r = 0; r < 600; r += 10) {
-      for (let a = 0; a < Math.PI * 2; a += 0.3) {
-        const sx = cx + Math.cos(a) * r, sy = cy + Math.sin(a) * r;
-        if (kernel.distanceMove(sx, sy) >= 30) {
-          spawns.push({ x: sx, y: sy });
-          r = 999;
-          break;
-        }
-      }
-    }
-    if (spawns.length === 0) spawns.push({ x: cx, y: cy });
-  }
-
-  // Bake SDF → grid for O(1) runtime collision queries
-  const grid = bakeGrid(kernel, width, height);
+  const grid = bakeGrid(seed, width, height, profile, cellSize);
+  const spawns = findSpawns(grid, width, height, spawnCount, spawnSpacing);
 
   return {
-    kernel,
     grid,
     bounds: { w: width, h: height },
-    rooms,
     spawns,
   };
 }
-
-export { createPerlin2D, fbm, mulberry32 };

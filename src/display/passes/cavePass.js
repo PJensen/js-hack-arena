@@ -1,150 +1,79 @@
 // display/passes/cavePass.js
-// Draws cave SDF primitives as vector geometry.
-// Each carve is a circle or capsule — smooth at any zoom.
+// Renders cave geometry from a Perlin distance grid using ImageData.
+// One pixel-fill pass — no per-cell fillRect calls.
 
-const TAU = Math.PI * 2;
-
-// Color palette — layered for depth
-const FLOOR      = '#142030';
-const FLOOR_EDGE = '#0f1a28';  // darker fringe drawn slightly larger
-
-/**
- * Draw a single SDF carve primitive.
- */
-function drawCarve(ctx, g) {
-  switch (g.type) {
-    case 'circle':
-      ctx.beginPath();
-      ctx.arc(g.cx, g.cy, g.r, 0, TAU);
-      ctx.fill();
-      break;
-
-    case 'capsule':
-    case 'rectslot': {
-      const dx = g.bx - g.ax, dy = g.by - g.ay;
-      const L = Math.hypot(dx, dy) || 1;
-      const nx = -dy / L, ny = dx / L;
-      const r = g.r;
-      ctx.beginPath();
-      ctx.moveTo(g.ax + nx * r, g.ay + ny * r);
-      ctx.lineTo(g.bx + nx * r, g.by + ny * r);
-      ctx.arc(g.bx, g.by, r, Math.atan2(ny, nx), Math.atan2(-ny, -nx));
-      ctx.lineTo(g.ax - nx * r, g.ay - ny * r);
-      ctx.arc(g.ax, g.ay, r, Math.atan2(-ny, -nx), Math.atan2(ny, nx));
-      ctx.closePath();
-      ctx.fill();
-      break;
-    }
-
-    case 'square': {
-      const cx = (g.ax + g.bx) / 2, cy = (g.ay + g.by) / 2;
-      const L = Math.hypot(g.bx - g.ax, g.by - g.ay);
-      const hx = L / 2, hy = g.halfW;
-      const s = Math.sin(g.rot), c = Math.cos(g.rot);
-      const pts = [[-hx,-hy],[hx,-hy],[hx,hy],[-hx,hy]]
-        .map(([x,y]) => [c*x - s*y + cx, s*x + c*y + cy]);
-      ctx.beginPath();
-      ctx.moveTo(pts[0][0], pts[0][1]);
-      for (let i = 1; i < 4; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-      ctx.closePath();
-      ctx.fill();
-      break;
-    }
-  }
-}
+// Colour palette (RGB)
+const WALL_R  = 11, WALL_G  = 15, WALL_B  = 18;   // #0b0f12
+const EDGE_R  = 15, EDGE_G  = 26, EDGE_B  = 40;   // #0f1a28
+const FLOOR_R = 20, FLOOR_G = 32, FLOOR_B = 48;   // #142030
 
 /**
- * Draw a carve with inflated radius (for edge fringe effect).
- */
-function drawCarveInflated(ctx, g, inflate) {
-  switch (g.type) {
-    case 'circle':
-      ctx.beginPath();
-      ctx.arc(g.cx, g.cy, g.r + inflate, 0, TAU);
-      ctx.fill();
-      break;
-
-    case 'capsule':
-    case 'rectslot': {
-      const dx = g.bx - g.ax, dy = g.by - g.ay;
-      const L = Math.hypot(dx, dy) || 1;
-      const nx = -dy / L, ny = dx / L;
-      const r = g.r + inflate;
-      ctx.beginPath();
-      ctx.moveTo(g.ax + nx * r, g.ay + ny * r);
-      ctx.lineTo(g.bx + nx * r, g.by + ny * r);
-      ctx.arc(g.bx, g.by, r, Math.atan2(ny, nx), Math.atan2(-ny, -nx));
-      ctx.lineTo(g.ax - nx * r, g.ay - ny * r);
-      ctx.arc(g.ax, g.ay, r, Math.atan2(-ny, -nx), Math.atan2(ny, nx));
-      ctx.closePath();
-      ctx.fill();
-      break;
-    }
-
-    case 'square': {
-      // Inflate by expanding half-extents
-      const cx = (g.ax + g.bx) / 2, cy = (g.ay + g.by) / 2;
-      const L = Math.hypot(g.bx - g.ax, g.by - g.ay);
-      const hx = L / 2 + inflate, hy = g.halfW + inflate;
-      const s = Math.sin(g.rot), c = Math.cos(g.rot);
-      const pts = [[-hx,-hy],[hx,-hy],[hx,hy],[-hx,hy]]
-        .map(([x,y]) => [c*x - s*y + cx, s*x + c*y + cy]);
-      ctx.beginPath();
-      ctx.moveTo(pts[0][0], pts[0][1]);
-      for (let i = 1; i < 4; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-      ctx.closePath();
-      ctx.fill();
-      break;
-    }
-  }
-}
-
-/**
- * Render cave geometry into the given context.
- * Call this each frame after applyCamera().
+ * Pre-bake cave grid to an offscreen canvas via ImageData.
  *
- * Two-pass: edge fringe first (inflated, darker), then core floor.
- * Both are vector — perfectly smooth at any zoom.
- *
- * @param {CanvasRenderingContext2D} ctx
- * @param {object} kernel – from createKernel / generateCave
- */
-export function drawCave(ctx, kernel) {
-  const carves = kernel.carves;
-
-  // Pass 1: edge fringe (slightly larger, darker)
-  ctx.fillStyle = FLOOR_EDGE;
-  for (let i = 0; i < carves.length; i++) {
-    drawCarveInflated(ctx, carves[i], 4);
-  }
-
-  // Pass 2: core floor
-  ctx.fillStyle = FLOOR;
-  for (let i = 0; i < carves.length; i++) {
-    drawCarve(ctx, carves[i]);
-  }
-}
-
-/**
- * Pre-bake cave to offscreen canvas for static geometry.
- * Use this if the cave doesn't change and you want one drawImage() per frame.
- *
- * @param {{ kernel, bounds }} caveData
+ * @param {{ grid, bounds }} caveData
  * @returns {{ canvas, width, height }}
  */
 export function bakeCavePass(caveData) {
-  const { kernel, bounds } = caveData;
+  const { grid, bounds } = caveData;
   const w = bounds.w, h = bounds.h;
+  const { moveGrid, cols, rows, cellSize } = grid;
 
-  const offscreen = typeof OffscreenCanvas !== 'undefined'
-    ? new OffscreenCanvas(w, h)
-    : (() => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; })();
+  const offscreen = document.createElement('canvas');
+  offscreen.width = w;
+  offscreen.height = h;
 
   const octx = offscreen.getContext('2d');
-  octx.fillStyle = '#0b0f12';
-  octx.fillRect(0, 0, w, h);
+  const imgData = octx.createImageData(w, h);
+  const pixels = imgData.data;  // Uint8ClampedArray, RGBA
 
-  drawCave(octx, kernel);
+  const invCell = 1 / cellSize;
 
+  for (let py = 0; py < h; py++) {
+    const fy = py * invCell;
+    const gy = Math.floor(fy);
+    if (gy < 0 || gy >= rows - 1) {
+      // Wall row — fill with wall colour
+      const rowStart = py * w * 4;
+      for (let px = 0; px < w; px++) {
+        const i = rowStart + px * 4;
+        pixels[i] = WALL_R; pixels[i+1] = WALL_G; pixels[i+2] = WALL_B; pixels[i+3] = 255;
+      }
+      continue;
+    }
+    const ty = fy - gy;
+    const rowOff0 = gy * cols;
+    const rowOff1 = rowOff0 + cols;
+    const rowStart = py * w * 4;
+
+    for (let px = 0; px < w; px++) {
+      const fx = px * invCell;
+      const gx = Math.floor(fx);
+
+      let r, g, b;
+      if (gx < 0 || gx >= cols - 1) {
+        r = WALL_R; g = WALL_G; b = WALL_B;
+      } else {
+        const tx = fx - gx;
+        // Bilinear sample of clearance
+        const top    = moveGrid[rowOff0 + gx] * (1 - tx) + moveGrid[rowOff0 + gx + 1] * tx;
+        const bottom = moveGrid[rowOff1 + gx] * (1 - tx) + moveGrid[rowOff1 + gx + 1] * tx;
+        const val = top * (1 - ty) + bottom * ty;
+
+        if (val > 3) {
+          r = FLOOR_R; g = FLOOR_G; b = FLOOR_B;
+        } else if (val > 0) {
+          // Edge fringe — blend between wall and floor
+          r = EDGE_R; g = EDGE_G; b = EDGE_B;
+        } else {
+          r = WALL_R; g = WALL_G; b = WALL_B;
+        }
+      }
+
+      const i = rowStart + px * 4;
+      pixels[i] = r; pixels[i+1] = g; pixels[i+2] = b; pixels[i+3] = 255;
+    }
+  }
+
+  octx.putImageData(imgData, 0, 0);
   return { canvas: offscreen, width: w, height: h };
 }
