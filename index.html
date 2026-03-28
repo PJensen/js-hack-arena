@@ -50,39 +50,48 @@
     if (!("serviceWorker" in navigator)) return;
     if (!window.isSecureContext) return;
 
+    const swUrl = new URL('sw.js', window.location.href);
+    const scopeUrl = new URL('.', window.location.href);
+
     try {
-      const reg = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
+      const reg = await navigator.serviceWorker.register(swUrl.pathname, {
+        scope: scopeUrl.pathname,
+        updateViaCache: 'none',
+      });
 
-      if (reg.waiting) {
-        reg.waiting.postMessage({ type: "SKIP_WAITING" });
-      }
+      if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
 
-      reg.addEventListener("updatefound", () => {
+      reg.addEventListener('updatefound', () => {
         const installing = reg.installing;
         if (!installing) return;
-        installing.addEventListener("statechange", () => {
-          if (installing.state === "installed" && navigator.serviceWorker.controller) {
-            installing.postMessage({ type: "SKIP_WAITING" });
+        installing.addEventListener('statechange', () => {
+          if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+            installing.postMessage({ type: 'SKIP_WAITING' });
           }
         });
       });
     } catch (err) {
-      console.warn("SW registration failed", err);
+      if (err && err.name === 'AbortError') {
+        console.warn('SW registration aborted once; will retry on next load');
+        return;
+      }
+      console.warn('SW registration failed', err);
     }
   }
 
-  registerServiceWorker();
+  window.addEventListener('load', () => { registerServiceWorker(); });
 </script>
 
 <script type="module">
 // ── Imports ────────────────────────────────────────────────────
-import { createWorld } from './src/lib/ecs-js/index.js';
+import { World } from './src/lib/ecs-js/index.js';
 import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV }
   from './src/rules/components/index.js';
 import { generateCave, CaveProfile } from './src/rules/geometry/caveGen.js';
-import { sweepMaxFree } from './src/rules/geometry/sweep.js';
+import { moveWithSlide } from './src/rules/geometry/sweep.js';
 import { createCamera, updateCamera, applyCamera } from './src/display/camera/controller.js';
 import { followEntity } from './src/display/camera/follow.js';
+import { bakeCavePass } from './src/display/passes/cavePass.js';
 
 // ── Canvas setup ───────────────────────────────────────────────
 const canvas = document.getElementById('game');
@@ -96,28 +105,20 @@ window.addEventListener('resize', resize); resize();
 
 // ── Generate cave ──────────────────────────────────────────────
 const SEED = (Math.random() * 0xFFFFFFFF) >>> 0;
-const { kernel, bounds } = generateCave({
-  seed: SEED, width: 2400, height: 2400, profile: CaveProfile.CAVERNS, step: 10,
+const caveData = generateCave({
+  seed: SEED, width: 2400, height: 2400, profile: CaveProfile.CAVERNS, cellSize: 10, spawnCount: 4,
 });
+const { kernel, bounds, spawns, connectivity } = caveData;
+const spawn = spawns[0];
 
-// Find a walkable spawn point (spiral outward from centre)
-function findSpawn(k, bounds) {
-  const cx = bounds.w / 2, cy = bounds.h / 2;
-  for (let r = 0; r < 600; r += 8) {
-    for (let a = 0; a < Math.PI * 2; a += 0.3) {
-      const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
-      if (k.distanceMove(x, y) >= 16) return { x, y };
-    }
-  }
-  return { x: cx, y: cy };
-}
-const spawn = findSpawn(kernel, bounds);
+// Pre-bake cave to offscreen canvas (one-time cost)
+const caveBake = bakeCavePass(caveData);
+console.log(`Cave: seed=${SEED.toString(16)} carves=${kernel.carves.length} spawns=${spawns.length} regionsRemoved=${connectivity.regionsRemoved}`);
 
 // ── ECS world ──────────────────────────────────────────────────
-const world = createWorld();
-for (const C of [Position, Velocity, Facing, Collider, Speed, Input, Actor, Health, FOV]) {
-  world.registerComponent(C);
-}
+const world = new World({ seed: SEED });
+const runtimeEvents = { casts: 0 };
+world.on('spell.cast', (payload) => { runtimeEvents.casts += 1; });
 
 const playerId = world.create();
 world.add(playerId, Position, { x: spawn.x, y: spawn.y });
@@ -202,6 +203,7 @@ function keyboardInput() {
 
 // ── Game loop ──────────────────────────────────────────────────
 let lastTime = performance.now();
+let castEventCooldown = 0;
 
 function loop(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.05);
@@ -214,6 +216,12 @@ function loop(now) {
   inp.moveY  = leftStick.active  ? leftStick.y  : kb.my;
   inp.aimX   = rightStick.active ? rightStick.x  : 0;
   inp.aimY   = rightStick.active ? rightStick.y  : 0;
+
+  castEventCooldown -= dt;
+  if (rightStick.active && (Math.abs(inp.aimX) > 0.1 || Math.abs(inp.aimY) > 0.1) && castEventCooldown <= 0) {
+    castEventCooldown = 0.12;
+    world.emit('spell.cast', { id: playerId, x: inp.aimX, y: inp.aimY, t: now });
+  }
 
   // --- Movement system ---
   const spd  = world.get(playerId, Speed);
@@ -231,12 +239,12 @@ function loop(now) {
     fac.angle = Math.atan2(vel.vy, vel.vx);
   }
 
-  // Sweep collision against cave geometry
-  const dx = vel.vx * dt, dy = vel.vy * dt;
-  if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
-    const t = sweepMaxFree(kernel, pos.x, pos.y, pos.x + dx, pos.y + dy, col.radius);
-    pos.x += dx * t;
-    pos.y += dy * t;
+  // Wall-slide collision against cave geometry
+  const mdx = vel.vx * dt, mdy = vel.vy * dt;
+  if (Math.abs(mdx) > 0.01 || Math.abs(mdy) > 0.01) {
+    const moved = moveWithSlide(kernel, pos.x, pos.y, mdx, mdy, col.radius);
+    pos.x = moved.x;
+    pos.y = moved.y;
   }
 
   // --- Camera ---
@@ -251,24 +259,8 @@ function loop(now) {
 
   applyCamera(ctx, cam, canvas);
 
-  // Draw cave geometry
-  ctx.fillStyle = '#142030';
-  for (const g of kernel.carves) {
-    if (g.type === 'circle') {
-      ctx.beginPath(); ctx.arc(g.cx, g.cy, g.r, 0, Math.PI * 2); ctx.fill();
-    } else if (g.type === 'capsule' || g.type === 'rectslot') {
-      const ddx = g.bx - g.ax, ddy = g.by - g.ay;
-      const L = Math.hypot(ddx, ddy) || 1;
-      const ux = ddx/L, uy = ddy/L, nx = -uy, ny = ux;
-      ctx.beginPath();
-      ctx.moveTo(g.ax + nx*g.r, g.ay + ny*g.r);
-      ctx.lineTo(g.bx + nx*g.r, g.by + ny*g.r);
-      ctx.arc(g.bx, g.by, g.r, Math.atan2(ny, nx), Math.atan2(-ny, -nx));
-      ctx.lineTo(g.ax - nx*g.r, g.ay - ny*g.r);
-      ctx.arc(g.ax, g.ay, g.r, Math.atan2(-ny, -nx), Math.atan2(ny, nx));
-      ctx.closePath(); ctx.fill();
-    }
-  }
+  // Draw pre-baked cave (single drawImage call)
+  ctx.drawImage(caveBake.canvas, 0, 0);
 
   // Draw player
   ctx.beginPath();
@@ -295,7 +287,7 @@ function loop(now) {
 
   // --- HUD ---
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  hud.textContent = `Hack Arena  seed:${SEED.toString(16)}  carves:${kernel.carves.length}`;
+  hud.textContent = 'Hack Arena  seed:' + SEED.toString(16) + '  spawns:' + spawns.length + '  casts:' + runtimeEvents.casts;
   readL.textContent = leftStick.active
     ? `L x:${inp.moveX.toFixed(2)} y:${inp.moveY.toFixed(2)}`
     : (Math.abs(kb.mx) + Math.abs(kb.my) > 0 ? `KB ${kb.mx},${kb.my}` : 'L stick idle');

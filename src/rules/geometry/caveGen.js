@@ -198,22 +198,25 @@ function carveFromField(kernel, field, cols, rows, cellSize, rng, profile) {
  * then enforces minimum distance between spawns.
  */
 function findSpawnPoints(field, cols, rows, cellSize, kernel, count = 4, minSpacing = 200) {
-  // Collect candidate cells sorted by density (highest clearance first)
+  // Collect candidate cells, then verify actual SDF clearance (field value alone
+  // isn't reliable after jittered carving).
   const candidates = [];
   for (let i = 0; i < field.length; i++) {
-    if (field[i] >= 200) {  // only deep-interior cells
+    if (field[i] >= 160) {
       const c = i % cols, r = (i - c) / cols;
-      candidates.push({ x: c * cellSize + cellSize / 2, y: r * cellSize + cellSize / 2, v: field[i] });
+      const wx = c * cellSize + cellSize / 2, wy = r * cellSize + cellSize / 2;
+      const clearance = kernel.distanceMove(wx, wy);
+      if (clearance >= 20) {
+        candidates.push({ x: wx, y: wy, clearance });
+      }
     }
   }
-  candidates.sort((a, b) => b.v - a.v);
+  // Sort by actual SDF clearance (widest open areas first)
+  candidates.sort((a, b) => b.clearance - a.clearance);
 
   const spawns = [];
   for (const cand of candidates) {
     if (spawns.length >= count) break;
-    // Verify actual SDF clearance
-    if (kernel.distanceMove(cand.x, cand.y) < 20) continue;
-    // Enforce spacing
     let tooClose = false;
     for (const s of spawns) {
       if (Math.hypot(s.x - cand.x, s.y - cand.y) < minSpacing) { tooClose = true; break; }
@@ -263,10 +266,21 @@ export function generateCave(opts) {
   // 4. Find spawn points
   const spawns = findSpawnPoints(field, cols, rows, cellSize, kernel, spawnCount);
 
-  // Fallback spawn if none found
+  // Fallback: spiral outward from region centre to find walkable ground
   if (spawns.length === 0) {
     const cx = connectivity.cx * cellSize, cy = connectivity.cy * cellSize;
-    spawns.push({ x: cx, y: cy });
+    let found = false;
+    for (let r = 0; r < 400 && !found; r += 8) {
+      for (let a = 0; a < Math.PI * 2; a += 0.3) {
+        const sx = cx + Math.cos(a) * r, sy = cy + Math.sin(a) * r;
+        if (kernel.distanceMove(sx, sy) >= 20) {
+          spawns.push({ x: sx, y: sy });
+          found = true;
+          break;
+        }
+      }
+    }
+    if (!found) spawns.push({ x: cx, y: cy });
   }
 
   return {
