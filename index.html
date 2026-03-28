@@ -154,21 +154,8 @@ world.add(playerId, Actor,    { kind: ActorKind.PLAYER, name: 'Player', glyph: '
 world.add(playerId, Health,   { hp: 100, maxHp: 100 });
 world.add(playerId, FOV,      { distance: 220, angle: 1.4 });
 
-// ── Torch entity (on the ground near spawn) ─────────────────────
-function findOpenNear(x, y, searchRadius) {
-  for (let r = 0; r < searchRadius; r += 8) {
-    for (let a = 0; a < Math.PI * 2; a += 0.4) {
-      const tx = x + Math.cos(a) * r, ty = y + Math.sin(a) * r;
-      if (grid.distanceMove(tx, ty) >= 20) return { x: tx, y: ty };
-    }
-  }
-  return { x, y };
-}
-
-const torchPos = findOpenNear(spawn.x + 50, spawn.y + 30, 200);
-const torchId = world.create();
-world.add(torchId, Position, { x: torchPos.x, y: torchPos.y });
-world.add(torchId, PointLight, { radius: 350, r: 255, g: 190, b: 120 });
+// Player carries a torch
+world.add(playerId, PointLight, { radius: 350, r: 255, g: 190, b: 120 });
 
 // ── Camera ─────────────────────────────────────────────────────
 const cam = createCamera();
@@ -344,13 +331,10 @@ function renderFrame() {
   ctx.textBaseline = 'middle';
   ctx.fillText('@', pos.x, pos.y + 1);
 
-  // Draw torch entities
-  for (const [id, lpos, pl] of world.query(Position, PointLight)) {
-    ctx.fillStyle = `rgb(${pl.r},${pl.g},${pl.b})`;
-    ctx.font = 'bold 18px ui-monospace, monospace';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('\u2020', lpos.x, lpos.y);  // † dagger = torch
-  }
+  // Torch glyph offset from player
+  ctx.fillStyle = '#ffbe60';
+  ctx.font = 'bold 14px ui-monospace, monospace';
+  ctx.fillText('\u2020', pos.x + col.radius + 4, pos.y - col.radius + 2);
 
   const aimLen = col.radius + 14;
   ctx.beginPath();

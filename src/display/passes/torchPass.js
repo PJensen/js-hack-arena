@@ -69,7 +69,8 @@ export function createTorchPass(grid) {
       for (let gy = gy0; gy <= gy1; gy++) {
         for (let gx = gx0; gx <= gx1; gx++) {
           const i = gy * cols + gx;
-          if (moveGrid[i] <= 0) continue;  // wall — skip
+          const d = moveGrid[i];
+          if (d <= 0) continue;  // wall — skip
 
           // Distance from light (in world units)
           const dwx = gx - lxCell, dwy = gy - lyCell;
@@ -80,17 +81,22 @@ export function createTorchPass(grid) {
           const atten = 1.0 - dist * invLr;
           const atten2 = atten * atten;
 
-          // Diffuse: dot(normal, lightDir)
-          const invDist = 1 / (dist || 1);
-          const ldx = -(dwx * cellSize) * invDist;
-          const ldy = -(dwy * cellSize) * invDist;
-          const diffuse = Math.max(0, normX[i] * ldx + normY[i] * ldy);
-
-          // Specular
-          const spec = Math.pow(diffuse, 12) * 0.4;
-
-          // Ambient + diffuse + spec
-          const intensity = (0.15 + diffuse * 0.7 + spec) * atten2;
+          // Near-wall shading: only apply diffuse near actual walls
+          // (d < wallThresh means we're close to a wall edge)
+          const wallThresh = 30;
+          let intensity;
+          if (d < wallThresh) {
+            // Near wall — use normal for diffuse catch-light on wall face
+            const invDist = 1 / (dist || 1);
+            const ldx = -(dwx * cellSize) * invDist;
+            const ldy = -(dwy * cellSize) * invDist;
+            const diffuse = Math.max(0, normX[i] * ldx + normY[i] * ldy);
+            const wallBlend = 1.0 - d / wallThresh;  // 1 at wall, 0 at threshold
+            intensity = (0.9 + diffuse * wallBlend * 0.5) * atten2;
+          } else {
+            // Open space — pure distance falloff, no noise artifacts
+            intensity = 0.9 * atten2;
+          }
 
           lightR[i] += cr * intensity;
           lightG[i] += cg * intensity;
