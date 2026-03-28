@@ -51,95 +51,73 @@
 
   async function registerServiceWorker() {
     const isGithubPages = window.location.hostname.endsWith('github.io');
-
-    // Keep GH Pages cache behavior predictable while iterating quickly.
     if (isGithubPages) {
       if ('serviceWorker' in navigator) {
-        try {
-          const regs = await navigator.serviceWorker.getRegistrations();
-          for (const reg of regs) {
-            await reg.unregister();
-          }
-        } catch (err) {
-          console.warn('SW unregister on github.io failed', err);
-        }
+        try { const regs = await navigator.serviceWorker.getRegistrations(); for (const reg of regs) await reg.unregister(); }
+        catch (err) { console.warn('SW unregister on github.io failed', err); }
       }
       return;
     }
-
-    if (!ENABLE_SW) return;
-    if (!('serviceWorker' in navigator)) return;
-    if (!window.isSecureContext) return;
-
-    const swUrl = new URL('sw.js', window.location.href);
-    const scopeUrl = new URL('.', window.location.href);
-
+    if (!ENABLE_SW || !('serviceWorker' in navigator) || !window.isSecureContext) return;
     try {
-      const reg = await navigator.serviceWorker.register(swUrl.pathname, {
-        scope: scopeUrl.pathname,
-        updateViaCache: 'none',
+      const reg = await navigator.serviceWorker.register(new URL('sw.js', location.href).pathname, {
+        scope: new URL('.', location.href).pathname, updateViaCache: 'none',
       });
-
       if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-
       reg.addEventListener('updatefound', () => {
-        const installing = reg.installing;
-        if (!installing) return;
-        installing.addEventListener('statechange', () => {
-          if (installing.state === 'installed' && navigator.serviceWorker.controller) {
-            installing.postMessage({ type: 'SKIP_WAITING' });
-          }
+        const ins = reg.installing; if (!ins) return;
+        ins.addEventListener('statechange', () => {
+          if (ins.state === 'installed' && navigator.serviceWorker.controller) ins.postMessage({ type: 'SKIP_WAITING' });
         });
       });
     } catch (err) {
-      if (err && err.name === 'AbortError') {
-        console.warn('SW registration aborted once; will retry on next load');
-        return;
-      }
-      console.warn('SW registration failed', err);
+      if (err?.name !== 'AbortError') console.warn('SW registration failed', err);
     }
   }
-
-  window.addEventListener('load', () => { registerServiceWorker(); });
+  window.addEventListener('load', () => registerServiceWorker());
 </script>
 
 <script type="module">
-// ── Imports ────────────────────────────────────────────────────
-import { World, RafLoop, composeScheduler } from './src/lib/ecs-js/index.js';
-import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV, PointLight, Projectile, Lifetime, AI, AIBehavior, Inventory, ItemInfo, ItemSlot }
-  from './src/rules/components/index.js';
+// ── Boot: imports ───────────────────────────────────────────────
+import { World, composeScheduler } from './src/lib/ecs-js/index.js';
 import { generateCave, CaveProfile } from './src/rules/geometry/caveGen.js';
-import { moveWithSlide } from './src/rules/geometry/sweep.js';
-import { createCamera, updateCamera, applyCamera } from './src/display/camera/controller.js';
-import { astar } from './src/rules/ai/pathfind.js';
-import { followEntity } from './src/display/camera/follow.js';
+import { resolveSeed } from './src/runtime/rng.js';
+import { createFixedTickLoop } from './src/runtime/fixedLoop.js';
+import { createInputRouter } from './src/input/InputRouter.js';
+import { createCamera } from './src/display/camera/controller.js';
 import { bakeCavePass } from './src/display/passes/cavePass.js';
 import { createTorchPass } from './src/display/passes/torchPass.js';
 import { ParticleFX } from './src/display/passes/vfx/particles/particlePool.js';
+import { createRenderer } from './src/display/renderer.js';
+import { spawnPlayer, spawnCaster } from './src/rules/spawner.js';
+import { PlayerTag } from './src/rules/components/index.js';
+import {
+  createInputSystem, createMovementSystem, createAISystem,
+  bumpSystem, createProjectileSystem, createDeathSystem, createCameraSystem,
+} from './src/rules/systems/index.js';
 
-// ── Canvas setup ───────────────────────────────────────────────
+// ── Canvas + DOM ────────────────────────────────────────────────
 const canvas = document.getElementById('game');
 const ctx    = canvas.getContext('2d');
-const hud    = document.getElementById('hud');
-const readL  = document.getElementById('readout-left');
-const readR  = document.getElementById('readout-right');
+function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
+addEventListener('resize', resize); resize();
 
-function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-window.addEventListener('resize', resize); resize();
-
-// ── Generate cave (pure Perlin SDF → grid) ─────────────────────
-const SEED = (Math.random() * 0xFFFFFFFF) >>> 0;
-const caveData = generateCave({
-  seed: SEED, width: 2000, height: 2000, profile: CaveProfile.CAVERNS, spawnCount: 4,
-});
+// ── Seed + cave ─────────────────────────────────────────────────
+const { seed: SEED } = resolveSeed();
+const caveData = generateCave({ seed: SEED, width: 2000, height: 2000, profile: CaveProfile.CAVERNS, spawnCount: 4 });
 const { grid, bounds, spawns } = caveData;
 const spawn = spawns[0];
 
-// Pre-bake grid to offscreen canvas (one-time)
-const caveBake = bakeCavePass(caveData);
+// ── Pre-bake display ────────────────────────────────────────────
+const caveBake  = bakeCavePass(caveData);
 const torchPass = createTorchPass(grid);
 
-// ── Particle FX (frost bolt trails) ─────────────────────────────
+// ── Particle FX ─────────────────────────────────────────────────
+const cam = createCamera();
+cam.x = cam.targetX = spawn.x;
+cam.y = cam.targetY = spawn.y;
+cam.scale = cam.targetScale = 1.8;
+
 const fx = new ParticleFX({ capacity: 2048, seedBase: SEED });
 fx.worldToScreen = (x, y, size, out) => {
   out.x = (x - cam.x) * cam.scale + canvas.width * 0.5;
@@ -147,668 +125,82 @@ fx.worldToScreen = (x, y, size, out) => {
   out.size = size * cam.scale;
 };
 
-const FROST_TRAIL = {
-  continuous: true, rate: 40,
-  angle: Math.PI, spread: Math.PI,   // emit in all directions from bolt center
-  speed: 15, speedJitter: 0.8,
-  ax: 0, ay: 0,
-  life: 0.4, lifeJitter: 0.5,
-  size: 6, sizeEnd: 1,
-  color: '#8cd8ff',
-  alpha0: 0.85, alpha1: 0.0,
-};
+// ── Input ───────────────────────────────────────────────────────
+const inputRouter = createInputRouter({
+  leftBase:    document.getElementById('joystick-left'),
+  leftKnob:    document.getElementById('knob-left'),
+  leftMarker:  document.getElementById('touch-left'),
+  rightBase:   document.getElementById('joystick-right'),
+  rightKnob:   document.getElementById('knob-right'),
+  rightMarker: document.getElementById('touch-right'),
+  canvas,
+});
 
-const SHADOW_TRAIL = {
-  continuous: true, rate: 30,
-  angle: Math.PI, spread: Math.PI,
-  speed: 12, speedJitter: 0.7,
-  ax: 0, ay: 0,
-  life: 0.35, lifeJitter: 0.4,
-  size: 5, sizeEnd: 1,
-  color: '#b060ff',
-  alpha0: 0.8, alpha1: 0.0,
-};
-
-console.log(`Cave: seed=${SEED.toString(16)} grid=${grid.cols}x${grid.rows} spawns=${spawns.length}`);
-
-// ── ECS world ──────────────────────────────────────────────────
+// ── ECS world ───────────────────────────────────────────────────
 const world = new World({ seed: SEED });
 const runtimeEvents = { casts: 0 };
-world.on('spell.cast', (payload) => { runtimeEvents.casts += 1; });
 
-const playerId = world.create();
-world.add(playerId, Position, { x: spawn.x, y: spawn.y });
-world.add(playerId, Velocity, { vx: 0, vy: 0 });
-world.add(playerId, Facing,   { angle: 0 });
-world.add(playerId, Collider, { radius: 14 });
-world.add(playerId, Speed,    { max: 200 });
-world.add(playerId, Input);
-world.add(playerId, Actor,    { kind: ActorKind.PLAYER, name: 'Player', glyph: '@' });
-world.add(playerId, Health,   { hp: 100, maxHp: 100 });
-world.add(playerId, FOV,      { distance: 220, angle: 1.4 });
+// ── Spawn entities ──────────────────────────────────────────────
+const playerId = spawnPlayer(world, spawn.x, spawn.y);
+world.add(playerId, PlayerTag);
+spawnCaster(world, grid, spawn.x + 200, spawn.y + 150, playerId);
 
-// Player carries a torch (direct PointLight for now)
-world.add(playerId, PointLight, { radius: 350, r: 255, g: 190, b: 120 });
-world.add(playerId, Inventory, { items: [], capacity: 10 });
+// ── System context (shared deps injected into system closures) ──
+const sysCtx = { grid, fx, cam, inputRouter, playerId };
 
-// ── Spawn a caster mob ──────────────────────────────────────────
-function findOpenNear(x, y, searchRadius) {
-  for (let r = 0; r < searchRadius; r += 8) {
-    for (let a = 0; a < Math.PI * 2; a += 0.4) {
-      const tx = x + Math.cos(a) * r, ty = y + Math.sin(a) * r;
-      if (grid.distanceMove(tx, ty) >= 20) return { x: tx, y: ty };
-    }
-  }
-  return { x, y };
-}
-
-const casterPos = findOpenNear(spawn.x + 200, spawn.y + 150, 400);
-const casterId = world.create();
-world.add(casterId, Position, { x: casterPos.x, y: casterPos.y });
-world.add(casterId, Velocity, { vx: 0, vy: 0 });
-world.add(casterId, Facing,   { angle: 0 });
-world.add(casterId, Collider, { radius: 12 });
-world.add(casterId, Speed,    { max: 80 });
-world.add(casterId, Actor,    { kind: ActorKind.MOB, name: 'Wraith', glyph: 'W' });
-world.add(casterId, Health,   { hp: 60, maxHp: 60 });
-world.add(casterId, AI, {
-  behavior: AIBehavior.CASTER,
-  target: playerId,
-  preferredDist: 140,
-  castRate: 1.5,
-  projSpeed: 220,
-  aggroRange: 300,
-});
-
-// ── Camera ─────────────────────────────────────────────────────
-const cam = createCamera();
-cam.x = cam.targetX = spawn.x;
-cam.y = cam.targetY = spawn.y;
-cam.scale = cam.targetScale = 1.8;
-
-const ZOOM_MIN = 0.3, ZOOM_MAX = 6.0, ZOOM_STEP = 0.15;
-const zoomReadout = document.getElementById('zoom-readout');
-
-function setZoom(z) {
-  cam.targetScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
-  zoomReadout.textContent = `zoom: ${cam.targetScale.toFixed(2)}x  [+/-]`;
-}
-
-// ── Joystick (reuse proven touch code) ─────────────────────────
-function normalizeVector(x, y) {
-  const len = Math.hypot(x, y);
-  if (len < 0.0001) return { x:0, y:0, mag:0, angle:0 };
-  const mag = Math.min(1, len);
-  return { x: (x/len)*mag, y: (y/len)*mag, mag, angle: Math.atan2(y/len, x/len) };
-}
-
-class Joystick {
-  constructor(baseEl, knobEl, markerEl) {
-    this.base = baseEl; this.knob = knobEl; this.marker = markerEl;
-    this.radius = baseEl.offsetWidth / 2;
-    this.touchId = null; this.x = 0; this.y = 0; this.mag = 0; this.angle = 0;
-  }
-  get active() { return this.touchId !== null; }
-  start(touch) { this.touchId = touch.identifier; this._update(touch); }
-  _update(touch) {
-    const rect = this.base.getBoundingClientRect();
-    const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
-    let dx = touch.clientX - cx, dy = touch.clientY - cy;
-    const dist = Math.hypot(dx, dy);
-    if (dist > this.radius) { dx = (dx/dist)*this.radius; dy = (dy/dist)*this.radius; }
-    const n = normalizeVector(dx/this.radius, dy/this.radius);
-    Object.assign(this, { x: n.x, y: n.y, mag: n.mag, angle: n.angle });
-    this.knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
-    this.marker.style.left = touch.clientX + 'px';
-    this.marker.style.top  = touch.clientY + 'px';
-    this.marker.style.display = 'block';
-  }
-  end() {
-    this.touchId = null; this.x = this.y = this.mag = this.angle = 0;
-    this.knob.style.transform = 'translate(-50%,-50%)';
-    this.marker.style.display = 'none';
-  }
-}
-
-const leftStick  = new Joystick(document.getElementById('joystick-left'),  document.getElementById('knob-left'),  document.getElementById('touch-left'));
-const rightStick = new Joystick(document.getElementById('joystick-right'), document.getElementById('knob-right'), document.getElementById('touch-right'));
-
-document.addEventListener('touchstart', e => { e.preventDefault();
-  for (const t of e.changedTouches) { const s = t.clientX < window.innerWidth/2 ? leftStick : rightStick; if (!s.active) s.start(t); }
-}, { passive: false });
-document.addEventListener('touchmove', e => { e.preventDefault();
-  for (const t of e.changedTouches) { if (leftStick.touchId === t.identifier) leftStick._update(t); if (rightStick.touchId === t.identifier) rightStick._update(t); }
-}, { passive: false });
-function releaseTouches(touches) { for (const t of touches) { if (leftStick.touchId === t.identifier) leftStick.end(); if (rightStick.touchId === t.identifier) rightStick.end(); } }
-document.addEventListener('touchend',    e => releaseTouches(e.changedTouches));
-document.addEventListener('touchcancel', e => releaseTouches(e.changedTouches));
-
-// ── Keyboard (WASD + arrows + zoom) ────────────────────────────
-const keys = {};
-window.addEventListener('keydown', e => {
-  keys[e.key.toLowerCase()] = true;
-  if (e.key === '=' || e.key === '+') setZoom(cam.targetScale + ZOOM_STEP);
-  if (e.key === '-' || e.key === '_') setZoom(cam.targetScale - ZOOM_STEP);
-});
-window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
-// Mouse wheel zoom
-window.addEventListener('wheel', e => {
-  e.preventDefault();
-  setZoom(cam.targetScale + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
-}, { passive: false });
-
-function keyboardInput() {
-  let mx = 0, my = 0;
-  if (keys['w'] || keys['arrowup'])    my -= 1;
-  if (keys['s'] || keys['arrowdown'])  my += 1;
-  if (keys['a'] || keys['arrowleft'])  mx -= 1;
-  if (keys['d'] || keys['arrowright']) mx += 1;
-  const len = Math.hypot(mx, my);
-  if (len > 1) { mx /= len; my /= len; }
-  return { mx, my };
-}
-
-
-// ── Scheduler phases (world.tick driven) ───────────────────────
-let castEventCooldown = 0;
-
-function inputPhaseSystem(world, dt) {
-  const inp = world.get(playerId, Input);
-  const kb = keyboardInput();
-
-  inp.moveX = leftStick.active ? leftStick.x : kb.mx;
-  inp.moveY = leftStick.active ? leftStick.y : kb.my;
-  inp.aimX = rightStick.active ? rightStick.x : 0;
-  inp.aimY = rightStick.active ? rightStick.y : 0;
-
-  // Keyboard aim: mouse position or last facing
-  const kbAimX = keys[' '] ? Math.cos(world.get(playerId, Facing).angle) : 0;
-  const kbAimY = keys[' '] ? Math.sin(world.get(playerId, Facing).angle) : 0;
-  if (!rightStick.active && Math.abs(kbAimX) > 0.1) {
-    inp.aimX = kbAimX; inp.aimY = kbAimY;
-  }
-
-  castEventCooldown -= dt;
-  const aiming = Math.abs(inp.aimX) > 0.1 || Math.abs(inp.aimY) > 0.1;
-  if (aiming && castEventCooldown <= 0) {
-    castEventCooldown = 0.25;
-    const ppos = world.get(playerId, Position);
-    const angle = Math.atan2(inp.aimY, inp.aimX);
-    const speed = 320;
-    const boltId = world.create();
-    world.add(boltId, Position,   { x: ppos.x + Math.cos(angle) * 20, y: ppos.y + Math.sin(angle) * 20 });
-    world.add(boltId, Velocity,   { vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
-    world.add(boltId, Projectile, { damage: 15, owner: playerId, speed, piercing: false });
-    world.add(boltId, Lifetime,   { ttl: 2.0 });
-    world.add(boltId, Collider,   { radius: 5 });
-    world.add(boltId, PointLight, { radius: 120, r: 140, g: 200, b: 255 });
-    runtimeEvents.casts += 1;
-  }
-}
-
-function simulatePhaseSystem(world, dt) {
-  const inp = world.get(playerId, Input);
-  const spd = world.get(playerId, Speed);
-  const vel = world.get(playerId, Velocity);
-  const pos = world.get(playerId, Position);
-  const col = world.get(playerId, Collider);
-  const fac = world.get(playerId, Facing);
-
-  vel.vx = inp.moveX * spd.max;
-  vel.vy = inp.moveY * spd.max;
-
-  if (Math.abs(inp.aimX) > 0.1 || Math.abs(inp.aimY) > 0.1) {
-    fac.angle = Math.atan2(inp.aimY, inp.aimX);
-  } else if (Math.abs(vel.vx) > 1 || Math.abs(vel.vy) > 1) {
-    fac.angle = Math.atan2(vel.vy, vel.vx);
-  }
-
-  const mdx = vel.vx * dt;
-  const mdy = vel.vy * dt;
-  if (Math.abs(mdx) > 0.01 || Math.abs(mdy) > 0.01) {
-    const moved = moveWithSlide(grid, pos.x, pos.y, mdx, mdy, col.radius);
-    pos.x = moved.x;
-    pos.y = moved.y;
-  }
-}
-
-// ── LOS check on grid ───────────────────────────────────────────
-function hasLOS(ax, ay, bx, by) {
-  const dx = bx - ax, dy = by - ay;
-  const dist = Math.hypot(dx, dy);
-  const steps = Math.ceil(dist / (grid.cellSize * 2));
-  for (let i = 1; i < steps; i++) {
-    const t = i / steps;
-    if (grid.distanceMove(ax + dx * t, ay + dy * t) < 6) return false;
-  }
-  return true;
-}
-
-// ── AI system (A* pathing) ──────────────────────────────────────
-const aiPaths = new Map();       // entityId → { path: [{x,y}], age: number }
-const PATH_REFRESH = 0.5;        // recompute every 0.5s
-
-function aiPhaseSystem(world, dt) {
-  for (const [id, pos, vel, spd, fac, ai, col] of world.query(Position, Velocity, Speed, Facing, AI, Collider)) {
-    if (ai.target === null) continue;
-    if (!world.alive.has(ai.target)) { ai.target = null; continue; }
-
-    const tpos = world.get(ai.target, Position);
-    const dx = tpos.x - pos.x, dy = tpos.y - pos.y;
-    const dist = Math.hypot(dx, dy);
-
-    // LOS check
-    ai.sight = dist < ai.aggroRange && hasLOS(pos.x, pos.y, tpos.x, tpos.y);
-
-    if (ai.sight) {
-      // ── Has LOS — tactical behaviour ──
-      aiPaths.delete(id);  // drop path, we can see them
-
-      const tooClose = dist < ai.preferredDist * 0.7;
-      const tooFar = dist > ai.preferredDist * 1.3;
-
-      if (tooClose) {
-        vel.vx = -(dx / dist) * spd.max;
-        vel.vy = -(dy / dist) * spd.max;
-      } else if (tooFar) {
-        vel.vx = (dx / dist) * spd.max * 0.6;
-        vel.vy = (dy / dist) * spd.max * 0.6;
-      } else {
-        vel.vx = -(dy / dist) * spd.max * 0.4;
-        vel.vy =  (dx / dist) * spd.max * 0.4;
-      }
-
-      fac.angle = Math.atan2(dy, dx);
-
-      // Cast
-      ai.castCooldown -= dt;
-      if (ai.castCooldown <= 0) {
-        ai.castCooldown = ai.castRate;
-        const angle = Math.atan2(dy, dx);
-        const boltId = world.create();
-        world.add(boltId, Position,   { x: pos.x + Math.cos(angle) * 18, y: pos.y + Math.sin(angle) * 18 });
-        world.add(boltId, Velocity,   { vx: Math.cos(angle) * ai.projSpeed, vy: Math.sin(angle) * ai.projSpeed });
-        world.add(boltId, Projectile, { damage: 12, owner: id, speed: ai.projSpeed, piercing: false });
-        world.add(boltId, Lifetime,   { ttl: 2.5 });
-        world.add(boltId, Collider,   { radius: 5 });
-        world.add(boltId, PointLight, { radius: 90, r: 180, g: 60, b: 255 });
-      }
-    } else {
-      // ── No LOS — A* pathfind ──
-      let cached = aiPaths.get(id);
-      if (!cached || cached.age > PATH_REFRESH || cached.path.length === 0) {
-        const path = astar(grid, pos.x, pos.y, tpos.x, tpos.y, col.radius);
-        cached = { path: path || [], age: 0 };
-        aiPaths.set(id, cached);
-      }
-      cached.age += dt;
-
-      if (cached.path.length > 0) {
-        // Steer toward next waypoint
-        const wp = cached.path[0];
-        const wdx = wp.x - pos.x, wdy = wp.y - pos.y;
-        const wdist = Math.hypot(wdx, wdy);
-
-        if (wdist < grid.cellSize * 2) {
-          cached.path.shift();  // reached waypoint
-        } else {
-          vel.vx = (wdx / wdist) * spd.max;
-          vel.vy = (wdy / wdist) * spd.max;
-          fac.angle = Math.atan2(wdy, wdx);
-        }
-      } else {
-        vel.vx = 0; vel.vy = 0;
-      }
-    }
-
-    // Move with wall slide
-    const mdx = vel.vx * dt, mdy = vel.vy * dt;
-    if (Math.abs(mdx) > 0.01 || Math.abs(mdy) > 0.01) {
-      const moved = moveWithSlide(grid, pos.x, pos.y, mdx, mdy, col.radius);
-      pos.x = moved.x;
-      pos.y = moved.y;
-    }
-  }
-}
-
-// ── Bump collider — push overlapping entities apart ─────────────
-function bumpPhaseSystem(world, dt) {
-  // Collect all collidable entities (non-projectile)
-  const bodies = [];
-  for (const [id, pos, col] of world.query(Position, Collider)) {
-    if (world.has(id, Projectile)) continue;
-    bodies.push({ id, pos, col });
-  }
-
-  for (let i = 0; i < bodies.length; i++) {
-    for (let j = i + 1; j < bodies.length; j++) {
-      const a = bodies[i], b = bodies[j];
-      const dx = b.pos.x - a.pos.x, dy = b.pos.y - a.pos.y;
-      const dist = Math.hypot(dx, dy);
-      const overlap = a.col.radius + b.col.radius - dist;
-      if (overlap <= 0) continue;
-
-      // Push apart along collision axis
-      const nx = dist > 0.01 ? dx / dist : 1;
-      const ny = dist > 0.01 ? dy / dist : 0;
-      const push = overlap * 0.5;
-      a.pos.x -= nx * push;
-      a.pos.y -= ny * push;
-      b.pos.x += nx * push;
-      b.pos.y += ny * push;
-    }
-  }
-}
-
-// ── Projectile system with entity hit detection ─────────────────
-function projectilePhaseSystem(world, dt) {
-  const toDestroy = [];
-  const origins = [];
-
-  // Collect hittable entities (non-projectile, has Health)
-  const targets = [];
-  for (const [id, pos, col, hp] of world.query(Position, Collider, Health)) {
-    targets.push({ id, pos, col, hp });
-  }
-
-  for (const [id, pos, vel, proj, lt, col] of world.query(Position, Velocity, Projectile, Lifetime, Collider)) {
-    // Move
-    pos.x += vel.vx * dt;
-    pos.y += vel.vy * dt;
-
-    // Trail particles
-    const trail = proj.owner === playerId ? FROST_TRAIL : SHADOW_TRAIL;
-    fx.ensureEmitter('bolt:' + id, trail);
-    origins.push({ key: 'bolt:' + id, x: pos.x, y: pos.y, vx: vel.vx * 0.1, vy: vel.vy * 0.1 });
-
-    // Entity hit detection
-    let hit = false;
-    for (const t of targets) {
-      if (t.id === proj.owner) continue;  // can't hit owner
-      const dx = t.pos.x - pos.x, dy = t.pos.y - pos.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist < col.radius + t.col.radius) {
-        // Apply damage
-        t.hp.hp = Math.max(0, t.hp.hp - proj.damage);
-
-        // Impact burst
-        const burstColor = proj.owner === playerId ? '#b0e0ff' : '#d0a0ff';
-        const burst = fx.ensureEmitter('hit:' + id, {
-          continuous: false, burstCount: 15,
-          angle: Math.atan2(dy, dx), spread: Math.PI * 0.5,
-          speed: 60, speedJitter: 0.5,
-          ax: 0, ay: 0,
-          life: 0.3, lifeJitter: 0.3,
-          size: 4, sizeEnd: 1,
-          color: burstColor,
-          alpha0: 0.9, alpha1: 0.0,
-        });
-        burst.step(fx.pool, dt, pos.x, pos.y);
-
-        fx.removeEmitter('bolt:' + id);
-        toDestroy.push(id);
-        hit = true;
-        break;
-      }
-    }
-    if (hit) continue;
-
-    // Wall collision
-    if (grid.distanceMove(pos.x, pos.y) < col.radius) {
-      const burstColor = proj.owner === playerId ? '#b0e0ff' : '#d0a0ff';
-      const burst = fx.ensureEmitter('wallhit:' + id, {
-        continuous: false, burstCount: 20,
-        angle: 0, spread: Math.PI,
-        speed: 50, speedJitter: 0.6,
-        ax: 0, ay: 0,
-        life: 0.35, lifeJitter: 0.4,
-        size: 5, sizeEnd: 1,
-        color: burstColor,
-        alpha0: 0.9, alpha1: 0.0,
-      });
-      burst.step(fx.pool, dt, pos.x, pos.y);
-      fx.removeEmitter('bolt:' + id);
-      toDestroy.push(id);
-      continue;
-    }
-
-    lt.ttl -= dt;
-    if (lt.ttl <= 0) {
-      fx.removeEmitter('bolt:' + id);
-      toDestroy.push(id);
-    }
-  }
-
-  fx.step(dt, origins);
-  for (const id of toDestroy) {
-    fx.removeEmitter('bolt:' + id);
-    world.destroy(id);
-  }
-}
-
-function cameraPhaseSystem(world, dt) {
-  const pos = world.get(playerId, Position);
-  followEntity(cam, pos, dt);
-  updateCamera(cam, dt);
-}
-
-function deathPhaseSystem(world, dt) {
-  const toDie = [];
-  for (const [id, pos, hp, actor] of world.query(Position, Health, Actor)) {
-    if (hp.hp > 0) continue;
-    if (id === playerId) continue;  // player death handled in render
-
-    // Death burst particles
-    const burst = fx.ensureEmitter('death:' + id, {
-      continuous: false, burstCount: 30,
-      angle: 0, spread: Math.PI,
-      speed: 40, speedJitter: 0.7,
-      ax: 0, ay: 0,
-      life: 0.5, lifeJitter: 0.4,
-      size: 6, sizeEnd: 1,
-      color: actor.kind === ActorKind.MOB ? '#a050ff' : '#ffffff',
-      alpha0: 0.9, alpha1: 0.0,
-    });
-    burst.step(fx.pool, dt, pos.x, pos.y);
-    toDie.push(id);
-  }
-  for (const id of toDie) {
-    aiPaths.delete(id);
-    world.destroy(id);
-  }
-}
-
-world.system(inputPhaseSystem, 'input');
-world.system(simulatePhaseSystem, 'simulate');
-world.system(aiPhaseSystem, 'simulate');
-world.system(bumpPhaseSystem, 'simulate');
-world.system(projectilePhaseSystem, 'simulate');
-world.system(deathPhaseSystem, 'simulate');
-world.system(cameraPhaseSystem, 'camera');
+// ── Register systems ────────────────────────────────────────────
+world.system(createInputSystem(sysCtx),      'input');
+world.system(createMovementSystem(sysCtx),   'simulate');
+world.system(createAISystem(sysCtx),         'simulate');
+world.system(bumpSystem,                     'simulate');
+world.system(createProjectileSystem(sysCtx), 'simulate');
+world.system(createDeathSystem(sysCtx),      'simulate');
+world.system(createCameraSystem(sysCtx),     'camera');
 world.setScheduler(composeScheduler('input', 'simulate', 'camera'));
 
-function renderFrame() {
-  const inp = world.get(playerId, Input);
-  const kb = keyboardInput();
-  const pos = world.get(playerId, Position);
-  const col = world.get(playerId, Collider);
-  const fac = world.get(playerId, Facing);
+// ── Renderer ────────────────────────────────────────────────────
+const renderFrame = createRenderer({
+  canvas, ctx, cam, caveBake, torchPass, fx, world, SEED, runtimeEvents,
+  hud: {
+    hud:         document.getElementById('hud'),
+    readL:       document.getElementById('readout-left'),
+    readR:       document.getElementById('readout-right'),
+    zoomReadout: document.getElementById('zoom-readout'),
+  },
+  input: {
+    leftStick:  inputRouter,
+    rightStick: inputRouter,
+    keyboardInput: () => {
+      const o = inputRouter.getOutput();
+      return { mx: o.intent.moveX, my: o.intent.moveY };
+    },
+  },
+});
 
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#0b0f12';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+// ── Game loop (fixed tick + render) ─────────────────────────────
+const ZOOM_MIN = 0.3, ZOOM_MAX = 6.0, ZOOM_STEP = 0.15;
 
-  applyCamera(ctx, cam, canvas);
-  ctx.drawImage(caveBake.canvas, 0, 0);
-
-  ctx.beginPath();
-  ctx.arc(pos.x, pos.y, col.radius, 0, Math.PI * 2);
-  ctx.fillStyle = '#193447';
-  ctx.fill();
-  ctx.strokeStyle = '#6fd';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  ctx.fillStyle = '#cfe8ff';
-  ctx.font = `bold ${Math.floor(col.radius * 1.4)}px ui-monospace, monospace`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('@', pos.x, pos.y + 1);
-
-  // Torch glyph offset from player
-  ctx.fillStyle = '#ffbe60';
-  ctx.font = 'bold 14px ui-monospace, monospace';
-  ctx.fillText('\u2020', pos.x + col.radius + 4, pos.y - col.radius + 2);
-
-  // Draw mobs
-  for (const [id, mpos, mcol, actor, mfac] of world.query(Position, Collider, Actor, Facing)) {
-    if (actor.kind !== ActorKind.MOB) continue;
-    ctx.beginPath();
-    ctx.arc(mpos.x, mpos.y, mcol.radius, 0, Math.PI * 2);
-    ctx.fillStyle = '#2a1540';
-    ctx.fill();
-    ctx.strokeStyle = '#a050ff';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    ctx.fillStyle = '#d0a0ff';
-    ctx.font = `bold ${Math.floor(mcol.radius * 1.4)}px ui-monospace, monospace`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(actor.glyph, mpos.x, mpos.y + 1);
-
-    // Aim indicator
-    const mAimLen = mcol.radius + 10;
-    ctx.beginPath();
-    ctx.moveTo(mpos.x + Math.cos(mfac.angle) * mcol.radius, mpos.y + Math.sin(mfac.angle) * mcol.radius);
-    ctx.lineTo(mpos.x + Math.cos(mfac.angle) * mAimLen, mpos.y + Math.sin(mfac.angle) * mAimLen);
-    ctx.strokeStyle = '#c070ff';
-    ctx.lineWidth = 2;
-    ctx.lineCap = 'round';
-    ctx.stroke();
-  }
-
-  // Draw projectiles
-  for (const [id, bpos, proj, bcol] of world.query(Position, Projectile, Collider)) {
-    const isEnemy = proj.owner !== playerId;
-    ctx.beginPath();
-    ctx.arc(bpos.x, bpos.y, bcol.radius, 0, Math.PI * 2);
-    ctx.fillStyle = isEnemy ? 'rgba(180,80,255,0.9)' : 'rgba(140,210,255,0.9)';
-    ctx.fill();
-    ctx.fillStyle = isEnemy ? '#e0b0ff' : '#e0f4ff';
-    ctx.font = 'bold 10px ui-monospace, monospace';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(isEnemy ? '\u2726' : '\u2744', bpos.x, bpos.y);  // ✦ or ❄
-  }
-
-  // ── Health bars (JSHack style — HSL hue shift green→red) ──
-  for (const [id, hpos, hcol, hp] of world.query(Position, Collider, Health)) {
-    if (hp.hp >= hp.maxHp && id !== playerId) continue;  // full HP mobs hidden
-    const ratio = Math.max(0, hp.hp / Math.max(1, hp.maxHp));
-    const barW = hcol.radius * 2.2;
-    const barH = 4;
-    const bx = hpos.x - barW * 0.5;
-    const by = hpos.y - hcol.radius - 10;
-    const hue = Math.round(120 * ratio);
-
-    ctx.fillStyle = 'rgba(10,12,18,0.8)';
-    ctx.fillRect(bx, by, barW, barH);
-    if (ratio > 0) {
-      ctx.fillStyle = `hsl(${hue} 85% 48%)`;
-      ctx.fillRect(bx + 0.5, by + 0.5, (barW - 1) * ratio, barH - 1);
+const loop = createFixedTickLoop({
+  tickHz: 60,
+  simulate(dt) {
+    // Apply zoom from input
+    const o = inputRouter.sample();
+    if (o.zoomDelta) {
+      cam.targetScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, cam.targetScale + o.zoomDelta * ZOOM_STEP));
     }
-    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-    ctx.lineWidth = 0.5;
-    ctx.strokeRect(bx, by, barW, barH);
-  }
-
-  const aimLen = col.radius + 14;
-  ctx.beginPath();
-  ctx.moveTo(pos.x + Math.cos(fac.angle) * col.radius, pos.y + Math.sin(fac.angle) * col.radius);
-  ctx.lineTo(pos.x + Math.cos(fac.angle) * aimLen, pos.y + Math.sin(fac.angle) * aimLen);
-  ctx.strokeStyle = '#8fe';
-  ctx.lineWidth = 2;
-  ctx.lineCap = 'round';
-  ctx.stroke();
-
-  // ── Torch lighting pass ──
-  const lights = [];
-  const t = performance.now() * 0.001;
-
-  for (const [id, lpos, pl] of world.query(Position, PointLight)) {
-    if (!pl.enabled) continue;
-    const isTorch = pl.b < pl.r;
-    if (isTorch) {
-      // Flickering torch — layered sine waves + noise
-      const flicker = 1.0
-        + 0.12 * Math.sin(t * 5.7 + id)
-        + 0.08 * Math.sin(t * 13.3 + id)
-        + 0.06 * Math.sin(t * 23.1)
-        + 0.10 * (Math.random() - 0.5);
-      lights.push({
-        x: lpos.x, y: lpos.y,
-        radius: pl.radius * Math.max(0.7, flicker),
-        color: [
-          Math.min(255, pl.r * Math.max(0.8, flicker)),
-          Math.min(255, pl.g * Math.max(0.6, flicker * 0.85)),
-          Math.min(255, pl.b * Math.max(0.3, flicker * 0.5)),
-        ],
-      });
-    } else {
-      // Frost bolt — cold shimmer, preserve blue
-      const shimmer = 1.0 + 0.05 * Math.sin(t * 20 + id * 7);
-      lights.push({
-        x: lpos.x, y: lpos.y,
-        radius: pl.radius * shimmer,
-        color: [pl.r * shimmer, pl.g * shimmer, pl.b],
-      });
-    }
-  }
-  torchPass.render(ctx, lights, canvas.width, canvas.height, cam);
-
-  // ── Particles (screen space via worldToScreen) ──
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  fx.ctx = ctx;
-  fx.render({ mode: 'lighter' });
-  // Player death overlay
-  const playerHp = world.get(playerId, Health);
-  if (playerHp.hp <= 0) {
-    ctx.fillStyle = 'rgba(80,0,0,0.6)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#ff4444';
-    ctx.font = 'bold 48px Inter, system-ui, sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('YOU DIED', canvas.width / 2, canvas.height / 2 - 20);
-    ctx.fillStyle = '#ccc';
-    ctx.font = '20px Inter, system-ui, sans-serif';
-    ctx.fillText('refresh to respawn', canvas.width / 2, canvas.height / 2 + 30);
-  }
-
-  // HUD — show HP
-  const hpText = playerHp.hp > 0 ? `  HP:${playerHp.hp}/${playerHp.maxHp}` : '';
-  hud.textContent = 'Hack Arena  seed:' + SEED.toString(16) + hpText + '  casts:' + runtimeEvents.casts;
-  zoomReadout.textContent = `zoom: ${cam.scale.toFixed(2)}x  [+/- or scroll]`;
-  readL.textContent = leftStick.active
-    ? `L x:${inp.moveX.toFixed(2)} y:${inp.moveY.toFixed(2)}`
-    : (Math.abs(kb.mx) + Math.abs(kb.my) > 0 ? `KB ${kb.mx},${kb.my}` : 'L stick idle');
-  readR.textContent = rightStick.active
-    ? `R x:${inp.aimX.toFixed(2)} y:${inp.aimY.toFixed(2)}`
-    : 'R stick idle';
-}
-
-const loopWorld = {
-  tick(dt) {
     world.tick(dt);
-  }
-};
+  },
+  render() {
+    renderFrame();
+  },
+});
 
-const rafLoop = RafLoop.realtime(loopWorld)
-  .maxDt(0.05)
-  .render(() => renderFrame())
-  .start();
+loop.start();
+console.log(`Cave: seed=${SEED.toString(16)} grid=${grid.cols}x${grid.rows} spawns=${spawns.length}`);
 
-window.addEventListener('beforeunload', () => {
-  rafLoop.stop();
+addEventListener('beforeunload', () => {
+  loop.stop();
+  inputRouter.destroy();
 });
 </script>
 </body>
