@@ -391,7 +391,7 @@ const PATH_REFRESH = 0.5;        // recompute every 0.5s
 function aiPhaseSystem(world, dt) {
   for (const [id, pos, vel, spd, fac, ai, col] of world.query(Position, Velocity, Speed, Facing, AI, Collider)) {
     if (ai.target === null) continue;
-    if (!world.alive(ai.target)) { ai.target = null; continue; }
+    if (!world.alive.has(ai.target)) { ai.target = null; continue; }
 
     const tpos = world.get(ai.target, Position);
     const dx = tpos.x - pos.x, dy = tpos.y - pos.y;
