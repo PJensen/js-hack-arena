@@ -84,7 +84,7 @@
 
 <script type="module">
 // ── Imports ────────────────────────────────────────────────────
-import { World } from './src/lib/ecs-js/index.js';
+import { World, RafLoop } from './src/lib/ecs-js/index.js';
 import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV }
   from './src/rules/components/index.js';
 import { generateCave, CaveProfile } from './src/rules/geometry/caveGen.js';
@@ -201,26 +201,22 @@ function keyboardInput() {
   return { mx, my };
 }
 
-// ── Game loop ──────────────────────────────────────────────────
-let lastTime = performance.now();
+// ── Game loop (RafLoop adapter) ───────────────────────────────
 let castEventCooldown = 0;
 
-function loop(now) {
-  const dt = Math.min((now - lastTime) / 1000, 0.05);
-  lastTime = now;
-
+function simulateFrame(dt) {
   // --- Input → ECS ---
   const inp  = world.get(playerId, Input);
   const kb   = keyboardInput();
   inp.moveX  = leftStick.active  ? leftStick.x  : kb.mx;
   inp.moveY  = leftStick.active  ? leftStick.y  : kb.my;
-  inp.aimX   = rightStick.active ? rightStick.x  : 0;
-  inp.aimY   = rightStick.active ? rightStick.y  : 0;
+  inp.aimX   = rightStick.active ? rightStick.x : 0;
+  inp.aimY   = rightStick.active ? rightStick.y : 0;
 
   castEventCooldown -= dt;
   if (rightStick.active && (Math.abs(inp.aimX) > 0.1 || Math.abs(inp.aimY) > 0.1) && castEventCooldown <= 0) {
     castEventCooldown = 0.12;
-    world.emit('spell.cast', { id: playerId, x: inp.aimX, y: inp.aimY, t: now });
+    world.emit('spell.cast', { id: playerId, x: inp.aimX, y: inp.aimY, t: performance.now() });
   }
 
   // --- Movement system ---
@@ -239,30 +235,33 @@ function loop(now) {
     fac.angle = Math.atan2(vel.vy, vel.vx);
   }
 
-  // Wall-slide collision against cave geometry
-  const mdx = vel.vx * dt, mdy = vel.vy * dt;
+  const mdx = vel.vx * dt;
+  const mdy = vel.vy * dt;
   if (Math.abs(mdx) > 0.01 || Math.abs(mdy) > 0.01) {
     const moved = moveWithSlide(kernel, pos.x, pos.y, mdx, mdy, col.radius);
     pos.x = moved.x;
     pos.y = moved.y;
   }
 
-  // --- Camera ---
   followEntity(cam, pos, dt);
   updateCamera(cam, dt);
+}
 
-  // --- Render ---
+function renderFrame() {
+  const inp = world.get(playerId, Input);
+  const kb = keyboardInput();
+  const pos = world.get(playerId, Position);
+  const col = world.get(playerId, Collider);
+  const fac = world.get(playerId, Facing);
+
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = '#0b0f12';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   applyCamera(ctx, cam, canvas);
-
-  // Draw pre-baked cave (single drawImage call)
   ctx.drawImage(caveBake.canvas, 0, 0);
 
-  // Draw player
   ctx.beginPath();
   ctx.arc(pos.x, pos.y, col.radius, 0, Math.PI * 2);
   ctx.fillStyle = '#193447';
@@ -271,21 +270,21 @@ function loop(now) {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Glyph
   ctx.fillStyle = '#cfe8ff';
   ctx.font = `bold ${Math.floor(col.radius * 1.4)}px ui-monospace, monospace`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
   ctx.fillText('@', pos.x, pos.y + 1);
 
-  // Aim indicator
   const aimLen = col.radius + 14;
   ctx.beginPath();
   ctx.moveTo(pos.x + Math.cos(fac.angle) * col.radius, pos.y + Math.sin(fac.angle) * col.radius);
   ctx.lineTo(pos.x + Math.cos(fac.angle) * aimLen, pos.y + Math.sin(fac.angle) * aimLen);
-  ctx.strokeStyle = '#8fe'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  ctx.strokeStyle = '#8fe';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
   ctx.stroke();
 
-  // --- HUD ---
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   hud.textContent = 'Hack Arena  seed:' + SEED.toString(16) + '  spawns:' + spawns.length + '  casts:' + runtimeEvents.casts;
   readL.textContent = leftStick.active
@@ -294,11 +293,22 @@ function loop(now) {
   readR.textContent = rightStick.active
     ? `R x:${inp.aimX.toFixed(2)} y:${inp.aimY.toFixed(2)}`
     : 'R stick idle';
-
-  requestAnimationFrame(loop);
 }
 
-requestAnimationFrame(loop);
+const loopWorld = {
+  step(dt) {
+    simulateFrame(dt);
+  }
+};
+
+const rafLoop = RafLoop.realtime(loopWorld)
+  .maxDt(0.05)
+  .render(() => renderFrame())
+  .start();
+
+window.addEventListener('beforeunload', () => {
+  rafLoop.stop();
+});
 </script>
 </body>
 </html>
