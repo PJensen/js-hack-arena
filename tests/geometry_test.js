@@ -1,5 +1,5 @@
 // tests/geometry_test.js
-// Deno test: deno test --allow-read tests/geometry_test.js
+// deno test --allow-read tests/geometry_test.js
 
 import { assertEquals, assert, assertAlmostEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import * as SDF from '../src/rules/geometry/sdf.js';
@@ -10,56 +10,52 @@ import { generateCave, CaveProfile } from '../src/rules/geometry/caveGen.js';
 // ── SDF primitives ─────────────────────────────────────────────
 
 Deno.test("SDF.circle: centre is at full radius", () => {
-  const d = SDF.circle(100, 100, 100, 100, 30);
-  assertEquals(d, 30);
+  assertEquals(SDF.circle(100, 100, 100, 100, 30), 30);
 });
 
 Deno.test("SDF.circle: point on boundary is 0", () => {
-  const d = SDF.circle(130, 100, 100, 100, 30);
-  assertAlmostEquals(d, 0, 1e-6);
+  assertAlmostEquals(SDF.circle(130, 100, 100, 100, 30), 0, 1e-6);
 });
 
 Deno.test("SDF.circle: outside is negative", () => {
-  const d = SDF.circle(200, 200, 100, 100, 30);
-  assert(d < 0, `expected negative, got ${d}`);
+  assert(SDF.circle(200, 200, 100, 100, 30) < 0);
 });
 
 Deno.test("SDF.capsule: point on segment centre", () => {
-  const d = SDF.capsule(50, 50, 0, 50, 100, 50, 20);
-  assertEquals(d, 20);
-});
-
-Deno.test("SDF.obox: centre of box", () => {
-  const d = SDF.obox(50, 50, 50, 50, 20, 10, 0);
-  // Inside the box, obox returns negative of the inside distance (positive = outside)
-  // For our SDF convention: negative inside for obox
-  assert(d !== undefined);
+  assertEquals(SDF.capsule(50, 50, 0, 50, 100, 50, 20), 20);
 });
 
 // ── Kernel ─────────────────────────────────────────────────────
 
-Deno.test("kernel: distanceMove returns 0 outside all carves", () => {
+Deno.test("kernel: distanceMove = 0 outside all carves", () => {
   const k = createKernel();
-  k.carveCircle(100, 100, 30, { affectsMove: true, affectsOccl: true });
+  k.carveCircle(100, 100, 30, { affectsMove: true });
   assertEquals(k.distanceMove(500, 500), 0);
 });
 
 Deno.test("kernel: distanceMove > 0 inside a carve", () => {
   const k = createKernel();
-  k.carveCircle(100, 100, 30, { affectsMove: true, affectsOccl: true });
+  k.carveCircle(100, 100, 30, { affectsMove: true });
   assert(k.distanceMove(100, 100) >= 30);
 });
 
-Deno.test("kernel: affectsMove=false is ignored by distanceMove", () => {
+Deno.test("kernel: affectsMove=false ignored by distanceMove", () => {
   const k = createKernel();
-  k.carveCircle(100, 100, 30, { affectsMove: false, affectsOccl: true });
+  k.carveCircle(100, 100, 30, { affectsMove: false });
   assertEquals(k.distanceMove(100, 100), 0);
+});
+
+Deno.test("kernel: capsule carve works", () => {
+  const k = createKernel();
+  k.carveCapsule(0, 50, 200, 50, 25, { affectsMove: true });
+  assert(k.distanceMove(100, 50) >= 25);
+  assertEquals(k.distanceMove(100, 200), 0);
 });
 
 Deno.test("kernel: serialize / deserialize roundtrip", () => {
   const k = createKernel();
-  k.carveCircle(10, 20, 5, { affectsMove: true, affectsOccl: false });
-  k.carveCapsule(0, 0, 100, 100, 10, { affectsMove: true, affectsOccl: true });
+  k.carveCircle(10, 20, 5, { affectsMove: true });
+  k.carveCapsule(0, 0, 100, 100, 10, { affectsMove: true });
   const json = k.serialize();
   const k2 = createKernel();
   k2.deserialize(json);
@@ -68,7 +64,7 @@ Deno.test("kernel: serialize / deserialize roundtrip", () => {
   assertEquals(k2.carves[1].type, 'capsule');
 });
 
-Deno.test("kernel: clear removes all carves", () => {
+Deno.test("kernel: clear empties carves", () => {
   const k = createKernel();
   k.carveCircle(0, 0, 10, {});
   k.carveCircle(0, 0, 10, {});
@@ -80,16 +76,13 @@ Deno.test("kernel: clear removes all carves", () => {
 
 Deno.test("sweep: free path returns 1", () => {
   const k = createKernel();
-  k.carveCircle(100, 100, 50, { affectsMove: true });
-  // Move entirely within the carved area
-  const t = sweepMaxFree(k, 100, 100, 110, 100, 5);
-  assertEquals(t, 1);
+  k.carveCircle(100, 100, 200, { affectsMove: true });
+  assertEquals(sweepMaxFree(k, 100, 100, 110, 100, 5), 1);
 });
 
 Deno.test("sweep: zero-length path returns 1", () => {
   const k = createKernel();
-  const t = sweepMaxFree(k, 50, 50, 50, 50, 10);
-  assertEquals(t, 1);
+  assertEquals(sweepMaxFree(k, 50, 50, 50, 50, 10), 1);
 });
 
 // ── Wall-slide ─────────────────────────────────────────────────
@@ -102,67 +95,86 @@ Deno.test("moveWithSlide: free space moves fully", () => {
   assertAlmostEquals(y, 100, 1);
 });
 
-Deno.test("moveWithSlide: no movement when dx=dy=0", () => {
+Deno.test("moveWithSlide: zero delta stays put", () => {
   const k = createKernel();
   const { x, y } = moveWithSlide(k, 50, 50, 0, 0, 10);
   assertEquals(x, 50);
   assertEquals(y, 50);
 });
 
-// ── Cave generation ────────────────────────────────────────────
+// ── Cave generation (vector) ───────────────────────────────────
 
 Deno.test("generateCave: deterministic with same seed", () => {
-  const a = generateCave({ seed: 12345, width: 400, height: 400, cellSize: 20 });
-  const b = generateCave({ seed: 12345, width: 400, height: 400, cellSize: 20 });
+  const a = generateCave({ seed: 12345, width: 1000, height: 1000 });
+  const b = generateCave({ seed: 12345, width: 1000, height: 1000 });
   assertEquals(a.kernel.carves.length, b.kernel.carves.length);
+  assertEquals(a.rooms.length, b.rooms.length);
   assertEquals(a.spawns.length, b.spawns.length);
-  if (a.spawns.length > 0 && b.spawns.length > 0) {
+  if (a.spawns.length > 0) {
     assertAlmostEquals(a.spawns[0].x, b.spawns[0].x, 0.01);
     assertAlmostEquals(a.spawns[0].y, b.spawns[0].y, 0.01);
   }
 });
 
-Deno.test("generateCave: different seeds produce different caves", () => {
-  const a = generateCave({ seed: 111, width: 400, height: 400, cellSize: 20 });
-  const b = generateCave({ seed: 222, width: 400, height: 400, cellSize: 20 });
-  // Very unlikely to produce identical carve counts
+Deno.test("generateCave: different seeds differ", () => {
+  const a = generateCave({ seed: 111, width: 1000, height: 1000 });
+  const b = generateCave({ seed: 222, width: 1000, height: 1000 });
   assert(a.kernel.carves.length !== b.kernel.carves.length ||
-         a.spawns.length !== b.spawns.length ||
-         (a.spawns[0] && b.spawns[0] && a.spawns[0].x !== b.spawns[0].x),
-    "different seeds should produce different caves");
+         (a.spawns[0] && b.spawns[0] && a.spawns[0].x !== b.spawns[0].x));
 });
 
-Deno.test("generateCave: has at least one spawn", () => {
-  const cave = generateCave({ seed: 42, width: 600, height: 600, cellSize: 10 });
-  assert(cave.spawns.length >= 1, `expected at least 1 spawn, got ${cave.spawns.length}`);
+Deno.test("generateCave: at least one spawn", () => {
+  const cave = generateCave({ seed: 42, width: 2000, height: 2000 });
+  assert(cave.spawns.length >= 1);
 });
 
 Deno.test("generateCave: all profiles produce carves", () => {
   for (const [name, profile] of Object.entries(CaveProfile)) {
-    const cave = generateCave({ seed: 99, width: 400, height: 400, profile, cellSize: 15 });
+    const cave = generateCave({ seed: 99, width: 1000, height: 1000, profile });
     assert(cave.kernel.carves.length > 0, `${name} produced 0 carves`);
   }
 });
 
-Deno.test("generateCave: connectivity removes isolated regions", () => {
-  const cave = generateCave({ seed: 42, width: 800, height: 800, cellSize: 10 });
-  // Should report that it processed connectivity
-  assert(cave.connectivity !== undefined);
-  assert(typeof cave.connectivity.regionsRemoved === 'number');
+Deno.test("generateCave: has rooms", () => {
+  const cave = generateCave({ seed: 42, width: 2000, height: 2000 });
+  assert(cave.rooms.length > 0, `expected rooms, got ${cave.rooms.length}`);
 });
 
-Deno.test("generateCave: spawns have SDF clearance", () => {
-  const cave = generateCave({ seed: 42, width: 800, height: 800, cellSize: 10 });
-  for (const s of cave.spawns) {
-    const clearance = cave.kernel.distanceMove(s.x, s.y);
-    assert(clearance >= 14, `spawn at (${s.x},${s.y}) has clearance ${clearance}, need >= 14`);
+Deno.test("generateCave: rooms have vector data (x, y, r)", () => {
+  const cave = generateCave({ seed: 42, width: 2000, height: 2000 });
+  for (const room of cave.rooms) {
+    assert(typeof room.x === 'number');
+    assert(typeof room.y === 'number');
+    assert(typeof room.r === 'number');
+    assert(room.r > 0);
   }
 });
 
-Deno.test("generateCave: boundary is solid", () => {
-  const cave = generateCave({ seed: 42, width: 600, height: 600, cellSize: 10 });
-  // Corners and edges should be solid (field = 0, no SDF clearance)
+Deno.test("generateCave: carves are SDF primitives with type field", () => {
+  const cave = generateCave({ seed: 42, width: 2000, height: 2000 });
+  for (const c of cave.kernel.carves) {
+    assert(['circle', 'capsule', 'rectslot', 'square'].includes(c.type),
+      `unexpected carve type: ${c.type}`);
+  }
+});
+
+Deno.test("generateCave: has capsule corridors connecting rooms", () => {
+  const cave = generateCave({ seed: 42, width: 2000, height: 2000 });
+  const capsules = cave.kernel.carves.filter(c => c.type === 'capsule');
+  assert(capsules.length > 0, "expected capsule corridors");
+});
+
+Deno.test("generateCave: spawns have real SDF clearance", () => {
+  const cave = generateCave({ seed: 42, width: 2000, height: 2000 });
+  for (const s of cave.spawns) {
+    const clearance = cave.kernel.distanceMove(s.x, s.y);
+    assert(clearance >= 20, `spawn (${s.x},${s.y}) clearance=${clearance}`);
+  }
+});
+
+Deno.test("generateCave: boundary is solid (no carves at edge)", () => {
+  const cave = generateCave({ seed: 42, width: 2000, height: 2000 });
   assertEquals(cave.kernel.distanceMove(5, 5), 0);
-  assertEquals(cave.kernel.distanceMove(595, 595), 0);
-  assertEquals(cave.kernel.distanceMove(300, 2), 0);
+  assertEquals(cave.kernel.distanceMove(1995, 1995), 0);
+  assertEquals(cave.kernel.distanceMove(1000, 2), 0);
 });

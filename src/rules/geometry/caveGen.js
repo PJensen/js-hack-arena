@@ -1,12 +1,12 @@
 // rules/geometry/caveGen.js
-// Procedural cave generation using Perlin noise to guide SDF carving.
-// Produces organic, continuous geometry — no tile grid.
+// Procedural cave generation — pure vector SDF.
+// Emits circles + capsules directly into a kernel. No grid. No rasterization.
+// The SDF primitives ARE the geometry — perfect at any zoom level.
 
 import { createKernel } from './kernel.js';
 
 // ── Perlin noise (2D, self-contained) ──────────────────────────
 
-/** Mulberry32 PRNG — matches ecs-js/rng.js for seed compatibility. */
 function mulberry32(seed) {
   let t = seed >>> 0;
   return function () {
@@ -34,10 +34,8 @@ const GRAD2 = [[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]];
 function createPerlin2D(seed) {
   const rng = mulberry32(seed);
   const perm = buildPermutation(rng);
-
   function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
   function lerp(a, b, t) { return a + t * (b - a); }
-
   return function noise(x, y) {
     const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
     const xf = x - Math.floor(x), yf = y - Math.floor(y);
@@ -53,8 +51,6 @@ function createPerlin2D(seed) {
   };
 }
 
-// ── Fractal Brownian Motion ────────────────────────────────────
-
 function fbm(noise, x, y, octaves = 4, lacunarity = 2, gain = 0.5) {
   let amp = 1, freq = 1, sum = 0, max = 0;
   for (let i = 0; i < octaves; i++) {
@@ -69,226 +65,199 @@ function fbm(noise, x, y, octaves = 4, lacunarity = 2, gain = 0.5) {
 // ── Cave profiles ──────────────────────────────────────────────
 
 export const CaveProfile = Object.freeze({
-  CAVERNS:  { threshold: -0.05, brushMin: 18, brushMax: 50, octaves: 4, scale: 0.012 },
-  TUNNELS:  { threshold:  0.08, brushMin: 10, brushMax: 24, octaves: 5, scale: 0.025 },
-  GROTTOS:  { threshold: -0.12, brushMin: 24, brushMax: 64, octaves: 3, scale: 0.008 },
-  WARRENS:  { threshold:  0.15, brushMin:  8, brushMax: 16, octaves: 6, scale: 0.035 },
+  // Rooms feel BIG when zoomed in. Brush radii are world-units.
+  CAVERNS: {
+    threshold: -0.08,    // liberal carving → large open areas
+    brushMin:  40,       // smallest carve
+    brushMax: 120,       // big chambers
+    octaves: 4,
+    scale: 0.006,        // low freq → broad features
+    passageWidth: 30,    // min corridor width (for connector capsules)
+  },
+  TUNNELS: {
+    threshold: 0.05,
+    brushMin:  20,
+    brushMax:  50,
+    octaves: 5,
+    scale: 0.015,
+    passageWidth: 22,
+  },
+  GROTTOS: {
+    threshold: -0.15,
+    brushMin:  60,
+    brushMax: 160,
+    octaves: 3,
+    scale: 0.004,
+    passageWidth: 36,
+  },
+  WARRENS: {
+    threshold: 0.12,
+    brushMin:  14,
+    brushMax:  32,
+    octaves: 6,
+    scale: 0.022,
+    passageWidth: 18,
+  },
 });
 
-// ── Density field (the readable form of the cave) ──────────────
+// ── Vector cave generator ──────────────────────────────────────
 
 /**
- * Build a 2D Uint8 density grid.  255 = open, 0 = solid.
- * This is the source of truth for both the SDF kernel and the renderer.
+ * Sample Perlin noise and emit SDF circles where open.
+ * Returns array of { x, y, r } for room centres (used by connector pass).
  */
-function buildDensityField(noise, width, height, profile, cellSize) {
-  const { threshold, octaves, scale } = profile;
-  const cols = Math.ceil(width / cellSize);
-  const rows = Math.ceil(height / cellSize);
-  const field = new Uint8Array(cols * rows);   // 0 = wall
+function carveRooms(kernel, noise, rng, width, height, profile) {
+  const { threshold, brushMin, brushMax, octaves, scale } = profile;
+  const margin = brushMax + 20;
+  const step = brushMin * 0.8;  // overlap ensures smooth walls
+  const rooms = [];
 
-  const margin = 3;  // cells of solid border
+  for (let y = margin; y < height - margin; y += step) {
+    for (let x = margin; x < width - margin; x += step) {
+      const n = fbm(noise, x * scale, y * scale, octaves);
 
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      // Enforce solid border
-      if (row < margin || row >= rows - margin || col < margin || col >= cols - margin) {
-        field[row * cols + col] = 0;
-        continue;
-      }
-      const wx = col * cellSize, wy = row * cellSize;
-      const n = fbm(noise, wx * scale, wy * scale, octaves);
-
-      // Edge fade — smoothly close off geometry near world edges
-      const edgeDist = Math.min(col - margin, rows - margin - 1 - row,
-                                row - margin, cols - margin - 1 - col);
-      const edgeFade = Math.min(1, edgeDist / 8);  // 0..1 over 8 cells
+      // Edge fade — close off near world boundaries
+      const edgeDist = Math.min(x - margin, width - margin - x,
+                                y - margin, height - margin - y);
+      const edgeFade = Math.min(1, edgeDist / (brushMax * 2));
 
       if (n * edgeFade > threshold) {
-        // Map intensity to 128..255 for rendering variation
-        const t = ((n * edgeFade) - threshold) / (1 - threshold);
-        field[row * cols + col] = 128 + Math.floor(127 * Math.min(1, t));
-      }
-    }
-  }
-  return { field, cols, rows };
-}
-
-// ── Flood-fill connectivity ────────────────────────────────────
-
-/**
- * Find the largest connected open region via flood fill.
- * Zeros out any open cells NOT in the largest region.
- * Returns the centre of the largest region (good spawn point).
- */
-function enforceConnectivity(field, cols, rows) {
-  const visited = new Uint8Array(cols * rows);
-  const regions = [];  // [{ indices: [...], cx, cy }]
-
-  for (let i = 0; i < field.length; i++) {
-    if (field[i] === 0 || visited[i]) continue;
-    // BFS
-    const queue = [i];
-    visited[i] = 1;
-    const indices = [];
-    let sx = 0, sy = 0;
-    while (queue.length) {
-      const idx = queue.shift();
-      indices.push(idx);
-      const c = idx % cols, r = (idx - c) / cols;
-      sx += c; sy += r;
-      for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-        const nc = c + dc, nr = r + dr;
-        if (nc < 0 || nc >= cols || nr < 0 || nr >= rows) continue;
-        const ni = nr * cols + nc;
-        if (field[ni] > 0 && !visited[ni]) {
-          visited[ni] = 1;
-          queue.push(ni);
+        const t = (n * edgeFade - threshold) / (1 - threshold);
+        const r = brushMin + (brushMax - brushMin) * Math.min(1, t);
+        // Jitter for organic edges
+        const jx = (rng() - 0.5) * step * 0.5;
+        const jy = (rng() - 0.5) * step * 0.5;
+        const cx = x + jx, cy = y + jy;
+        kernel.carveCircle(cx, cy, r, { affectsMove: true, affectsOccl: true });
+        // Track larger carves as room anchors
+        if (r > brushMin + (brushMax - brushMin) * 0.3) {
+          rooms.push({ x: cx, y: cy, r });
         }
       }
     }
-    regions.push({
-      indices,
-      cx: (sx / indices.length) * 1,
-      cy: (sy / indices.length) * 1,
-    });
   }
-
-  if (regions.length === 0) return { cx: cols / 2, cy: rows / 2 };
-
-  // Keep only the largest region
-  regions.sort((a, b) => b.indices.length - a.indices.length);
-  const keep = new Set(regions[0].indices);
-  for (let i = 0; i < field.length; i++) {
-    if (field[i] > 0 && !keep.has(i)) field[i] = 0;
-  }
-
-  return {
-    cx: regions[0].cx,
-    cy: regions[0].cy,
-    cellCount: regions[0].indices.length,
-    regionsRemoved: regions.length - 1,
-  };
+  return rooms;
 }
-
-// ── Carve from density field into SDF kernel ───────────────────
-
-function carveFromField(kernel, field, cols, rows, cellSize, rng, profile) {
-  const { brushMin, brushMax } = profile;
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const v = field[row * cols + col];
-      if (v === 0) continue;
-      const t = (v - 128) / 127;   // 0..1
-      const r = brushMin + (brushMax - brushMin) * Math.max(0, t);
-      const jx = (rng() - 0.5) * cellSize * 0.4;
-      const jy = (rng() - 0.5) * cellSize * 0.4;
-      const wx = col * cellSize + cellSize / 2 + jx;
-      const wy = row * cellSize + cellSize / 2 + jy;
-      kernel.carveCircle(wx, wy, r, { affectsMove: true, affectsOccl: true });
-    }
-  }
-}
-
-// ── Find spawn points ──────────────────────────────────────────
 
 /**
- * Find N spawn points spread across the cave.
- * Uses the density field to pick high-clearance open areas,
- * then enforces minimum distance between spawns.
+ * Connect rooms with capsule corridors so the cave is fully traversable.
+ * Uses a greedy nearest-neighbour walk through room centres, then
+ * connects any orphaned clusters.
  */
-function findSpawnPoints(field, cols, rows, cellSize, kernel, count = 4, minSpacing = 200) {
-  // Collect candidate cells, then verify actual SDF clearance (field value alone
-  // isn't reliable after jittered carving).
-  const candidates = [];
-  for (let i = 0; i < field.length; i++) {
-    if (field[i] >= 160) {
-      const c = i % cols, r = (i - c) / cols;
-      const wx = c * cellSize + cellSize / 2, wy = r * cellSize + cellSize / 2;
-      const clearance = kernel.distanceMove(wx, wy);
-      if (clearance >= 20) {
-        candidates.push({ x: wx, y: wy, clearance });
-      }
-    }
-  }
-  // Sort by actual SDF clearance (widest open areas first)
-  candidates.sort((a, b) => b.clearance - a.clearance);
+function connectRooms(kernel, rooms, profile) {
+  if (rooms.length < 2) return;
 
-  const spawns = [];
-  for (const cand of candidates) {
-    if (spawns.length >= count) break;
-    let tooClose = false;
-    for (const s of spawns) {
-      if (Math.hypot(s.x - cand.x, s.y - cand.y) < minSpacing) { tooClose = true; break; }
+  const pw = profile.passageWidth;
+  const connected = new Set([0]);
+  const unconnected = new Set(rooms.map((_, i) => i));
+  unconnected.delete(0);
+
+  // Greedy nearest-neighbour from room 0
+  let current = 0;
+  while (unconnected.size > 0) {
+    let bestDist = Infinity, bestIdx = -1;
+    for (const idx of unconnected) {
+      const dx = rooms[idx].x - rooms[current].x;
+      const dy = rooms[idx].y - rooms[current].y;
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) { bestDist = d; bestIdx = idx; }
     }
-    if (!tooClose) spawns.push({ x: cand.x, y: cand.y });
+    if (bestIdx === -1) break;
+
+    // Carve a capsule corridor between current and bestIdx
+    kernel.carveCapsule(
+      rooms[current].x, rooms[current].y,
+      rooms[bestIdx].x, rooms[bestIdx].y,
+      pw, { affectsMove: true, affectsOccl: true }
+    );
+
+    connected.add(bestIdx);
+    unconnected.delete(bestIdx);
+    current = bestIdx;
+  }
+}
+
+/**
+ * Find spawn points in the widest open areas.
+ * Checks actual SDF clearance — no grid approximation.
+ */
+function findSpawns(kernel, rooms, count, minSpacing) {
+  // Sort rooms by radius (biggest = most open)
+  const sorted = rooms.slice().sort((a, b) => b.r - a.r);
+  const spawns = [];
+
+  for (const room of sorted) {
+    if (spawns.length >= count) break;
+    // Verify real SDF clearance
+    if (kernel.distanceMove(room.x, room.y) < 30) continue;
+    // Enforce spacing
+    let ok = true;
+    for (const s of spawns) {
+      if (Math.hypot(s.x - room.x, s.y - room.y) < minSpacing) { ok = false; break; }
+    }
+    if (ok) spawns.push({ x: room.x, y: room.y });
   }
   return spawns;
 }
 
-// ── Main generator ─────────────────────────────────────────────
+// ── Main entry ─────────────────────────────────────────────────
 
 /**
- * Generate a cave system.
+ * Generate a vector cave.
  *
  * @param {object}  opts
  * @param {number}  opts.seed
- * @param {number}  [opts.width=2400]
- * @param {number}  [opts.height=2400]
+ * @param {number}  [opts.width=4000]     – world-units (bigger = more rooms at zoom)
+ * @param {number}  [opts.height=4000]
  * @param {object}  [opts.profile=CaveProfile.CAVERNS]
- * @param {number}  [opts.cellSize=10]   – density grid resolution
  * @param {number}  [opts.spawnCount=4]
- * @returns {{ kernel, bounds, field, cols, rows, cellSize, spawns, connectivity }}
+ * @param {number}  [opts.spawnSpacing=400]
+ * @returns {{ kernel, bounds, rooms, spawns }}
  */
 export function generateCave(opts) {
   const {
-    seed       = 42,
-    width      = 2400,
-    height     = 2400,
-    profile    = CaveProfile.CAVERNS,
-    cellSize   = 10,
-    spawnCount = 4,
+    seed         = 42,
+    width        = 4000,
+    height       = 4000,
+    profile      = CaveProfile.CAVERNS,
+    spawnCount   = 4,
+    spawnSpacing = 400,
   } = opts;
 
   const noise  = createPerlin2D(seed);
   const rng    = mulberry32(seed ^ 0xCAFE);
   const kernel = createKernel();
 
-  // 1. Build density field
-  const { field, cols, rows } = buildDensityField(noise, width, height, profile, cellSize);
+  // 1. Carve rooms (circles from Perlin field)
+  const rooms = carveRooms(kernel, noise, rng, width, height, profile);
 
-  // 2. Enforce single connected region
-  const connectivity = enforceConnectivity(field, cols, rows);
+  // 2. Connect rooms with capsule corridors
+  connectRooms(kernel, rooms, profile);
 
-  // 3. Carve SDF from surviving cells
-  carveFromField(kernel, field, cols, rows, cellSize, rng, profile);
+  // 3. Find spawn points
+  const spawns = findSpawns(kernel, rooms, spawnCount, spawnSpacing);
 
-  // 4. Find spawn points
-  const spawns = findSpawnPoints(field, cols, rows, cellSize, kernel, spawnCount);
-
-  // Fallback: spiral outward from region centre to find walkable ground
+  // Fallback: spiral from centre
   if (spawns.length === 0) {
-    const cx = connectivity.cx * cellSize, cy = connectivity.cy * cellSize;
-    let found = false;
-    for (let r = 0; r < 400 && !found; r += 8) {
+    const cx = width / 2, cy = height / 2;
+    for (let r = 0; r < 600; r += 10) {
       for (let a = 0; a < Math.PI * 2; a += 0.3) {
         const sx = cx + Math.cos(a) * r, sy = cy + Math.sin(a) * r;
-        if (kernel.distanceMove(sx, sy) >= 20) {
+        if (kernel.distanceMove(sx, sy) >= 30) {
           spawns.push({ x: sx, y: sy });
-          found = true;
+          r = 999;
           break;
         }
       }
     }
-    if (!found) spawns.push({ x: cx, y: cy });
+    if (spawns.length === 0) spawns.push({ x: cx, y: cy });
   }
 
   return {
     kernel,
     bounds: { w: width, h: height },
-    field, cols, rows, cellSize,
+    rooms,
     spawns,
-    connectivity,
   };
 }
 
