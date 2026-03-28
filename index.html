@@ -372,16 +372,63 @@
       releaseTouches(e.changedTouches);
     });
 
-    const player = {
-      x: 0,
-      y: 0,
-      angle: 0,
-      speed: 200,
-      radius: 16
+    const WORLD = {
+      width: 4000,
+      height: 4000,
+      gridSize: 48,
     };
 
-    player.x = canvas.width / 2;
-    player.y = canvas.height / 2;
+    const camera = {
+      x: WORLD.width / 2,
+      y: WORLD.height / 2,
+    };
+
+    const player = {
+      x: WORLD.width / 2,
+      y: WORLD.height / 2,
+      angle: 0,
+      speed: 260,
+      radius: 16,
+    };
+
+    function worldToScreen(wx, wy) {
+      return {
+        x: wx - camera.x + canvas.width / 2,
+        y: wy - camera.y + canvas.height / 2,
+      };
+    }
+
+    function drawWorldGrid() {
+      ctx.strokeStyle = "rgba(255,255,255,0.05)";
+      ctx.lineWidth = 1;
+
+      const left = camera.x - canvas.width / 2;
+      const right = camera.x + canvas.width / 2;
+      const top = camera.y - canvas.height / 2;
+      const bottom = camera.y + canvas.height / 2;
+
+      const startX = Math.floor(left / WORLD.gridSize) * WORLD.gridSize;
+      const endX = Math.ceil(right / WORLD.gridSize) * WORLD.gridSize;
+      for (let wx = startX; wx <= endX; wx += WORLD.gridSize) {
+        const a = worldToScreen(wx, top);
+        const b = worldToScreen(wx, bottom);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+
+      const startY = Math.floor(top / WORLD.gridSize) * WORLD.gridSize;
+      const endY = Math.ceil(bottom / WORLD.gridSize) * WORLD.gridSize;
+      for (let wy = startY; wy <= endY; wy += WORLD.gridSize) {
+        const a = worldToScreen(left, wy);
+        const b = worldToScreen(right, wy);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+    }
 
     let lastTime = performance.now();
 
@@ -400,29 +447,19 @@
         player.angle = Math.atan2(joystickOutput.right.y, joystickOutput.right.x);
       }
 
-      player.x = Math.max(player.radius, Math.min(canvas.width - player.radius, player.x));
-      player.y = Math.max(player.radius, Math.min(canvas.height - player.radius, player.y));
+      player.x = Math.max(player.radius, Math.min(WORLD.width - player.radius, player.x));
+      player.y = Math.max(player.radius, Math.min(WORLD.height - player.radius, player.y));
+
+      camera.x = player.x;
+      camera.y = player.y;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawWorldGrid();
 
-      ctx.strokeStyle = "rgba(255,255,255,0.04)";
-      ctx.lineWidth = 1;
-      const gridSize = 48;
-      for (let x = 0; x < canvas.width; x += gridSize) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, canvas.height);
-        ctx.stroke();
-      }
-      for (let y = 0; y < canvas.height; y += gridSize) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(canvas.width, y);
-        ctx.stroke();
-      }
+      const screenPlayer = worldToScreen(player.x, player.y);
 
       ctx.beginPath();
-      ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+      ctx.arc(screenPlayer.x, screenPlayer.y, player.radius, 0, Math.PI * 2);
       ctx.fillStyle = "#4fc3f7";
       ctx.fill();
       ctx.strokeStyle = "#81d4fa";
@@ -432,12 +469,12 @@
       const aimLen = player.radius + 14;
       ctx.beginPath();
       ctx.moveTo(
-        player.x + Math.cos(player.angle) * player.radius,
-        player.y + Math.sin(player.angle) * player.radius
+        screenPlayer.x + Math.cos(player.angle) * player.radius,
+        screenPlayer.y + Math.sin(player.angle) * player.radius
       );
       ctx.lineTo(
-        player.x + Math.cos(player.angle) * aimLen,
-        player.y + Math.sin(player.angle) * aimLen
+        screenPlayer.x + Math.cos(player.angle) * aimLen,
+        screenPlayer.y + Math.sin(player.angle) * aimLen
       );
       ctx.strokeStyle = "#fff";
       ctx.lineWidth = 3;
@@ -445,7 +482,10 @@
       ctx.stroke();
 
       updateReadouts();
-      hud.textContent = "Hack Arena frame " + joystickOutput.frame + " move(" + joystickOutput.left.x.toFixed(2) + ", " + joystickOutput.left.y.toFixed(2) + ") aim(" + joystickOutput.right.x.toFixed(2) + ", " + joystickOutput.right.y.toFixed(2) + ")";
+      hud.textContent = "Hack Arena frame " + joystickOutput.frame
+        + " move(" + joystickOutput.left.x.toFixed(2) + ", " + joystickOutput.left.y.toFixed(2) + ")"
+        + " aim(" + joystickOutput.right.x.toFixed(2) + ", " + joystickOutput.right.y.toFixed(2) + ")"
+        + " camera(" + Math.round(camera.x) + ", " + Math.round(camera.y) + ")";
 
       requestAnimationFrame(loop);
     }
