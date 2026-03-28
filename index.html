@@ -8,7 +8,7 @@
     * { margin:0; padding:0; box-sizing:border-box; touch-action:none;
         -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
     html,body { width:100%; height:100%; overflow:hidden; background:#0b0f12; color:#fff;
-                font-family:"Segoe UI",system-ui,sans-serif; }
+                font-family:Inter,"Segoe UI",system-ui,-apple-system,sans-serif; }
     canvas { display:block; width:100%; height:100%; }
     #hud { position:fixed; top:12px; left:50%; transform:translateX(-50%);
            font-size:14px; color:rgba(255,255,255,0.7); text-align:center; z-index:40; }
@@ -106,11 +106,12 @@
 <script type="module">
 // ── Imports ────────────────────────────────────────────────────
 import { World, RafLoop, composeScheduler } from './src/lib/ecs-js/index.js';
-import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV, PointLight, Projectile, Lifetime }
+import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV, PointLight, Projectile, Lifetime, AI, AIBehavior, Inventory, ItemInfo, ItemSlot }
   from './src/rules/components/index.js';
 import { generateCave, CaveProfile } from './src/rules/geometry/caveGen.js';
 import { moveWithSlide } from './src/rules/geometry/sweep.js';
 import { createCamera, updateCamera, applyCamera } from './src/display/camera/controller.js';
+import { astar } from './src/rules/ai/pathfind.js';
 import { followEntity } from './src/display/camera/follow.js';
 import { bakeCavePass } from './src/display/passes/cavePass.js';
 import { createTorchPass } from './src/display/passes/torchPass.js';
@@ -157,6 +158,17 @@ const FROST_TRAIL = {
   alpha0: 0.85, alpha1: 0.0,
 };
 
+const SHADOW_TRAIL = {
+  continuous: true, rate: 30,
+  angle: Math.PI, spread: Math.PI,
+  speed: 12, speedJitter: 0.7,
+  ax: 0, ay: 0,
+  life: 0.35, lifeJitter: 0.4,
+  size: 5, sizeEnd: 1,
+  color: '#b060ff',
+  alpha0: 0.8, alpha1: 0.0,
+};
+
 console.log(`Cave: seed=${SEED.toString(16)} grid=${grid.cols}x${grid.rows} spawns=${spawns.length}`);
 
 // ── ECS world ──────────────────────────────────────────────────
@@ -175,8 +187,38 @@ world.add(playerId, Actor,    { kind: ActorKind.PLAYER, name: 'Player', glyph: '
 world.add(playerId, Health,   { hp: 100, maxHp: 100 });
 world.add(playerId, FOV,      { distance: 220, angle: 1.4 });
 
-// Player carries a torch
+// Player carries a torch (direct PointLight for now)
 world.add(playerId, PointLight, { radius: 350, r: 255, g: 190, b: 120 });
+world.add(playerId, Inventory, { items: [], capacity: 10 });
+
+// ── Spawn a caster mob ──────────────────────────────────────────
+function findOpenNear(x, y, searchRadius) {
+  for (let r = 0; r < searchRadius; r += 8) {
+    for (let a = 0; a < Math.PI * 2; a += 0.4) {
+      const tx = x + Math.cos(a) * r, ty = y + Math.sin(a) * r;
+      if (grid.distanceMove(tx, ty) >= 20) return { x: tx, y: ty };
+    }
+  }
+  return { x, y };
+}
+
+const casterPos = findOpenNear(spawn.x + 200, spawn.y + 150, 400);
+const casterId = world.create();
+world.add(casterId, Position, { x: casterPos.x, y: casterPos.y });
+world.add(casterId, Velocity, { vx: 0, vy: 0 });
+world.add(casterId, Facing,   { angle: 0 });
+world.add(casterId, Collider, { radius: 12 });
+world.add(casterId, Speed,    { max: 80 });
+world.add(casterId, Actor,    { kind: ActorKind.MOB, name: 'Wraith', glyph: 'W' });
+world.add(casterId, Health,   { hp: 60, maxHp: 60 });
+world.add(casterId, AI, {
+  behavior: AIBehavior.CASTER,
+  target: playerId,
+  preferredDist: 140,
+  castRate: 1.5,
+  projSpeed: 220,
+  aggroRange: 300,
+});
 
 // ── Camera ─────────────────────────────────────────────────────
 const cam = createCamera();
@@ -330,30 +372,198 @@ function simulatePhaseSystem(world, dt) {
   }
 }
 
+// ── LOS check on grid ───────────────────────────────────────────
+function hasLOS(ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const dist = Math.hypot(dx, dy);
+  const steps = Math.ceil(dist / (grid.cellSize * 2));
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    if (grid.distanceMove(ax + dx * t, ay + dy * t) < 6) return false;
+  }
+  return true;
+}
+
+// ── AI system (A* pathing) ──────────────────────────────────────
+const aiPaths = new Map();       // entityId → { path: [{x,y}], age: number }
+const PATH_REFRESH = 0.5;        // recompute every 0.5s
+
+function aiPhaseSystem(world, dt) {
+  for (const [id, pos, vel, spd, fac, ai, col] of world.query(Position, Velocity, Speed, Facing, AI, Collider)) {
+    if (ai.target === null) continue;
+    if (!world.alive(ai.target)) { ai.target = null; continue; }
+
+    const tpos = world.get(ai.target, Position);
+    const dx = tpos.x - pos.x, dy = tpos.y - pos.y;
+    const dist = Math.hypot(dx, dy);
+
+    // LOS check
+    ai.sight = dist < ai.aggroRange && hasLOS(pos.x, pos.y, tpos.x, tpos.y);
+
+    if (ai.sight) {
+      // ── Has LOS — tactical behaviour ──
+      aiPaths.delete(id);  // drop path, we can see them
+
+      const tooClose = dist < ai.preferredDist * 0.7;
+      const tooFar = dist > ai.preferredDist * 1.3;
+
+      if (tooClose) {
+        vel.vx = -(dx / dist) * spd.max;
+        vel.vy = -(dy / dist) * spd.max;
+      } else if (tooFar) {
+        vel.vx = (dx / dist) * spd.max * 0.6;
+        vel.vy = (dy / dist) * spd.max * 0.6;
+      } else {
+        vel.vx = -(dy / dist) * spd.max * 0.4;
+        vel.vy =  (dx / dist) * spd.max * 0.4;
+      }
+
+      fac.angle = Math.atan2(dy, dx);
+
+      // Cast
+      ai.castCooldown -= dt;
+      if (ai.castCooldown <= 0) {
+        ai.castCooldown = ai.castRate;
+        const angle = Math.atan2(dy, dx);
+        const boltId = world.create();
+        world.add(boltId, Position,   { x: pos.x + Math.cos(angle) * 18, y: pos.y + Math.sin(angle) * 18 });
+        world.add(boltId, Velocity,   { vx: Math.cos(angle) * ai.projSpeed, vy: Math.sin(angle) * ai.projSpeed });
+        world.add(boltId, Projectile, { damage: 12, owner: id, speed: ai.projSpeed, piercing: false });
+        world.add(boltId, Lifetime,   { ttl: 2.5 });
+        world.add(boltId, Collider,   { radius: 5 });
+        world.add(boltId, PointLight, { radius: 90, r: 180, g: 60, b: 255 });
+      }
+    } else {
+      // ── No LOS — A* pathfind ──
+      let cached = aiPaths.get(id);
+      if (!cached || cached.age > PATH_REFRESH || cached.path.length === 0) {
+        const path = astar(grid, pos.x, pos.y, tpos.x, tpos.y, col.radius);
+        cached = { path: path || [], age: 0 };
+        aiPaths.set(id, cached);
+      }
+      cached.age += dt;
+
+      if (cached.path.length > 0) {
+        // Steer toward next waypoint
+        const wp = cached.path[0];
+        const wdx = wp.x - pos.x, wdy = wp.y - pos.y;
+        const wdist = Math.hypot(wdx, wdy);
+
+        if (wdist < grid.cellSize * 2) {
+          cached.path.shift();  // reached waypoint
+        } else {
+          vel.vx = (wdx / wdist) * spd.max;
+          vel.vy = (wdy / wdist) * spd.max;
+          fac.angle = Math.atan2(wdy, wdx);
+        }
+      } else {
+        vel.vx = 0; vel.vy = 0;
+      }
+    }
+
+    // Move with wall slide
+    const mdx = vel.vx * dt, mdy = vel.vy * dt;
+    if (Math.abs(mdx) > 0.01 || Math.abs(mdy) > 0.01) {
+      const moved = moveWithSlide(grid, pos.x, pos.y, mdx, mdy, col.radius);
+      pos.x = moved.x;
+      pos.y = moved.y;
+    }
+  }
+}
+
+// ── Bump collider — push overlapping entities apart ─────────────
+function bumpPhaseSystem(world, dt) {
+  // Collect all collidable entities (non-projectile)
+  const bodies = [];
+  for (const [id, pos, col] of world.query(Position, Collider)) {
+    if (world.has(id, Projectile)) continue;
+    bodies.push({ id, pos, col });
+  }
+
+  for (let i = 0; i < bodies.length; i++) {
+    for (let j = i + 1; j < bodies.length; j++) {
+      const a = bodies[i], b = bodies[j];
+      const dx = b.pos.x - a.pos.x, dy = b.pos.y - a.pos.y;
+      const dist = Math.hypot(dx, dy);
+      const overlap = a.col.radius + b.col.radius - dist;
+      if (overlap <= 0) continue;
+
+      // Push apart along collision axis
+      const nx = dist > 0.01 ? dx / dist : 1;
+      const ny = dist > 0.01 ? dy / dist : 0;
+      const push = overlap * 0.5;
+      a.pos.x -= nx * push;
+      a.pos.y -= ny * push;
+      b.pos.x += nx * push;
+      b.pos.y += ny * push;
+    }
+  }
+}
+
+// ── Projectile system with entity hit detection ─────────────────
 function projectilePhaseSystem(world, dt) {
   const toDestroy = [];
   const origins = [];
+
+  // Collect hittable entities (non-projectile, has Health)
+  const targets = [];
+  for (const [id, pos, col, hp] of world.query(Position, Collider, Health)) {
+    targets.push({ id, pos, col, hp });
+  }
 
   for (const [id, pos, vel, proj, lt, col] of world.query(Position, Velocity, Projectile, Lifetime, Collider)) {
     // Move
     pos.x += vel.vx * dt;
     pos.y += vel.vy * dt;
 
-    // Ensure trail emitter exists
-    fx.ensureEmitter('bolt:' + id, FROST_TRAIL);
+    // Trail particles
+    const trail = proj.owner === playerId ? FROST_TRAIL : SHADOW_TRAIL;
+    fx.ensureEmitter('bolt:' + id, trail);
     origins.push({ key: 'bolt:' + id, x: pos.x, y: pos.y, vx: vel.vx * 0.1, vy: vel.vy * 0.1 });
 
-    // Wall collision — destroy if inside wall
+    // Entity hit detection
+    let hit = false;
+    for (const t of targets) {
+      if (t.id === proj.owner) continue;  // can't hit owner
+      const dx = t.pos.x - pos.x, dy = t.pos.y - pos.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < col.radius + t.col.radius) {
+        // Apply damage
+        t.hp.hp = Math.max(0, t.hp.hp - proj.damage);
+
+        // Impact burst
+        const burstColor = proj.owner === playerId ? '#b0e0ff' : '#d0a0ff';
+        const burst = fx.ensureEmitter('hit:' + id, {
+          continuous: false, burstCount: 15,
+          angle: Math.atan2(dy, dx), spread: Math.PI * 0.5,
+          speed: 60, speedJitter: 0.5,
+          ax: 0, ay: 0,
+          life: 0.3, lifeJitter: 0.3,
+          size: 4, sizeEnd: 1,
+          color: burstColor,
+          alpha0: 0.9, alpha1: 0.0,
+        });
+        burst.step(fx.pool, dt, pos.x, pos.y);
+
+        fx.removeEmitter('bolt:' + id);
+        toDestroy.push(id);
+        hit = true;
+        break;
+      }
+    }
+    if (hit) continue;
+
+    // Wall collision
     if (grid.distanceMove(pos.x, pos.y) < col.radius) {
-      // Burst on impact
-      const burst = fx.ensureEmitter('hit:' + id, {
+      const burstColor = proj.owner === playerId ? '#b0e0ff' : '#d0a0ff';
+      const burst = fx.ensureEmitter('wallhit:' + id, {
         continuous: false, burstCount: 20,
         angle: 0, spread: Math.PI,
         speed: 50, speedJitter: 0.6,
         ax: 0, ay: 0,
         life: 0.35, lifeJitter: 0.4,
         size: 5, sizeEnd: 1,
-        color: '#b0e0ff',
+        color: burstColor,
         alpha0: 0.9, alpha1: 0.0,
       });
       burst.step(fx.pool, dt, pos.x, pos.y);
@@ -384,6 +594,8 @@ function cameraPhaseSystem(world, dt) {
 
 world.system(inputPhaseSystem, 'input');
 world.system(simulatePhaseSystem, 'simulate');
+world.system(aiPhaseSystem, 'simulate');
+world.system(bumpPhaseSystem, 'simulate');
 world.system(projectilePhaseSystem, 'simulate');
 world.system(cameraPhaseSystem, 'camera');
 world.setScheduler(composeScheduler('input', 'simulate', 'camera'));
@@ -422,16 +634,44 @@ function renderFrame() {
   ctx.font = 'bold 14px ui-monospace, monospace';
   ctx.fillText('\u2020', pos.x + col.radius + 4, pos.y - col.radius + 2);
 
-  // Draw frost bolts
+  // Draw mobs
+  for (const [id, mpos, mcol, actor, mfac] of world.query(Position, Collider, Actor, Facing)) {
+    if (actor.kind !== ActorKind.MOB) continue;
+    ctx.beginPath();
+    ctx.arc(mpos.x, mpos.y, mcol.radius, 0, Math.PI * 2);
+    ctx.fillStyle = '#2a1540';
+    ctx.fill();
+    ctx.strokeStyle = '#a050ff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = '#d0a0ff';
+    ctx.font = `bold ${Math.floor(mcol.radius * 1.4)}px ui-monospace, monospace`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(actor.glyph, mpos.x, mpos.y + 1);
+
+    // Aim indicator
+    const mAimLen = mcol.radius + 10;
+    ctx.beginPath();
+    ctx.moveTo(mpos.x + Math.cos(mfac.angle) * mcol.radius, mpos.y + Math.sin(mfac.angle) * mcol.radius);
+    ctx.lineTo(mpos.x + Math.cos(mfac.angle) * mAimLen, mpos.y + Math.sin(mfac.angle) * mAimLen);
+    ctx.strokeStyle = '#c070ff';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+  }
+
+  // Draw projectiles
   for (const [id, bpos, proj, bcol] of world.query(Position, Projectile, Collider)) {
+    const isEnemy = proj.owner !== playerId;
     ctx.beginPath();
     ctx.arc(bpos.x, bpos.y, bcol.radius, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(140,210,255,0.9)';
+    ctx.fillStyle = isEnemy ? 'rgba(180,80,255,0.9)' : 'rgba(140,210,255,0.9)';
     ctx.fill();
-    ctx.fillStyle = '#e0f4ff';
+    ctx.fillStyle = isEnemy ? '#e0b0ff' : '#e0f4ff';
     ctx.font = 'bold 10px ui-monospace, monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('\u2744', bpos.x, bpos.y);  // ❄ snowflake
+    ctx.fillText(isEnemy ? '\u2726' : '\u2744', bpos.x, bpos.y);  // ✦ or ❄
   }
 
   const aimLen = col.radius + 14;
@@ -443,12 +683,13 @@ function renderFrame() {
   ctx.lineCap = 'round';
   ctx.stroke();
 
-  // ── Torch lighting pass (query ECS for all PointLight entities) ──
+  // ── Torch lighting pass ──
   const lights = [];
+  const t = performance.now() * 0.001;
+
   for (const [id, lpos, pl] of world.query(Position, PointLight)) {
     if (!pl.enabled) continue;
-    const t = performance.now() * 0.001;
-    const isTorch = pl.b < pl.r;  // warm light = torch, cool light = frost
+    const isTorch = pl.b < pl.r;
     if (isTorch) {
       // Flickering torch — layered sine waves + noise
       const flicker = 1.0

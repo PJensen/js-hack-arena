@@ -14,3 +14,6 @@ export { Knockback } from './Knockback.js';
 export { Cooldown } from './Cooldown.js';
 export { Spawn } from './Spawn.js';
 export { PointLight } from './PointLight.js';
+export { AI, AIBehavior } from './AI.js';
+export { Inventory } from './Inventory.js';
+export { ItemInfo, ItemSlot } from './ItemInfo.js';
