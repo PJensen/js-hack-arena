@@ -106,34 +106,52 @@ export function createTorchPass(grid) {
   function render(ctx, lights, viewW, viewH, cam) {
     computeLighting(lights);
 
-    // Write light map to ImageData
+    // Pure darkness overlay — black pixels, alpha controls light.
+    // 210 = full dark, 0 = fully lit. No RGB tint on this layer.
     for (let i = 0; i < lmSize; i++) {
       const pi = i * 4;
+      pixels[pi] = 0;
+      pixels[pi + 1] = 0;
+      pixels[pi + 2] = 0;
+
       const d = moveGrid[i];
-
       if (d <= 0) {
-        // Wall — dark
-        pixels[pi] = 0; pixels[pi+1] = 0; pixels[pi+2] = 0; pixels[pi+3] = 210;
+        pixels[pi + 3] = 210;
       } else {
-        const r = lightR[i], g = lightG[i], b = lightB[i];
-        const brightness = Math.min(1, Math.max(r, g, b));
-
-        // Tint RGB toward light colour
-        pixels[pi]     = Math.min(255, (r * 60) | 0);
-        pixels[pi + 1] = Math.min(255, (g * 50) | 0);
-        pixels[pi + 2] = Math.min(255, (b * 30) | 0);
-
-        // Alpha: less darkness where light is stronger
-        pixels[pi + 3] = Math.max(0, (200 - brightness * 240) | 0);
+        const brightness = Math.min(1, (lightR[i] + lightG[i] + lightB[i]) * 0.5);
+        pixels[pi + 3] = (210 - brightness * 220) | 0;
+        if (pixels[pi + 3] < 0) pixels[pi + 3] = 0;
       }
     }
 
     lmCtx.putImageData(imgData, 0, 0);
 
-    // Draw light map scaled to world coords via the camera transform
+    // Pass 1: darkness overlay (source-over)
     ctx.save();
     ctx.imageSmoothingEnabled = true;
-    // Light map is at grid resolution — scale to world size
+    ctx.drawImage(lmCanvas, 0, 0, cols, rows, 0, 0, cols * cellSize, rows * cellSize);
+    ctx.restore();
+
+    // Pass 2: warm colour tint (additive blend via 'lighter')
+    // Reuse the same canvas — write warm RGB with brightness as alpha
+    for (let i = 0; i < lmSize; i++) {
+      const pi = i * 4;
+      if (moveGrid[i] <= 0) {
+        pixels[pi] = 0; pixels[pi+1] = 0; pixels[pi+2] = 0; pixels[pi+3] = 0;
+        continue;
+      }
+      const brightness = Math.min(1, (lightR[i] + lightG[i] + lightB[i]) * 0.4);
+      const a = (brightness * 120) | 0;
+      pixels[pi]     = Math.min(255, (lightR[i] * 255) | 0);
+      pixels[pi + 1] = Math.min(255, (lightG[i] * 180) | 0);
+      pixels[pi + 2] = Math.min(255, (lightB[i] * 60) | 0);
+      pixels[pi + 3] = a;
+    }
+    lmCtx.putImageData(imgData, 0, 0);
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.imageSmoothingEnabled = true;
     ctx.drawImage(lmCanvas, 0, 0, cols, rows, 0, 0, cols * cellSize, rows * cellSize);
     ctx.restore();
   }
