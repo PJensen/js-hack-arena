@@ -5,492 +5,308 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Hack Arena</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-      touch-action: none;
-      -webkit-touch-callout: none;
-      -webkit-user-select: none;
-      user-select: none;
-    }
+    * { margin:0; padding:0; box-sizing:border-box; touch-action:none;
+        -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
+    html,body { width:100%; height:100%; overflow:hidden; background:#0b0f12; color:#fff;
+                font-family:"Segoe UI",system-ui,sans-serif; }
+    canvas { display:block; width:100%; height:100%; }
+    #hud { position:fixed; top:12px; left:50%; transform:translateX(-50%);
+           font-size:14px; color:rgba(255,255,255,0.7); text-align:center; z-index:40; }
 
-    html,
-    body {
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: #111;
-      color: #fff;
-      font-family: "Segoe UI", system-ui, sans-serif;
-    }
-
-    canvas {
-      display: block;
-      width: 100%;
-      height: 100%;
-    }
-
-    #hud {
-      position: fixed;
-      top: 12px;
-      left: 50%;
-      transform: translateX(-50%);
-      font-size: 14px;
-      color: rgba(255, 255, 255, 0.7);
-      text-align: center;
-      z-index: 40;
-    }
-
-    .joystick {
-      position: fixed;
-      bottom: 40px;
-      width: 140px;
-      height: 140px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.08);
-      border: 2px solid rgba(255, 255, 255, 0.15);
-      z-index: 20;
-    }
-
-    .joystick-left {
-      left: 40px;
-    }
-
-    .joystick-right {
-      right: 40px;
-    }
-
-    .joystick-knob {
-      position: absolute;
-      width: 56px;
-      height: 56px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.25);
-      border: 2px solid rgba(255, 255, 255, 0.4);
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      pointer-events: none;
-    }
-
-    .touch-dot {
-      position: fixed;
-      width: 18px;
-      height: 18px;
-      margin-left: -9px;
-      margin-top: -9px;
-      border-radius: 50%;
-      pointer-events: none;
-      display: none;
-      z-index: 30;
-    }
-
-    .touch-dot-left {
-      background: rgba(120, 220, 255, 0.9);
-      box-shadow: 0 0 0 3px rgba(120, 220, 255, 0.25);
-    }
-
-    .touch-dot-right {
-      background: rgba(255, 170, 110, 0.95);
-      box-shadow: 0 0 0 3px rgba(255, 170, 110, 0.25);
-    }
-
-    .stick-readout {
-      position: fixed;
-      bottom: 190px;
-      min-width: 180px;
-      padding: 8px 10px;
-      border-radius: 8px;
-      font-size: 12px;
-      line-height: 1.35;
-      background: rgba(0, 0, 0, 0.5);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      z-index: 40;
-    }
-
-    #readout-left {
-      left: 24px;
-    }
-
-    #readout-right {
-      right: 24px;
-      text-align: right;
-    }
+    /* ── Joysticks ── */
+    .joystick { position:fixed; bottom:40px; width:140px; height:140px; border-radius:50%;
+                background:rgba(255,255,255,0.08); border:2px solid rgba(255,255,255,0.15); z-index:20; }
+    .joystick-left  { left:40px; }
+    .joystick-right { right:40px; }
+    .joystick-knob  { position:absolute; width:56px; height:56px; border-radius:50%;
+                      background:rgba(255,255,255,0.25); border:2px solid rgba(255,255,255,0.4);
+                      top:50%; left:50%; transform:translate(-50%,-50%); pointer-events:none; }
+    .touch-dot { position:fixed; width:18px; height:18px; margin-left:-9px; margin-top:-9px;
+                 border-radius:50%; pointer-events:none; display:none; z-index:30; }
+    .touch-dot-left  { background:rgba(120,220,255,0.9); box-shadow:0 0 0 3px rgba(120,220,255,0.25); }
+    .touch-dot-right { background:rgba(255,170,110,0.95); box-shadow:0 0 0 3px rgba(255,170,110,0.25); }
+    .stick-readout { position:fixed; bottom:190px; min-width:180px; padding:8px 10px; border-radius:8px;
+                     font-size:12px; line-height:1.35; background:rgba(0,0,0,0.5);
+                     border:1px solid rgba(255,255,255,0.15); z-index:40; }
+    #readout-left  { left:24px; }
+    #readout-right { right:24px; text-align:right; }
   </style>
 </head>
 <body>
   <canvas id="game"></canvas>
   <div id="hud">Hack Arena</div>
-
   <div class="stick-readout" id="readout-left">L stick idle</div>
   <div class="stick-readout" id="readout-right">R stick idle</div>
-
-  <div class="joystick joystick-left" id="joystick-left">
-    <div class="joystick-knob" id="knob-left"></div>
-  </div>
-
-  <div class="joystick joystick-right" id="joystick-right">
-    <div class="joystick-knob" id="knob-right"></div>
-  </div>
-
+  <div class="joystick joystick-left" id="joystick-left"><div class="joystick-knob" id="knob-left"></div></div>
+  <div class="joystick joystick-right" id="joystick-right"><div class="joystick-knob" id="knob-right"></div></div>
   <div class="touch-dot touch-dot-left" id="touch-left"></div>
   <div class="touch-dot touch-dot-right" id="touch-right"></div>
 
-  <script>
-    const ENABLE_SW = true;
+<script>
+  const ENABLE_SW = true;
 
-    async function registerServiceWorker() {
-      if (!ENABLE_SW) return;
-      if (!("serviceWorker" in navigator)) return;
-      if (!window.isSecureContext) return;
+  async function registerServiceWorker() {
+    if (!ENABLE_SW) return;
+    if (!("serviceWorker" in navigator)) return;
+    if (!window.isSecureContext) return;
 
-      try {
-        const reg = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
+    try {
+      const reg = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
 
-        if (reg.waiting) {
-          reg.waiting.postMessage({ type: "SKIP_WAITING" });
-        }
+      if (reg.waiting) {
+        reg.waiting.postMessage({ type: "SKIP_WAITING" });
+      }
 
-        reg.addEventListener("updatefound", () => {
-          const installing = reg.installing;
-          if (!installing) return;
-          installing.addEventListener("statechange", () => {
-            if (installing.state === "installed" && navigator.serviceWorker.controller) {
-              installing.postMessage({ type: "SKIP_WAITING" });
-            }
-          });
+      reg.addEventListener("updatefound", () => {
+        const installing = reg.installing;
+        if (!installing) return;
+        installing.addEventListener("statechange", () => {
+          if (installing.state === "installed" && navigator.serviceWorker.controller) {
+            installing.postMessage({ type: "SKIP_WAITING" });
+          }
         });
-      } catch (err) {
-        console.warn("SW registration failed", err);
-      }
+      });
+    } catch (err) {
+      console.warn("SW registration failed", err);
     }
+  }
 
-    registerServiceWorker();
+  registerServiceWorker();
+</script>
 
-    const canvas = document.getElementById("game");
-    const ctx = canvas.getContext("2d");
-    const hud = document.getElementById("hud");
-    const readoutLeft = document.getElementById("readout-left");
-    const readoutRight = document.getElementById("readout-right");
+<script type="module">
+// ── Imports ────────────────────────────────────────────────────
+import { createWorld } from './src/lib/ecs-js/index.js';
+import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV }
+  from './src/rules/components/index.js';
+import { generateCave, CaveProfile } from './src/rules/geometry/caveGen.js';
+import { sweepMaxFree } from './src/rules/geometry/sweep.js';
+import { createCamera, updateCamera, applyCamera } from './src/display/camera/controller.js';
+import { followEntity } from './src/display/camera/follow.js';
 
-    function resize() {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+// ── Canvas setup ───────────────────────────────────────────────
+const canvas = document.getElementById('game');
+const ctx    = canvas.getContext('2d');
+const hud    = document.getElementById('hud');
+const readL  = document.getElementById('readout-left');
+const readR  = document.getElementById('readout-right');
+
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+window.addEventListener('resize', resize); resize();
+
+// ── Generate cave ──────────────────────────────────────────────
+const SEED = (Math.random() * 0xFFFFFFFF) >>> 0;
+const { kernel, bounds } = generateCave({
+  seed: SEED, width: 2400, height: 2400, profile: CaveProfile.CAVERNS, step: 10,
+});
+
+// Find a walkable spawn point (spiral outward from centre)
+function findSpawn(k, bounds) {
+  const cx = bounds.w / 2, cy = bounds.h / 2;
+  for (let r = 0; r < 600; r += 8) {
+    for (let a = 0; a < Math.PI * 2; a += 0.3) {
+      const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+      if (k.distanceMove(x, y) >= 16) return { x, y };
     }
-    window.addEventListener("resize", resize);
-    resize();
+  }
+  return { x: cx, y: cy };
+}
+const spawn = findSpawn(kernel, bounds);
 
-    function normalizeVector(x, y) {
-      const len = Math.hypot(x, y);
-      if (len < 0.0001) {
-        return { x: 0, y: 0, mag: 0, angle: 0 };
-      }
-      const nx = x / len;
-      const ny = y / len;
-      const mag = Math.min(1, len);
-      return { x: nx * mag, y: ny * mag, mag, angle: Math.atan2(ny, nx) };
-    }
+// ── ECS world ──────────────────────────────────────────────────
+const world = createWorld();
+for (const C of [Position, Velocity, Facing, Collider, Speed, Input, Actor, Health, FOV]) {
+  world.registerComponent(C);
+}
 
-    class Joystick {
-      constructor(baseEl, knobEl, markerEl) {
-        this.base = baseEl;
-        this.knob = knobEl;
-        this.marker = markerEl;
-        this.radius = baseEl.offsetWidth / 2;
+const playerId = world.create();
+world.add(playerId, Position, { x: spawn.x, y: spawn.y });
+world.add(playerId, Velocity, { vx: 0, vy: 0 });
+world.add(playerId, Facing,   { angle: 0 });
+world.add(playerId, Collider, { radius: 14 });
+world.add(playerId, Speed,    { max: 200 });
+world.add(playerId, Input);
+world.add(playerId, Actor,    { kind: ActorKind.PLAYER, name: 'Player', glyph: '@' });
+world.add(playerId, Health,   { hp: 100, maxHp: 100 });
+world.add(playerId, FOV,      { distance: 220, angle: 1.4 });
 
-        this.touchId = null;
-        this.touchX = 0;
-        this.touchY = 0;
+// ── Camera ─────────────────────────────────────────────────────
+const cam = createCamera();
+cam.x = cam.targetX = spawn.x;
+cam.y = cam.targetY = spawn.y;
 
-        this.x = 0;
-        this.y = 0;
-        this.mag = 0;
-        this.angle = 0;
-      }
+// ── Joystick (reuse proven touch code) ─────────────────────────
+function normalizeVector(x, y) {
+  const len = Math.hypot(x, y);
+  if (len < 0.0001) return { x:0, y:0, mag:0, angle:0 };
+  const mag = Math.min(1, len);
+  return { x: (x/len)*mag, y: (y/len)*mag, mag, angle: Math.atan2(y/len, x/len) };
+}
 
-      get active() {
-        return this.touchId === null ? false : true;
-      }
+class Joystick {
+  constructor(baseEl, knobEl, markerEl) {
+    this.base = baseEl; this.knob = knobEl; this.marker = markerEl;
+    this.radius = baseEl.offsetWidth / 2;
+    this.touchId = null; this.x = 0; this.y = 0; this.mag = 0; this.angle = 0;
+  }
+  get active() { return this.touchId !== null; }
+  start(touch) { this.touchId = touch.identifier; this._update(touch); }
+  _update(touch) {
+    const rect = this.base.getBoundingClientRect();
+    const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
+    let dx = touch.clientX - cx, dy = touch.clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > this.radius) { dx = (dx/dist)*this.radius; dy = (dy/dist)*this.radius; }
+    const n = normalizeVector(dx/this.radius, dy/this.radius);
+    Object.assign(this, { x: n.x, y: n.y, mag: n.mag, angle: n.angle });
+    this.knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    this.marker.style.left = touch.clientX + 'px';
+    this.marker.style.top  = touch.clientY + 'px';
+    this.marker.style.display = 'block';
+  }
+  end() {
+    this.touchId = null; this.x = this.y = this.mag = this.angle = 0;
+    this.knob.style.transform = 'translate(-50%,-50%)';
+    this.marker.style.display = 'none';
+  }
+}
 
-      start(touch) {
-        this.touchId = touch.identifier;
-        this.update(touch);
-      }
+const leftStick  = new Joystick(document.getElementById('joystick-left'),  document.getElementById('knob-left'),  document.getElementById('touch-left'));
+const rightStick = new Joystick(document.getElementById('joystick-right'), document.getElementById('knob-right'), document.getElementById('touch-right'));
 
-      update(touch) {
-        const rect = this.base.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
+document.addEventListener('touchstart', e => { e.preventDefault();
+  for (const t of e.changedTouches) { const s = t.clientX < window.innerWidth/2 ? leftStick : rightStick; if (!s.active) s.start(t); }
+}, { passive: false });
+document.addEventListener('touchmove', e => { e.preventDefault();
+  for (const t of e.changedTouches) { if (leftStick.touchId === t.identifier) leftStick._update(t); if (rightStick.touchId === t.identifier) rightStick._update(t); }
+}, { passive: false });
+function releaseTouches(touches) { for (const t of touches) { if (leftStick.touchId === t.identifier) leftStick.end(); if (rightStick.touchId === t.identifier) rightStick.end(); } }
+document.addEventListener('touchend',    e => releaseTouches(e.changedTouches));
+document.addEventListener('touchcancel', e => releaseTouches(e.changedTouches));
 
-        let dx = touch.clientX - cx;
-        let dy = touch.clientY - cy;
+// ── Keyboard fallback (WASD + arrow aim) ───────────────────────
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
+window.addEventListener('keyup',   e => { keys[e.key.toLowerCase()] = false; });
 
-        const dist = Math.hypot(dx, dy);
-        const maxDist = this.radius;
+function keyboardInput() {
+  let mx = 0, my = 0;
+  if (keys['w'] || keys['arrowup'])    my -= 1;
+  if (keys['s'] || keys['arrowdown'])  my += 1;
+  if (keys['a'] || keys['arrowleft'])  mx -= 1;
+  if (keys['d'] || keys['arrowright']) mx += 1;
+  const len = Math.hypot(mx, my);
+  if (len > 1) { mx /= len; my /= len; }
+  return { mx, my };
+}
 
-        if (dist > maxDist) {
-          dx = (dx / dist) * maxDist;
-          dy = (dy / dist) * maxDist;
-        }
+// ── Game loop ──────────────────────────────────────────────────
+let lastTime = performance.now();
 
-        const normalized = normalizeVector(dx / maxDist, dy / maxDist);
-        this.x = normalized.x;
-        this.y = normalized.y;
-        this.mag = normalized.mag;
-        this.angle = normalized.angle;
+function loop(now) {
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
 
-        this.touchX = touch.clientX;
-        this.touchY = touch.clientY;
+  // --- Input → ECS ---
+  const inp  = world.get(playerId, Input);
+  const kb   = keyboardInput();
+  inp.moveX  = leftStick.active  ? leftStick.x  : kb.mx;
+  inp.moveY  = leftStick.active  ? leftStick.y  : kb.my;
+  inp.aimX   = rightStick.active ? rightStick.x  : 0;
+  inp.aimY   = rightStick.active ? rightStick.y  : 0;
 
-        this.knob.style.transform = "translate(calc(-50% + " + dx + "px), calc(-50% + " + dy + "px))";
-        this.marker.style.left = touch.clientX + "px";
-        this.marker.style.top = touch.clientY + "px";
-        this.marker.style.display = "block";
-      }
+  // --- Movement system ---
+  const spd  = world.get(playerId, Speed);
+  const vel  = world.get(playerId, Velocity);
+  const pos  = world.get(playerId, Position);
+  const col  = world.get(playerId, Collider);
+  const fac  = world.get(playerId, Facing);
 
-      end() {
-        this.touchId = null;
-        this.x = 0;
-        this.y = 0;
-        this.mag = 0;
-        this.angle = 0;
-        this.knob.style.transform = "translate(-50%, -50%)";
-        this.marker.style.display = "none";
-      }
+  vel.vx = inp.moveX * spd.max;
+  vel.vy = inp.moveY * spd.max;
 
-      snapshot() {
-        return {
-          active: this.active,
-          touchId: this.touchId,
-          touchX: this.touchX,
-          touchY: this.touchY,
-          x: this.x,
-          y: this.y,
-          mag: this.mag,
-          angle: this.angle
-        };
-      }
-    }
+  if (Math.abs(inp.aimX) > 0.1 || Math.abs(inp.aimY) > 0.1) {
+    fac.angle = Math.atan2(inp.aimY, inp.aimX);
+  } else if (Math.abs(vel.vx) > 1 || Math.abs(vel.vy) > 1) {
+    fac.angle = Math.atan2(vel.vy, vel.vx);
+  }
 
-    const leftStick = new Joystick(
-      document.getElementById("joystick-left"),
-      document.getElementById("knob-left"),
-      document.getElementById("touch-left")
-    );
+  // Sweep collision against cave geometry
+  const dx = vel.vx * dt, dy = vel.vy * dt;
+  if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
+    const t = sweepMaxFree(kernel, pos.x, pos.y, pos.x + dx, pos.y + dy, col.radius);
+    pos.x += dx * t;
+    pos.y += dy * t;
+  }
 
-    const rightStick = new Joystick(
-      document.getElementById("joystick-right"),
-      document.getElementById("knob-right"),
-      document.getElementById("touch-right")
-    );
+  // --- Camera ---
+  followEntity(cam, pos, dt);
+  updateCamera(cam, dt);
 
-    const joystickOutput = {
-      frame: 0,
-      timeMs: 0,
-      left: leftStick.snapshot(),
-      right: rightStick.snapshot(),
-      consume() {
-        return {
-          frame: this.frame,
-          timeMs: this.timeMs,
-          left: { ...this.left },
-          right: { ...this.right }
-        };
-      }
-    };
+  // --- Render ---
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#0b0f12';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    window.hackArenaInput = joystickOutput;
+  applyCamera(ctx, cam, canvas);
 
-    function getJoystickForTouch(touch) {
-      const midX = window.innerWidth / 2;
-      return touch.clientX < midX ? leftStick : rightStick;
-    }
-
-    function publishJoystickOutput(now) {
-      joystickOutput.frame = joystickOutput.frame + 1;
-      joystickOutput.timeMs = now;
-      joystickOutput.left = leftStick.snapshot();
-      joystickOutput.right = rightStick.snapshot();
-    }
-
-    function updateReadouts() {
-      const l = joystickOutput.left;
-      const r = joystickOutput.right;
-
-      if (l.active) {
-        readoutLeft.textContent = "L x:" + l.x.toFixed(2) + " y:" + l.y.toFixed(2) + " m:" + l.mag.toFixed(2) + " tx:" + Math.round(l.touchX) + " ty:" + Math.round(l.touchY);
-      } else {
-        readoutLeft.textContent = "L stick idle";
-      }
-
-      if (r.active) {
-        readoutRight.textContent = "R x:" + r.x.toFixed(2) + " y:" + r.y.toFixed(2) + " m:" + r.mag.toFixed(2) + " tx:" + Math.round(r.touchX) + " ty:" + Math.round(r.touchY);
-      } else {
-        readoutRight.textContent = "R stick idle";
-      }
-    }
-
-    document.addEventListener("touchstart", function (e) {
-      e.preventDefault();
-      for (const touch of e.changedTouches) {
-        const stick = getJoystickForTouch(touch);
-        if (stick.active === false) {
-          stick.start(touch);
-        }
-      }
-    }, { passive: false });
-
-    document.addEventListener("touchmove", function (e) {
-      e.preventDefault();
-      for (const touch of e.changedTouches) {
-        if (leftStick.touchId === touch.identifier) {
-          leftStick.update(touch);
-        }
-        if (rightStick.touchId === touch.identifier) {
-          rightStick.update(touch);
-        }
-      }
-    }, { passive: false });
-
-    function releaseTouches(changedTouches) {
-      for (const touch of changedTouches) {
-        if (leftStick.touchId === touch.identifier) {
-          leftStick.end();
-        }
-        if (rightStick.touchId === touch.identifier) {
-          rightStick.end();
-        }
-      }
-    }
-
-    document.addEventListener("touchend", function (e) {
-      releaseTouches(e.changedTouches);
-    });
-
-    document.addEventListener("touchcancel", function (e) {
-      releaseTouches(e.changedTouches);
-    });
-
-    const WORLD = {
-      width: 4000,
-      height: 4000,
-      gridSize: 48,
-    };
-
-    const camera = {
-      x: WORLD.width / 2,
-      y: WORLD.height / 2,
-    };
-
-    const player = {
-      x: WORLD.width / 2,
-      y: WORLD.height / 2,
-      angle: 0,
-      speed: 260,
-      radius: 16,
-    };
-
-    function worldToScreen(wx, wy) {
-      return {
-        x: wx - camera.x + canvas.width / 2,
-        y: wy - camera.y + canvas.height / 2,
-      };
-    }
-
-    function drawWorldGrid() {
-      ctx.strokeStyle = "rgba(255,255,255,0.05)";
-      ctx.lineWidth = 1;
-
-      const left = camera.x - canvas.width / 2;
-      const right = camera.x + canvas.width / 2;
-      const top = camera.y - canvas.height / 2;
-      const bottom = camera.y + canvas.height / 2;
-
-      const startX = Math.floor(left / WORLD.gridSize) * WORLD.gridSize;
-      const endX = Math.ceil(right / WORLD.gridSize) * WORLD.gridSize;
-      for (let wx = startX; wx <= endX; wx += WORLD.gridSize) {
-        const a = worldToScreen(wx, top);
-        const b = worldToScreen(wx, bottom);
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-      }
-
-      const startY = Math.floor(top / WORLD.gridSize) * WORLD.gridSize;
-      const endY = Math.ceil(bottom / WORLD.gridSize) * WORLD.gridSize;
-      for (let wy = startY; wy <= endY; wy += WORLD.gridSize) {
-        const a = worldToScreen(left, wy);
-        const b = worldToScreen(right, wy);
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-      }
-    }
-
-    let lastTime = performance.now();
-
-    function loop(now) {
-      const dt = (now - lastTime) / 1000;
-      lastTime = now;
-
-      publishJoystickOutput(now);
-
-      if (Math.abs(joystickOutput.left.x) > 0.1 || Math.abs(joystickOutput.left.y) > 0.1) {
-        player.x = player.x + joystickOutput.left.x * player.speed * dt;
-        player.y = player.y + joystickOutput.left.y * player.speed * dt;
-      }
-
-      if (Math.abs(joystickOutput.right.x) > 0.1 || Math.abs(joystickOutput.right.y) > 0.1) {
-        player.angle = Math.atan2(joystickOutput.right.y, joystickOutput.right.x);
-      }
-
-      player.x = Math.max(player.radius, Math.min(WORLD.width - player.radius, player.x));
-      player.y = Math.max(player.radius, Math.min(WORLD.height - player.radius, player.y));
-
-      camera.x = player.x;
-      camera.y = player.y;
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawWorldGrid();
-
-      const screenPlayer = worldToScreen(player.x, player.y);
-
+  // Draw cave geometry
+  ctx.fillStyle = '#142030';
+  for (const g of kernel.carves) {
+    if (g.type === 'circle') {
+      ctx.beginPath(); ctx.arc(g.cx, g.cy, g.r, 0, Math.PI * 2); ctx.fill();
+    } else if (g.type === 'capsule' || g.type === 'rectslot') {
+      const ddx = g.bx - g.ax, ddy = g.by - g.ay;
+      const L = Math.hypot(ddx, ddy) || 1;
+      const ux = ddx/L, uy = ddy/L, nx = -uy, ny = ux;
       ctx.beginPath();
-      ctx.arc(screenPlayer.x, screenPlayer.y, player.radius, 0, Math.PI * 2);
-      ctx.fillStyle = "#4fc3f7";
-      ctx.fill();
-      ctx.strokeStyle = "#81d4fa";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      const aimLen = player.radius + 14;
-      ctx.beginPath();
-      ctx.moveTo(
-        screenPlayer.x + Math.cos(player.angle) * player.radius,
-        screenPlayer.y + Math.sin(player.angle) * player.radius
-      );
-      ctx.lineTo(
-        screenPlayer.x + Math.cos(player.angle) * aimLen,
-        screenPlayer.y + Math.sin(player.angle) * aimLen
-      );
-      ctx.strokeStyle = "#fff";
-      ctx.lineWidth = 3;
-      ctx.lineCap = "round";
-      ctx.stroke();
-
-      updateReadouts();
-      hud.textContent = "Hack Arena frame " + joystickOutput.frame
-        + " move(" + joystickOutput.left.x.toFixed(2) + ", " + joystickOutput.left.y.toFixed(2) + ")"
-        + " aim(" + joystickOutput.right.x.toFixed(2) + ", " + joystickOutput.right.y.toFixed(2) + ")"
-        + " camera(" + Math.round(camera.x) + ", " + Math.round(camera.y) + ")";
-
-      requestAnimationFrame(loop);
+      ctx.moveTo(g.ax + nx*g.r, g.ay + ny*g.r);
+      ctx.lineTo(g.bx + nx*g.r, g.by + ny*g.r);
+      ctx.arc(g.bx, g.by, g.r, Math.atan2(ny, nx), Math.atan2(-ny, -nx));
+      ctx.lineTo(g.ax - nx*g.r, g.ay - ny*g.r);
+      ctx.arc(g.ax, g.ay, g.r, Math.atan2(-ny, -nx), Math.atan2(ny, nx));
+      ctx.closePath(); ctx.fill();
     }
+  }
 
-    requestAnimationFrame(loop);
-  </script>
+  // Draw player
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, col.radius, 0, Math.PI * 2);
+  ctx.fillStyle = '#193447';
+  ctx.fill();
+  ctx.strokeStyle = '#6fd';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Glyph
+  ctx.fillStyle = '#cfe8ff';
+  ctx.font = `bold ${Math.floor(col.radius * 1.4)}px ui-monospace, monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('@', pos.x, pos.y + 1);
+
+  // Aim indicator
+  const aimLen = col.radius + 14;
+  ctx.beginPath();
+  ctx.moveTo(pos.x + Math.cos(fac.angle) * col.radius, pos.y + Math.sin(fac.angle) * col.radius);
+  ctx.lineTo(pos.x + Math.cos(fac.angle) * aimLen, pos.y + Math.sin(fac.angle) * aimLen);
+  ctx.strokeStyle = '#8fe'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // --- HUD ---
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  hud.textContent = `Hack Arena  seed:${SEED.toString(16)}  carves:${kernel.carves.length}`;
+  readL.textContent = leftStick.active
+    ? `L x:${inp.moveX.toFixed(2)} y:${inp.moveY.toFixed(2)}`
+    : (Math.abs(kb.mx) + Math.abs(kb.my) > 0 ? `KB ${kb.mx},${kb.my}` : 'L stick idle');
+  readR.textContent = rightStick.active
+    ? `R x:${inp.aimX.toFixed(2)} y:${inp.aimY.toFixed(2)}`
+    : 'R stick idle';
+
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+</script>
 </body>
 </html>
