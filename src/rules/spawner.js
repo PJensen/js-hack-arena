@@ -1,0 +1,77 @@
+// rules/spawner.js
+// Entity creation helpers. Creates entities with the right component bundles.
+// No display logic. Pure ECS.
+
+import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV, PointLight, AI, AIBehavior, Inventory, Projectile, Lifetime } from './components/index.js';
+
+/**
+ * Find open ground near a point using the grid.
+ */
+export function findOpenNear(grid, x, y, searchRadius = 200) {
+  for (let r = 0; r < searchRadius; r += 8) {
+    for (let a = 0; a < Math.PI * 2; a += 0.4) {
+      const tx = x + Math.cos(a) * r, ty = y + Math.sin(a) * r;
+      if (grid.distanceMove(tx, ty) >= 20) return { x: tx, y: ty };
+    }
+  }
+  return { x, y };
+}
+
+/**
+ * Spawn the local player entity.
+ */
+export function spawnPlayer(world, x, y) {
+  const id = world.create();
+  world.add(id, Position, { x, y });
+  world.add(id, Velocity, { vx: 0, vy: 0 });
+  world.add(id, Facing,   { angle: 0 });
+  world.add(id, Collider, { radius: 14 });
+  world.add(id, Speed,    { max: 200 });
+  world.add(id, Input);
+  world.add(id, Actor,    { kind: ActorKind.PLAYER, name: 'Player', glyph: '@' });
+  world.add(id, Health,   { hp: 100, maxHp: 100 });
+  world.add(id, FOV,      { distance: 220, angle: 1.4 });
+  world.add(id, PointLight, { radius: 350, r: 255, g: 190, b: 120 });
+  world.add(id, Inventory, { items: [], capacity: 10 });
+  return id;
+}
+
+/**
+ * Spawn a caster mob targeting the given entity.
+ */
+export function spawnCaster(world, grid, nearX, nearY, targetId) {
+  const pos = findOpenNear(grid, nearX, nearY, 400);
+  const id = world.create();
+  world.add(id, Position, { x: pos.x, y: pos.y });
+  world.add(id, Velocity, { vx: 0, vy: 0 });
+  world.add(id, Facing,   { angle: 0 });
+  world.add(id, Collider, { radius: 12 });
+  world.add(id, Speed,    { max: 80 });
+  world.add(id, Actor,    { kind: ActorKind.MOB, name: 'Wraith', glyph: 'W' });
+  world.add(id, Health,   { hp: 60, maxHp: 60 });
+  world.add(id, AI, {
+    behavior: AIBehavior.CASTER,
+    target: targetId,
+    preferredDist: 140,
+    castRate: 1.5,
+    projSpeed: 220,
+    aggroRange: 300,
+  });
+  return id;
+}
+
+/**
+ * Spawn a projectile (frost bolt or shadow bolt).
+ */
+export function spawnProjectile(world, { x, y, angle, speed, damage, owner, radius, light }) {
+  const id = world.create();
+  world.add(id, Position, { x: x + Math.cos(angle) * 20, y: y + Math.sin(angle) * 20 });
+  world.add(id, Velocity, { vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
+  world.add(id, Projectile, { damage, owner, speed, piercing: false });
+  world.add(id, Lifetime, { ttl: 2.5 });
+  world.add(id, Collider, { radius: radius || 5 });
+  if (light) {
+    world.add(id, PointLight, light);
+  }
+  return id;
+}

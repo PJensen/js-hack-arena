@@ -214,6 +214,17 @@ export function createInputRouter({
     rightStick.recalcRadius();
   });
 
+  // Zoom via +/- keys and mouse wheel
+  let zoomDelta = 0;
+  on(window, 'keydown', (e) => {
+    if (e.key === '=' || e.key === '+') zoomDelta += 1;
+    if (e.key === '-' || e.key === '_') zoomDelta -= 1;
+  });
+  on(window, 'wheel', (e) => {
+    e.preventDefault();
+    zoomDelta += e.deltaY < 0 ? 1 : -1;
+  }, { passive: false });
+
   function keyboardMove() {
     let x = 0;
     let y = 0;
@@ -281,12 +292,14 @@ export function createInputRouter({
       sourceAim = aimKb.mag > 0.05 ? 'keyboard' : 'none';
     }
 
-    const fire = rightStick.active || mouse.down;
+    const fire = rightStick.active || mouse.down || keys[' '];
 
     output.frame += 1;
     output.timeMs = nowMs;
     output.left = leftStick.snapshot();
     output.right = rightStick.snapshot();
+    output.zoomDelta = zoomDelta;
+    zoomDelta = 0;  // drain
     output.intent = { moveX, moveY, aimX, aimY, fire, sourceMove, sourceAim };
 
     if (bus) bus.emit('input.sampled', output);
