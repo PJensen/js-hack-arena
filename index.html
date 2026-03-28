@@ -592,11 +592,38 @@ function cameraPhaseSystem(world, dt) {
   updateCamera(cam, dt);
 }
 
+function deathPhaseSystem(world, dt) {
+  const toDie = [];
+  for (const [id, pos, hp, actor] of world.query(Position, Health, Actor)) {
+    if (hp.hp > 0) continue;
+    if (id === playerId) continue;  // player death handled in render
+
+    // Death burst particles
+    const burst = fx.ensureEmitter('death:' + id, {
+      continuous: false, burstCount: 30,
+      angle: 0, spread: Math.PI,
+      speed: 40, speedJitter: 0.7,
+      ax: 0, ay: 0,
+      life: 0.5, lifeJitter: 0.4,
+      size: 6, sizeEnd: 1,
+      color: actor.kind === ActorKind.MOB ? '#a050ff' : '#ffffff',
+      alpha0: 0.9, alpha1: 0.0,
+    });
+    burst.step(fx.pool, dt, pos.x, pos.y);
+    toDie.push(id);
+  }
+  for (const id of toDie) {
+    aiPaths.delete(id);
+    world.destroy(id);
+  }
+}
+
 world.system(inputPhaseSystem, 'input');
 world.system(simulatePhaseSystem, 'simulate');
 world.system(aiPhaseSystem, 'simulate');
 world.system(bumpPhaseSystem, 'simulate');
 world.system(projectilePhaseSystem, 'simulate');
+world.system(deathPhaseSystem, 'simulate');
 world.system(cameraPhaseSystem, 'camera');
 world.setScheduler(composeScheduler('input', 'simulate', 'camera'));
 
@@ -674,6 +701,27 @@ function renderFrame() {
     ctx.fillText(isEnemy ? '\u2726' : '\u2744', bpos.x, bpos.y);  // ✦ or ❄
   }
 
+  // ── Health bars (JSHack style — HSL hue shift green→red) ──
+  for (const [id, hpos, hcol, hp] of world.query(Position, Collider, Health)) {
+    if (hp.hp >= hp.maxHp && id !== playerId) continue;  // full HP mobs hidden
+    const ratio = Math.max(0, hp.hp / Math.max(1, hp.maxHp));
+    const barW = hcol.radius * 2.2;
+    const barH = 4;
+    const bx = hpos.x - barW * 0.5;
+    const by = hpos.y - hcol.radius - 10;
+    const hue = Math.round(120 * ratio);
+
+    ctx.fillStyle = 'rgba(10,12,18,0.8)';
+    ctx.fillRect(bx, by, barW, barH);
+    if (ratio > 0) {
+      ctx.fillStyle = `hsl(${hue} 85% 48%)`;
+      ctx.fillRect(bx + 0.5, by + 0.5, (barW - 1) * ratio, barH - 1);
+    }
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(bx, by, barW, barH);
+  }
+
   const aimLen = col.radius + 14;
   ctx.beginPath();
   ctx.moveTo(pos.x + Math.cos(fac.angle) * col.radius, pos.y + Math.sin(fac.angle) * col.radius);
@@ -722,7 +770,23 @@ function renderFrame() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   fx.ctx = ctx;
   fx.render({ mode: 'lighter' });
-  hud.textContent = 'Hack Arena  seed:' + SEED.toString(16) + '  spawns:' + spawns.length + '  casts:' + runtimeEvents.casts;
+  // Player death overlay
+  const playerHp = world.get(playerId, Health);
+  if (playerHp.hp <= 0) {
+    ctx.fillStyle = 'rgba(80,0,0,0.6)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#ff4444';
+    ctx.font = 'bold 48px Inter, system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('YOU DIED', canvas.width / 2, canvas.height / 2 - 20);
+    ctx.fillStyle = '#ccc';
+    ctx.font = '20px Inter, system-ui, sans-serif';
+    ctx.fillText('refresh to respawn', canvas.width / 2, canvas.height / 2 + 30);
+  }
+
+  // HUD — show HP
+  const hpText = playerHp.hp > 0 ? `  HP:${playerHp.hp}/${playerHp.maxHp}` : '';
+  hud.textContent = 'Hack Arena  seed:' + SEED.toString(16) + hpText + '  casts:' + runtimeEvents.casts;
   zoomReadout.textContent = `zoom: ${cam.scale.toFixed(2)}x  [+/- or scroll]`;
   readL.textContent = leftStick.active
     ? `L x:${inp.moveX.toFixed(2)} y:${inp.moveY.toFixed(2)}`
