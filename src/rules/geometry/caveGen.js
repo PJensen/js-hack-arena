@@ -4,6 +4,7 @@
 // The SDF primitives ARE the geometry — perfect at any zoom level.
 
 import { createKernel } from './kernel.js';
+import { bakeGrid } from './caveGrid.js';
 
 // ── Perlin noise (2D, self-contained) ──────────────────────────
 
@@ -68,11 +69,11 @@ export const CaveProfile = Object.freeze({
   // Rooms feel BIG when zoomed in. Brush radii are world-units.
   CAVERNS: {
     threshold: -0.08,    // liberal carving → large open areas
-    brushMin:  40,       // smallest carve
-    brushMax: 120,       // big chambers
+    brushMin:  18,       // smallest carve
+    brushMax:  52,       // chambers
     octaves: 4,
-    scale: 0.006,        // low freq → broad features
-    passageWidth: 30,    // min corridor width (for connector capsules)
+    scale: 0.012,        // higher freq → tighter features
+    passageWidth: 20,    // min corridor width (for connector capsules)
   },
   TUNNELS: {
     threshold: 0.05,
@@ -253,8 +254,12 @@ export function generateCave(opts) {
     if (spawns.length === 0) spawns.push({ x: cx, y: cy });
   }
 
+  // Bake SDF → grid for O(1) runtime collision queries
+  const grid = bakeGrid(kernel, width, height);
+
   return {
     kernel,
+    grid,
     bounds: { w: width, h: height },
     rooms,
     spawns,
