@@ -138,6 +138,36 @@
   <div class="touch-dot touch-dot-right" id="touch-right"></div>
 
   <script>
+    const ENABLE_SW = true;
+
+    async function registerServiceWorker() {
+      if (!ENABLE_SW) return;
+      if (!("serviceWorker" in navigator)) return;
+      if (!window.isSecureContext) return;
+
+      try {
+        const reg = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
+
+        if (reg.waiting) {
+          reg.waiting.postMessage({ type: "SKIP_WAITING" });
+        }
+
+        reg.addEventListener("updatefound", () => {
+          const installing = reg.installing;
+          if (!installing) return;
+          installing.addEventListener("statechange", () => {
+            if (installing.state === "installed" && navigator.serviceWorker.controller) {
+              installing.postMessage({ type: "SKIP_WAITING" });
+            }
+          });
+        });
+      } catch (err) {
+        console.warn("SW registration failed", err);
+      }
+    }
+
+    registerServiceWorker();
+
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d");
     const hud = document.getElementById("hud");
