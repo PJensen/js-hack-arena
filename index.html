@@ -114,6 +114,7 @@ import { createCamera, updateCamera, applyCamera } from './src/display/camera/co
 import { followEntity } from './src/display/camera/follow.js';
 import { bakeCavePass } from './src/display/passes/cavePass.js';
 import { createTorchPass } from './src/display/passes/torchPass.js';
+import { ParticleFX } from './src/display/passes/vfx/particles/particlePool.js';
 
 // ── Canvas setup ───────────────────────────────────────────────
 const canvas = document.getElementById('game');
@@ -136,6 +137,26 @@ const spawn = spawns[0];
 // Pre-bake grid to offscreen canvas (one-time)
 const caveBake = bakeCavePass(caveData);
 const torchPass = createTorchPass(grid);
+
+// ── Particle FX (frost bolt trails) ─────────────────────────────
+const fx = new ParticleFX({ capacity: 2048, seedBase: SEED });
+fx.worldToScreen = (x, y, size, out) => {
+  out.x = (x - cam.x) * cam.scale + canvas.width * 0.5;
+  out.y = (y - cam.y) * cam.scale + canvas.height * 0.5;
+  out.size = size * cam.scale;
+};
+
+const FROST_TRAIL = {
+  continuous: true, rate: 40,
+  angle: Math.PI, spread: Math.PI,   // emit in all directions from bolt center
+  speed: 15, speedJitter: 0.8,
+  ax: 0, ay: 0,
+  life: 0.4, lifeJitter: 0.5,
+  size: 6, sizeEnd: 1,
+  color: '#8cd8ff',
+  alpha0: 0.85, alpha1: 0.0,
+};
+
 console.log(`Cave: seed=${SEED.toString(16)} grid=${grid.cols}x${grid.rows} spawns=${spawns.length}`);
 
 // ── ECS world ──────────────────────────────────────────────────
@@ -311,22 +332,48 @@ function simulatePhaseSystem(world, dt) {
 
 function projectilePhaseSystem(world, dt) {
   const toDestroy = [];
+  const origins = [];
+
   for (const [id, pos, vel, proj, lt, col] of world.query(Position, Velocity, Projectile, Lifetime, Collider)) {
     // Move
     pos.x += vel.vx * dt;
     pos.y += vel.vy * dt;
 
+    // Ensure trail emitter exists
+    fx.ensureEmitter('bolt:' + id, FROST_TRAIL);
+    origins.push({ key: 'bolt:' + id, x: pos.x, y: pos.y, vx: vel.vx * 0.1, vy: vel.vy * 0.1 });
+
     // Wall collision — destroy if inside wall
     if (grid.distanceMove(pos.x, pos.y) < col.radius) {
+      // Burst on impact
+      const burst = fx.ensureEmitter('hit:' + id, {
+        continuous: false, burstCount: 20,
+        angle: 0, spread: Math.PI,
+        speed: 50, speedJitter: 0.6,
+        ax: 0, ay: 0,
+        life: 0.35, lifeJitter: 0.4,
+        size: 5, sizeEnd: 1,
+        color: '#b0e0ff',
+        alpha0: 0.9, alpha1: 0.0,
+      });
+      burst.step(fx.pool, dt, pos.x, pos.y);
+      fx.removeEmitter('bolt:' + id);
       toDestroy.push(id);
       continue;
     }
 
-    // Lifetime
     lt.ttl -= dt;
-    if (lt.ttl <= 0) toDestroy.push(id);
+    if (lt.ttl <= 0) {
+      fx.removeEmitter('bolt:' + id);
+      toDestroy.push(id);
+    }
   }
-  for (const id of toDestroy) world.destroy(id);
+
+  fx.step(dt, origins);
+  for (const id of toDestroy) {
+    fx.removeEmitter('bolt:' + id);
+    world.destroy(id);
+  }
 }
 
 function cameraPhaseSystem(world, dt) {
@@ -400,26 +447,40 @@ function renderFrame() {
   const lights = [];
   for (const [id, lpos, pl] of world.query(Position, PointLight)) {
     if (!pl.enabled) continue;
-    // Flickering torch — layered sine waves + noise for organic fire feel
     const t = performance.now() * 0.001;
-    const flicker = 1.0
-      + 0.12 * Math.sin(t * 5.7)
-      + 0.08 * Math.sin(t * 13.3)
-      + 0.06 * Math.sin(t * 23.1)
-      + 0.10 * (Math.random() - 0.5);
-    lights.push({
-      x: lpos.x, y: lpos.y,
-      radius: pl.radius * Math.max(0.7, flicker),
-      color: [
-        Math.min(255, pl.r * Math.max(0.8, flicker)),
-        Math.min(255, pl.g * Math.max(0.6, flicker * 0.85)),
-        Math.min(255, pl.b * Math.max(0.3, flicker * 0.5)),
-      ],
-    });
+    const isTorch = pl.b < pl.r;  // warm light = torch, cool light = frost
+    if (isTorch) {
+      // Flickering torch — layered sine waves + noise
+      const flicker = 1.0
+        + 0.12 * Math.sin(t * 5.7 + id)
+        + 0.08 * Math.sin(t * 13.3 + id)
+        + 0.06 * Math.sin(t * 23.1)
+        + 0.10 * (Math.random() - 0.5);
+      lights.push({
+        x: lpos.x, y: lpos.y,
+        radius: pl.radius * Math.max(0.7, flicker),
+        color: [
+          Math.min(255, pl.r * Math.max(0.8, flicker)),
+          Math.min(255, pl.g * Math.max(0.6, flicker * 0.85)),
+          Math.min(255, pl.b * Math.max(0.3, flicker * 0.5)),
+        ],
+      });
+    } else {
+      // Frost bolt — cold shimmer, preserve blue
+      const shimmer = 1.0 + 0.05 * Math.sin(t * 20 + id * 7);
+      lights.push({
+        x: lpos.x, y: lpos.y,
+        radius: pl.radius * shimmer,
+        color: [pl.r * shimmer, pl.g * shimmer, pl.b],
+      });
+    }
   }
   torchPass.render(ctx, lights, canvas.width, canvas.height, cam);
 
+  // ── Particles (screen space via worldToScreen) ──
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  fx.ctx = ctx;
+  fx.render({ mode: 'lighter' });
   hud.textContent = 'Hack Arena  seed:' + SEED.toString(16) + '  spawns:' + spawns.length + '  casts:' + runtimeEvents.casts;
   zoomReadout.textContent = `zoom: ${cam.scale.toFixed(2)}x  [+/- or scroll]`;
   readL.textContent = leftStick.active
