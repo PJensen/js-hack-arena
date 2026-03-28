@@ -46,8 +46,25 @@
   const ENABLE_SW = true;
 
   async function registerServiceWorker() {
+    const isGithubPages = window.location.hostname.endsWith('github.io');
+
+    // Keep GH Pages cache behavior predictable while iterating quickly.
+    if (isGithubPages) {
+      if ('serviceWorker' in navigator) {
+        try {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          for (const reg of regs) {
+            await reg.unregister();
+          }
+        } catch (err) {
+          console.warn('SW unregister on github.io failed', err);
+        }
+      }
+      return;
+    }
+
     if (!ENABLE_SW) return;
-    if (!("serviceWorker" in navigator)) return;
+    if (!('serviceWorker' in navigator)) return;
     if (!window.isSecureContext) return;
 
     const swUrl = new URL('sw.js', window.location.href);
@@ -84,7 +101,7 @@
 
 <script type="module">
 // ── Imports ────────────────────────────────────────────────────
-import { World, RafLoop } from './src/lib/ecs-js/index.js';
+import { World, RafLoop, composeScheduler } from './src/lib/ecs-js/index.js';
 import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV }
   from './src/rules/components/index.js';
 import { generateCave, CaveProfile } from './src/rules/geometry/caveGen.js';
@@ -201,30 +218,33 @@ function keyboardInput() {
   return { mx, my };
 }
 
-// ── Game loop (RafLoop adapter) ───────────────────────────────
+
+// ── Scheduler phases (world.tick driven) ───────────────────────
 let castEventCooldown = 0;
 
-function simulateFrame(dt) {
-  // --- Input → ECS ---
-  const inp  = world.get(playerId, Input);
-  const kb   = keyboardInput();
-  inp.moveX  = leftStick.active  ? leftStick.x  : kb.mx;
-  inp.moveY  = leftStick.active  ? leftStick.y  : kb.my;
-  inp.aimX   = rightStick.active ? rightStick.x : 0;
-  inp.aimY   = rightStick.active ? rightStick.y : 0;
+function inputPhaseSystem(world, dt) {
+  const inp = world.get(playerId, Input);
+  const kb = keyboardInput();
+
+  inp.moveX = leftStick.active ? leftStick.x : kb.mx;
+  inp.moveY = leftStick.active ? leftStick.y : kb.my;
+  inp.aimX = rightStick.active ? rightStick.x : 0;
+  inp.aimY = rightStick.active ? rightStick.y : 0;
 
   castEventCooldown -= dt;
   if (rightStick.active && (Math.abs(inp.aimX) > 0.1 || Math.abs(inp.aimY) > 0.1) && castEventCooldown <= 0) {
     castEventCooldown = 0.12;
     world.emit('spell.cast', { id: playerId, x: inp.aimX, y: inp.aimY, t: performance.now() });
   }
+}
 
-  // --- Movement system ---
-  const spd  = world.get(playerId, Speed);
-  const vel  = world.get(playerId, Velocity);
-  const pos  = world.get(playerId, Position);
-  const col  = world.get(playerId, Collider);
-  const fac  = world.get(playerId, Facing);
+function simulatePhaseSystem(world, dt) {
+  const inp = world.get(playerId, Input);
+  const spd = world.get(playerId, Speed);
+  const vel = world.get(playerId, Velocity);
+  const pos = world.get(playerId, Position);
+  const col = world.get(playerId, Collider);
+  const fac = world.get(playerId, Facing);
 
   vel.vx = inp.moveX * spd.max;
   vel.vy = inp.moveY * spd.max;
@@ -242,10 +262,18 @@ function simulateFrame(dt) {
     pos.x = moved.x;
     pos.y = moved.y;
   }
+}
 
+function cameraPhaseSystem(world, dt) {
+  const pos = world.get(playerId, Position);
   followEntity(cam, pos, dt);
   updateCamera(cam, dt);
 }
+
+world.system(inputPhaseSystem, 'input');
+world.system(simulatePhaseSystem, 'simulate');
+world.system(cameraPhaseSystem, 'camera');
+world.setScheduler(composeScheduler('input', 'simulate', 'camera'));
 
 function renderFrame() {
   const inp = world.get(playerId, Input);
@@ -296,8 +324,8 @@ function renderFrame() {
 }
 
 const loopWorld = {
-  step(dt) {
-    simulateFrame(dt);
+  tick(dt) {
+    world.tick(dt);
   }
 };
 
