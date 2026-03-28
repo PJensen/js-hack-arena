@@ -1,8 +1,9 @@
 // rules/systems/projectileSystem.js — move projectiles, trail particles, hit detection, wall collision
 import { Position, Velocity, Projectile, Lifetime, Collider, Health, AI } from '../components/index.js';
+import { FROST_TRAIL, SHADOW_TRAIL } from '../data/fxCatalog.js';
 
 export function createProjectileSystem(ctx) {
-  const { grid, fx, fxCatalog } = ctx;
+  const { grid, fx } = ctx;
 
   return function projectileSystem(world, dt) {
     const toDestroy = [];
@@ -21,7 +22,7 @@ export function createProjectileSystem(ctx) {
 
       // Trail particles — use AI check on owner to determine trail type
       const isEnemyBolt = world.alive.has(proj.owner) && world.has(proj.owner, AI);
-      const trail = isEnemyBolt ? fxCatalog.SHADOW_TRAIL : fxCatalog.FROST_TRAIL;
+      const trail = isEnemyBolt ? SHADOW_TRAIL : FROST_TRAIL;
       fx.ensureEmitter('bolt:' + id, trail);
       origins.push({ key: 'bolt:' + id, x: pos.x, y: pos.y, vx: vel.vx * 0.1, vy: vel.vy * 0.1 });
 

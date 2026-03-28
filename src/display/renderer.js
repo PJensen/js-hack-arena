@@ -188,10 +188,11 @@ export function createRenderer(deps) {
     const hpText = playerHp.hp > 0 ? `  HP:${playerHp.hp}/${playerHp.maxHp}` : '';
     hud.hud.textContent = 'Hack Arena  seed:' + SEED.toString(16) + hpText + '  casts:' + runtimeEvents.casts;
     hud.zoomReadout.textContent = `zoom: ${cam.scale.toFixed(2)}x  [+/- or scroll]`;
-    hud.readL.textContent = input.leftStick.active
+    const routerOut = input.leftStick.getOutput();
+    hud.readL.textContent = routerOut.left.active
       ? `L x:${inp.moveX.toFixed(2)} y:${inp.moveY.toFixed(2)}`
       : (Math.abs(kb.mx) + Math.abs(kb.my) > 0 ? `KB ${kb.mx},${kb.my}` : 'L stick idle');
-    hud.readR.textContent = input.rightStick.active
+    hud.readR.textContent = routerOut.right.active
       ? `R x:${inp.aimX.toFixed(2)} y:${inp.aimY.toFixed(2)}`
       : 'R stick idle';
   };

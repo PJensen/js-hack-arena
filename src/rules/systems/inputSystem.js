@@ -1,36 +1,18 @@
-// rules/systems/inputSystem.js — reads sticks/keyboard, writes Input component, spawns frost bolts
-import { Position, Velocity, Facing, Input, Collider, Projectile, Lifetime, PointLight } from '../components/index.js';
-
-function keyboardInput(keys) {
-  let mx = 0, my = 0;
-  if (keys['w'] || keys['arrowup'])    my -= 1;
-  if (keys['s'] || keys['arrowdown'])  my += 1;
-  if (keys['a'] || keys['arrowleft'])  mx -= 1;
-  if (keys['d'] || keys['arrowright']) mx += 1;
-  const len = Math.hypot(mx, my);
-  if (len > 1) { mx /= len; my /= len; }
-  return { mx, my };
-}
+// rules/systems/inputSystem.js — reads InputRouter, writes Input component, spawns frost bolts
+import { Position, Velocity, Input, Collider, Projectile, Lifetime, PointLight } from '../components/index.js';
 
 export function createInputSystem(ctx) {
-  const { leftStick, rightStick, keys, playerId } = ctx;
+  const { inputRouter, playerId } = ctx;
   let castEventCooldown = 0;
 
   return function inputSystem(world, dt) {
     const inp = world.get(playerId, Input);
-    const kb = keyboardInput(keys);
+    const o = inputRouter.sample();
 
-    inp.moveX = leftStick.active ? leftStick.x : kb.mx;
-    inp.moveY = leftStick.active ? leftStick.y : kb.my;
-    inp.aimX = rightStick.active ? rightStick.x : 0;
-    inp.aimY = rightStick.active ? rightStick.y : 0;
-
-    // Keyboard aim: spacebar fires in current facing direction
-    const kbAimX = keys[' '] ? Math.cos(world.get(playerId, Facing).angle) : 0;
-    const kbAimY = keys[' '] ? Math.sin(world.get(playerId, Facing).angle) : 0;
-    if (!rightStick.active && Math.abs(kbAimX) > 0.1) {
-      inp.aimX = kbAimX; inp.aimY = kbAimY;
-    }
+    inp.moveX = o.intent.moveX;
+    inp.moveY = o.intent.moveY;
+    inp.aimX = o.intent.aimX;
+    inp.aimY = o.intent.aimY;
 
     castEventCooldown -= dt;
     const aiming = Math.abs(inp.aimX) > 0.1 || Math.abs(inp.aimY) > 0.1;

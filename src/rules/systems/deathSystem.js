@@ -2,13 +2,13 @@
 import { Position, Health, Actor, ActorKind } from '../components/index.js';
 
 export function createDeathSystem(ctx) {
-  const { fx, playerTag } = ctx;
+  const { fx, playerId } = ctx;
 
   return function deathSystem(world, dt) {
     const toDie = [];
     for (const [id, pos, hp, actor] of world.query(Position, Health, Actor)) {
       if (hp.hp > 0) continue;
-      if (id === playerTag) continue;  // player death handled in render
+      if (id === playerId) continue;  // player death handled in render
 
       // Death burst particles
       const burst = fx.ensureEmitter('death:' + id, {
