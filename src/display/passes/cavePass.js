@@ -59,10 +59,9 @@ export function bakeCavePass(caveData) {
         const bottom = moveGrid[rowOff1 + gx] * (1 - tx) + moveGrid[rowOff1 + gx + 1] * tx;
         const val = top * (1 - ty) + bottom * ty;
 
-        if (val > 3) {
+        if (val > 18) {
           r = FLOOR_R; g = FLOOR_G; b = FLOOR_B;
-        } else if (val > 0) {
-          // Edge fringe — blend between wall and floor
+        } else if (val > 10) {
           r = EDGE_R; g = EDGE_G; b = EDGE_B;
         } else {
           r = WALL_R; g = WALL_G; b = WALL_B;

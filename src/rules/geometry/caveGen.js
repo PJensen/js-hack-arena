@@ -63,7 +63,7 @@ export function fbm(noise, x, y, octaves = 4, lacunarity = 2, gain = 0.5) {
 
 export const CaveProfile = Object.freeze({
   CAVERNS: {
-    threshold: -0.08,
+    threshold: -0.18,
     octaves: 4,
     scale: 0.012,
   },
@@ -109,8 +109,9 @@ function bakeGrid(seed, width, height, profile, cellSize) {
       const edgeFade = Math.max(0, Math.min(1, edgeDist / (margin * 2)));
 
       const val = n * edgeFade - threshold;
-      // Positive = open space; scale to world-unit clearance
-      moveGrid[rowOff + gx] = val > 0 ? val * 80 : 0;
+      // Positive = open space; scale generously so passages stay navigable
+      // (player radius is 14, so even narrow corridors need clearance > 14)
+      moveGrid[rowOff + gx] = val > 0 ? val * 200 : 0;
     }
   }
 
