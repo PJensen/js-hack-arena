@@ -21,7 +21,6 @@ function buildPermutation(rng) {
   const p = new Uint8Array(512);
   const base = new Uint8Array(256);
   for (let i = 0; i < 256; i++) base[i] = i;
-  // Fisher-Yates shuffle
   for (let i = 255; i > 0; i--) {
     const j = (rng() * (i + 1)) | 0;
     const tmp = base[i]; base[i] = base[j]; base[j] = tmp;
@@ -64,7 +63,7 @@ function fbm(noise, x, y, octaves = 4, lacunarity = 2, gain = 0.5) {
     freq *= lacunarity;
     amp *= gain;
   }
-  return sum / max;   // normalised ≈ [-1, 1]
+  return sum / max;
 }
 
 // ── Cave profiles ──────────────────────────────────────────────
@@ -76,51 +75,207 @@ export const CaveProfile = Object.freeze({
   WARRENS:  { threshold:  0.15, brushMin:  8, brushMax: 16, octaves: 6, scale: 0.035 },
 });
 
-// ── Generator ──────────────────────────────────────────────────
+// ── Density field (the readable form of the cave) ──────────────
 
 /**
- * Generate a cave system by sampling Perlin noise and carving circles
- * wherever the noise exceeds a threshold.
- *
- * @param {object}  opts
- * @param {number}  opts.seed       – deterministic seed
- * @param {number}  opts.width      – world width in pixels
- * @param {number}  opts.height     – world height in pixels
- * @param {object}  [opts.profile]  – a CaveProfile entry (default CAVERNS)
- * @param {number}  [opts.step]     – sampling grid spacing (default 12)
- * @returns {{ kernel, bounds: {w,h} }}
+ * Build a 2D Uint8 density grid.  255 = open, 0 = solid.
+ * This is the source of truth for both the SDF kernel and the renderer.
  */
-export function generateCave(opts) {
-  const {
-    seed     = 42,
-    width    = 2000,
-    height   = 2000,
-    profile  = CaveProfile.CAVERNS,
-    step     = 12,
-  } = opts;
+function buildDensityField(noise, width, height, profile, cellSize) {
+  const { threshold, octaves, scale } = profile;
+  const cols = Math.ceil(width / cellSize);
+  const rows = Math.ceil(height / cellSize);
+  const field = new Uint8Array(cols * rows);   // 0 = wall
 
-  const noise = createPerlin2D(seed);
-  const kernel = createKernel();
-  const rng = mulberry32(seed ^ 0xCAFE);
+  const margin = 3;  // cells of solid border
 
-  const { threshold, brushMin, brushMax, octaves, scale } = profile;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      // Enforce solid border
+      if (row < margin || row >= rows - margin || col < margin || col >= cols - margin) {
+        field[row * cols + col] = 0;
+        continue;
+      }
+      const wx = col * cellSize, wy = row * cellSize;
+      const n = fbm(noise, wx * scale, wy * scale, octaves);
 
-  for (let y = brushMax; y < height - brushMax; y += step) {
-    for (let x = brushMax; x < width - brushMax; x += step) {
-      const n = fbm(noise, x * scale, y * scale, octaves);
-      if (n > threshold) {
-        // Brush radius varies with noise intensity for organic edges
-        const t = (n - threshold) / (1 - threshold);  // 0..1
-        const r = brushMin + (brushMax - brushMin) * t;
-        // Slight jitter keeps edges from looking grid-aligned
-        const jx = (rng() - 0.5) * step * 0.6;
-        const jy = (rng() - 0.5) * step * 0.6;
-        kernel.carveCircle(x + jx, y + jy, r, { affectsMove: true, affectsOccl: true });
+      // Edge fade — smoothly close off geometry near world edges
+      const edgeDist = Math.min(col - margin, rows - margin - 1 - row,
+                                row - margin, cols - margin - 1 - col);
+      const edgeFade = Math.min(1, edgeDist / 8);  // 0..1 over 8 cells
+
+      if (n * edgeFade > threshold) {
+        // Map intensity to 128..255 for rendering variation
+        const t = ((n * edgeFade) - threshold) / (1 - threshold);
+        field[row * cols + col] = 128 + Math.floor(127 * Math.min(1, t));
       }
     }
   }
-
-  return { kernel, bounds: { w: width, h: height } };
+  return { field, cols, rows };
 }
 
-export { createPerlin2D, fbm };
+// ── Flood-fill connectivity ────────────────────────────────────
+
+/**
+ * Find the largest connected open region via flood fill.
+ * Zeros out any open cells NOT in the largest region.
+ * Returns the centre of the largest region (good spawn point).
+ */
+function enforceConnectivity(field, cols, rows) {
+  const visited = new Uint8Array(cols * rows);
+  const regions = [];  // [{ indices: [...], cx, cy }]
+
+  for (let i = 0; i < field.length; i++) {
+    if (field[i] === 0 || visited[i]) continue;
+    // BFS
+    const queue = [i];
+    visited[i] = 1;
+    const indices = [];
+    let sx = 0, sy = 0;
+    while (queue.length) {
+      const idx = queue.shift();
+      indices.push(idx);
+      const c = idx % cols, r = (idx - c) / cols;
+      sx += c; sy += r;
+      for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const nc = c + dc, nr = r + dr;
+        if (nc < 0 || nc >= cols || nr < 0 || nr >= rows) continue;
+        const ni = nr * cols + nc;
+        if (field[ni] > 0 && !visited[ni]) {
+          visited[ni] = 1;
+          queue.push(ni);
+        }
+      }
+    }
+    regions.push({
+      indices,
+      cx: (sx / indices.length) * 1,
+      cy: (sy / indices.length) * 1,
+    });
+  }
+
+  if (regions.length === 0) return { cx: cols / 2, cy: rows / 2 };
+
+  // Keep only the largest region
+  regions.sort((a, b) => b.indices.length - a.indices.length);
+  const keep = new Set(regions[0].indices);
+  for (let i = 0; i < field.length; i++) {
+    if (field[i] > 0 && !keep.has(i)) field[i] = 0;
+  }
+
+  return {
+    cx: regions[0].cx,
+    cy: regions[0].cy,
+    cellCount: regions[0].indices.length,
+    regionsRemoved: regions.length - 1,
+  };
+}
+
+// ── Carve from density field into SDF kernel ───────────────────
+
+function carveFromField(kernel, field, cols, rows, cellSize, rng, profile) {
+  const { brushMin, brushMax } = profile;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const v = field[row * cols + col];
+      if (v === 0) continue;
+      const t = (v - 128) / 127;   // 0..1
+      const r = brushMin + (brushMax - brushMin) * Math.max(0, t);
+      const jx = (rng() - 0.5) * cellSize * 0.4;
+      const jy = (rng() - 0.5) * cellSize * 0.4;
+      const wx = col * cellSize + cellSize / 2 + jx;
+      const wy = row * cellSize + cellSize / 2 + jy;
+      kernel.carveCircle(wx, wy, r, { affectsMove: true, affectsOccl: true });
+    }
+  }
+}
+
+// ── Find spawn points ──────────────────────────────────────────
+
+/**
+ * Find N spawn points spread across the cave.
+ * Uses the density field to pick high-clearance open areas,
+ * then enforces minimum distance between spawns.
+ */
+function findSpawnPoints(field, cols, rows, cellSize, kernel, count = 4, minSpacing = 200) {
+  // Collect candidate cells sorted by density (highest clearance first)
+  const candidates = [];
+  for (let i = 0; i < field.length; i++) {
+    if (field[i] >= 200) {  // only deep-interior cells
+      const c = i % cols, r = (i - c) / cols;
+      candidates.push({ x: c * cellSize + cellSize / 2, y: r * cellSize + cellSize / 2, v: field[i] });
+    }
+  }
+  candidates.sort((a, b) => b.v - a.v);
+
+  const spawns = [];
+  for (const cand of candidates) {
+    if (spawns.length >= count) break;
+    // Verify actual SDF clearance
+    if (kernel.distanceMove(cand.x, cand.y) < 20) continue;
+    // Enforce spacing
+    let tooClose = false;
+    for (const s of spawns) {
+      if (Math.hypot(s.x - cand.x, s.y - cand.y) < minSpacing) { tooClose = true; break; }
+    }
+    if (!tooClose) spawns.push({ x: cand.x, y: cand.y });
+  }
+  return spawns;
+}
+
+// ── Main generator ─────────────────────────────────────────────
+
+/**
+ * Generate a cave system.
+ *
+ * @param {object}  opts
+ * @param {number}  opts.seed
+ * @param {number}  [opts.width=2400]
+ * @param {number}  [opts.height=2400]
+ * @param {object}  [opts.profile=CaveProfile.CAVERNS]
+ * @param {number}  [opts.cellSize=10]   – density grid resolution
+ * @param {number}  [opts.spawnCount=4]
+ * @returns {{ kernel, bounds, field, cols, rows, cellSize, spawns, connectivity }}
+ */
+export function generateCave(opts) {
+  const {
+    seed       = 42,
+    width      = 2400,
+    height     = 2400,
+    profile    = CaveProfile.CAVERNS,
+    cellSize   = 10,
+    spawnCount = 4,
+  } = opts;
+
+  const noise  = createPerlin2D(seed);
+  const rng    = mulberry32(seed ^ 0xCAFE);
+  const kernel = createKernel();
+
+  // 1. Build density field
+  const { field, cols, rows } = buildDensityField(noise, width, height, profile, cellSize);
+
+  // 2. Enforce single connected region
+  const connectivity = enforceConnectivity(field, cols, rows);
+
+  // 3. Carve SDF from surviving cells
+  carveFromField(kernel, field, cols, rows, cellSize, rng, profile);
+
+  // 4. Find spawn points
+  const spawns = findSpawnPoints(field, cols, rows, cellSize, kernel, spawnCount);
+
+  // Fallback spawn if none found
+  if (spawns.length === 0) {
+    const cx = connectivity.cx * cellSize, cy = connectivity.cy * cellSize;
+    spawns.push({ x: cx, y: cy });
+  }
+
+  return {
+    kernel,
+    bounds: { w: width, h: height },
+    field, cols, rows, cellSize,
+    spawns,
+    connectivity,
+  };
+}
+
+export { createPerlin2D, fbm, mulberry32 };

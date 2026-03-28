@@ -49,3 +49,30 @@ export function moveWithCollision(kernel, x, y, theta, dist, radius) {
   const t = sweepMaxFree(kernel, x, y, x + dx, y + dy, radius);
   return { x: x + dx * t, y: y + dy * t };
 }
+
+/**
+ * Wall-slide movement: try full move, then separate X and Y axes.
+ * This lets the player slide along walls instead of stopping dead.
+ * Returns { x, y }.
+ */
+export function moveWithSlide(kernel, x, y, dx, dy, radius) {
+  // Try combined move first
+  if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return { x, y };
+
+  const t = sweepMaxFree(kernel, x, y, x + dx, y + dy, radius);
+  if (t >= 0.999) return { x: x + dx, y: y + dy };
+
+  // Blocked — try each axis independently for wall sliding
+  let nx = x, ny = y;
+
+  if (Math.abs(dx) > 0.001) {
+    const tx = sweepMaxFree(kernel, x, y, x + dx, y, radius);
+    nx = x + dx * tx;
+  }
+  if (Math.abs(dy) > 0.001) {
+    const ty = sweepMaxFree(kernel, nx, y, nx, y + dy, radius);
+    ny = y + dy * ty;
+  }
+
+  return { x: nx, y: ny };
+}
