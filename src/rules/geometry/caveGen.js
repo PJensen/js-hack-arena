@@ -63,54 +63,61 @@ export function fbm(noise, x, y, octaves = 4, lacunarity = 2, gain = 0.5) {
 
 export const CaveProfile = Object.freeze({
   CAVERNS: {
-    threshold: -0.18,
-    octaves: 4,
-    scale: 0.012,
+    // Dual-layer: caverns (low freq) + tunnels (high freq)
+    cavern:  { threshold: -0.12, octaves: 3, scale: 0.005 },  // big open rooms
+    tunnel:  { threshold:  0.02, octaves: 5, scale: 0.018 },  // narrow winding paths
   },
   TUNNELS: {
-    threshold: 0.05,
-    octaves: 5,
-    scale: 0.015,
+    cavern:  { threshold: 0.05, octaves: 4, scale: 0.008 },
+    tunnel:  { threshold: 0.06, octaves: 6, scale: 0.025 },
   },
   GROTTOS: {
-    threshold: -0.15,
-    octaves: 3,
-    scale: 0.004,
+    cavern:  { threshold: -0.20, octaves: 3, scale: 0.004 },
+    tunnel:  { threshold: -0.05, octaves: 4, scale: 0.014 },
   },
   WARRENS: {
-    threshold: 0.12,
-    octaves: 6,
-    scale: 0.022,
+    cavern:  { threshold: 0.05, octaves: 4, scale: 0.012 },
+    tunnel:  { threshold: 0.10, octaves: 6, scale: 0.030 },
   },
 });
 
 // ── Grid bake (inline to avoid circular deps with caveGrid.js) ─
 
 function bakeGrid(seed, width, height, profile, cellSize) {
-  const noise = createPerlin2D(seed);
+  // Two noise fields from different seeds for independence
+  const noiseCavern = createPerlin2D(seed);
+  const noiseTunnel = createPerlin2D(seed ^ 0x7F3A);
+
   const cols = Math.ceil(width / cellSize) + 1;
   const rows = Math.ceil(height / cellSize) + 1;
   const total = cols * rows;
   const moveGrid = new Float32Array(total);
 
-  const { threshold, octaves, scale } = profile;
-  const margin = 60;
+  const cav = profile.cavern;
+  const tun = profile.tunnel;
+  const margin = 80;
 
   for (let gy = 0; gy < rows; gy++) {
     const wy = gy * cellSize;
     const rowOff = gy * cols;
     for (let gx = 0; gx < cols; gx++) {
       const wx = gx * cellSize;
-      const n = fbm(noise, wx * scale, wy * scale, octaves);
 
       // Edge fade — force solid near world boundaries
       const edgeDist = Math.min(wx - margin, width - margin - wx,
                                 wy - margin, height - margin - wy);
       const edgeFade = Math.max(0, Math.min(1, edgeDist / (margin * 2)));
 
-      const val = n * edgeFade - threshold;
-      // Positive = open space; scale generously so passages stay navigable
-      // (player radius is 14, so even narrow corridors need clearance > 14)
+      // Cavern layer: low freq, big open rooms
+      const nc = fbm(noiseCavern, wx * cav.scale, wy * cav.scale, cav.octaves);
+      const vc = nc * edgeFade - cav.threshold;
+
+      // Tunnel layer: high freq, narrow winding paths
+      const nt = fbm(noiseTunnel, wx * tun.scale, wy * tun.scale, tun.octaves);
+      const vt = nt * edgeFade - tun.threshold;
+
+      // Open if EITHER layer says so (max = union)
+      const val = Math.max(vc, vt);
       moveGrid[rowOff + gx] = val > 0 ? val * 200 : 0;
     }
   }
