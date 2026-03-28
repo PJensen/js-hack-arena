@@ -106,7 +106,7 @@
 <script type="module">
 // ── Imports ────────────────────────────────────────────────────
 import { World, RafLoop, composeScheduler } from './src/lib/ecs-js/index.js';
-import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV, PointLight }
+import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV, PointLight, Projectile, Lifetime }
   from './src/rules/components/index.js';
 import { generateCave, CaveProfile } from './src/rules/geometry/caveGen.js';
 import { moveWithSlide } from './src/rules/geometry/sweep.js';
@@ -258,10 +258,28 @@ function inputPhaseSystem(world, dt) {
   inp.aimX = rightStick.active ? rightStick.x : 0;
   inp.aimY = rightStick.active ? rightStick.y : 0;
 
+  // Keyboard aim: mouse position or last facing
+  const kbAimX = keys[' '] ? Math.cos(world.get(playerId, Facing).angle) : 0;
+  const kbAimY = keys[' '] ? Math.sin(world.get(playerId, Facing).angle) : 0;
+  if (!rightStick.active && Math.abs(kbAimX) > 0.1) {
+    inp.aimX = kbAimX; inp.aimY = kbAimY;
+  }
+
   castEventCooldown -= dt;
-  if (rightStick.active && (Math.abs(inp.aimX) > 0.1 || Math.abs(inp.aimY) > 0.1) && castEventCooldown <= 0) {
-    castEventCooldown = 0.12;
-    world.emit('spell.cast', { id: playerId, x: inp.aimX, y: inp.aimY, t: performance.now() });
+  const aiming = Math.abs(inp.aimX) > 0.1 || Math.abs(inp.aimY) > 0.1;
+  if (aiming && castEventCooldown <= 0) {
+    castEventCooldown = 0.25;
+    const ppos = world.get(playerId, Position);
+    const angle = Math.atan2(inp.aimY, inp.aimX);
+    const speed = 320;
+    const boltId = world.create();
+    world.add(boltId, Position,   { x: ppos.x + Math.cos(angle) * 20, y: ppos.y + Math.sin(angle) * 20 });
+    world.add(boltId, Velocity,   { vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
+    world.add(boltId, Projectile, { damage: 15, owner: playerId, speed, piercing: false });
+    world.add(boltId, Lifetime,   { ttl: 2.0 });
+    world.add(boltId, Collider,   { radius: 5 });
+    world.add(boltId, PointLight, { radius: 120, r: 140, g: 200, b: 255 });
+    runtimeEvents.casts += 1;
   }
 }
 
@@ -291,6 +309,26 @@ function simulatePhaseSystem(world, dt) {
   }
 }
 
+function projectilePhaseSystem(world, dt) {
+  const toDestroy = [];
+  for (const [id, pos, vel, proj, lt, col] of world.query(Position, Velocity, Projectile, Lifetime, Collider)) {
+    // Move
+    pos.x += vel.vx * dt;
+    pos.y += vel.vy * dt;
+
+    // Wall collision — destroy if inside wall
+    if (grid.distanceMove(pos.x, pos.y) < col.radius) {
+      toDestroy.push(id);
+      continue;
+    }
+
+    // Lifetime
+    lt.ttl -= dt;
+    if (lt.ttl <= 0) toDestroy.push(id);
+  }
+  for (const id of toDestroy) world.destroy(id);
+}
+
 function cameraPhaseSystem(world, dt) {
   const pos = world.get(playerId, Position);
   followEntity(cam, pos, dt);
@@ -299,6 +337,7 @@ function cameraPhaseSystem(world, dt) {
 
 world.system(inputPhaseSystem, 'input');
 world.system(simulatePhaseSystem, 'simulate');
+world.system(projectilePhaseSystem, 'simulate');
 world.system(cameraPhaseSystem, 'camera');
 world.setScheduler(composeScheduler('input', 'simulate', 'camera'));
 
@@ -335,6 +374,18 @@ function renderFrame() {
   ctx.fillStyle = '#ffbe60';
   ctx.font = 'bold 14px ui-monospace, monospace';
   ctx.fillText('\u2020', pos.x + col.radius + 4, pos.y - col.radius + 2);
+
+  // Draw frost bolts
+  for (const [id, bpos, proj, bcol] of world.query(Position, Projectile, Collider)) {
+    ctx.beginPath();
+    ctx.arc(bpos.x, bpos.y, bcol.radius, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(140,210,255,0.9)';
+    ctx.fill();
+    ctx.fillStyle = '#e0f4ff';
+    ctx.font = 'bold 10px ui-monospace, monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('\u2744', bpos.x, bpos.y);  // ❄ snowflake
+  }
 
   const aimLen = col.radius + 14;
   ctx.beginPath();
