@@ -106,7 +106,7 @@ import { ParticleFX } from './src/display/passes/vfx/particles/particlePool.js';
 import { createRenderer } from './src/display/renderer.js';
 import { createFloatTextPass } from './src/display/passes/floatText.js';
 import { createBoltFx } from './src/display/passes/boltFx.js';
-import { spawnPlayer, spawnCaster, spawnPotion } from './src/rules/spawner.js';
+import { spawnPlayer, spawnCaster, spawnPotion, spawnBow } from './src/rules/spawner.js';
 import { PlayerTag, Spellbook } from './src/rules/components/index.js';
 import {
   createInputSystem, createMovementSystem, createAISystem,
@@ -223,9 +223,11 @@ world.on('entity.died', (e) => {
 // Patch: listen for mob death with position data
 const _onDied = [];
 world.on('entity.died.at', (e) => {
-  // Drop potion at death location
-  if (Math.random() < 0.6) {
-    spawnPotion(world, e.x, e.y, 25);
+  // Always drop a potion
+  spawnPotion(world, e.x + (Math.random() - 0.5) * 16, e.y + (Math.random() - 0.5) * 16, 25);
+  // 25% chance to also drop a bow
+  if (Math.random() < 0.25) {
+    spawnBow(world, e.x + (Math.random() - 0.5) * 20, e.y + (Math.random() - 0.5) * 20);
   }
   // Respawn a new caster somewhere else after a short delay
   setTimeout(() => {
@@ -236,6 +238,36 @@ world.on('entity.died.at', (e) => {
     spawnCaster(world, grid, px.x + Math.cos(angle) * offset, px.y + Math.sin(angle) * offset, playerId);
   }, 2000);
 });
+
+// ── Dynamic spell bar (rebuild when spells change) ───────────────
+import { spells as spellCatalog } from './src/rules/data/spellCatalog.js';
+function rebuildSpellBar() {
+  if (!world.has(playerId, Spellbook)) return;
+  const book = world.get(playerId, Spellbook);
+  const bar = document.getElementById('spell-bar');
+  bar.innerHTML = '';
+  book.spells.forEach((spellId, i) => {
+    const spell = spellCatalog[spellId];
+    if (!spell) return;
+    const btn = document.createElement('div');
+    btn.className = 'spell-btn' + (i === book.activeIndex ? ' active' : '');
+    btn.dataset.slot = i;
+    btn.innerHTML = spell.glyph + '<span class="spell-key">' + (i + 1) + '</span>';
+    bar.appendChild(btn);
+  });
+  // Re-bind touch
+  bar.querySelectorAll('.spell-btn').forEach(btn => {
+    btn.addEventListener('touchstart', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      inputRouter._setSpellSlot(Number(btn.dataset.slot));
+    }, { capture: true });
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      inputRouter._setSpellSlot(Number(btn.dataset.slot));
+    });
+  });
+}
+world.on('item.pickup', () => rebuildSpellBar());
 
 // ── Lightning bolt FX ────────────────────────────────────────────
 const boltFx = createBoltFx();

@@ -97,3 +97,18 @@ export function spawnPotion(world, x, y, potency = 30) {
   world.add(id, PointLight, { radius: 60, r: 255, g: 50, b: 80 });
   return id;
 }
+
+/**
+ * Spawn a bow on the ground. Glowing ")" glyph.
+ * Picking it up adds 'arrow' spell to the player's spellbook.
+ */
+export function spawnBow(world, x, y) {
+  const id = world.create();
+  world.add(id, Position, { x, y });
+  world.add(id, ItemInfo, { name: 'Short Bow', glyph: ')', slot: 'hand', count: 1 });
+  world.add(id, Consumable, { effect: 'add_spell', potency: 0 });
+  world.add(id, GroundItem);
+  world.add(id, Collider, { radius: 8 });
+  world.add(id, PointLight, { radius: 50, r: 200, g: 180, b: 100 });
+  return id;
+}

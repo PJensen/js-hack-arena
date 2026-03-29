@@ -17,6 +17,19 @@ export const spells = {
     trailColor: '#8cd8ff',
     burstColor: '#b0e0ff',
   },
+  arrow: {
+    type: 'projectile',
+    name: 'Arrow',
+    glyph: '\u2192',  // →
+    cooldown: 0.18,
+    damage: 10,
+    speed: 450,
+    radius: 3,
+    ttl: 1.5,
+    light: null,
+    trailColor: '#c8a050',
+    burstColor: '#a08040',
+  },
   lightning: {
     type: 'bolt',
     name: 'Lightning',
