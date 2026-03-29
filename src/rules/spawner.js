@@ -2,7 +2,7 @@
 // Entity creation helpers. Creates entities with the right component bundles.
 // No display logic. Pure ECS.
 
-import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV, PointLight, AI, AIBehavior, Inventory, Projectile, Lifetime, Spellbook, SpellId, ItemInfo, Consumable, GroundItem } from './components/index.js';
+import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV, PointLight, AI, AIBehavior, Inventory, Projectile, Lifetime, Spellbook, SpellId, ItemInfo, Consumable, GroundItem, MeleeWeapon } from './components/index.js';
 
 /**
  * Find open ground near a point using the grid.
@@ -33,6 +33,7 @@ export function spawnPlayer(world, x, y) {
   world.add(id, FOV,      { distance: 220, angle: 1.4 });
   world.add(id, PointLight, { radius: 350, r: 255, g: 190, b: 120 });
   world.add(id, Inventory, { items: [], capacity: 10 });
+  world.add(id, MeleeWeapon, { damage: 5, name: 'Fists', glyph: '\u270A' });
   world.add(id, Spellbook, {
     spells: [SpellId.FROST_BOLT, SpellId.LIGHTNING],
     activeIndex: 0,
@@ -62,6 +63,7 @@ export function spawnCaster(world, grid, nearX, nearY, targetId) {
     projSpeed: 220,
     aggroRange: 300,
   });
+  world.add(id, MeleeWeapon, { damage: 10, name: 'Claws', glyph: '\uD83D\uDC3E' });
   return id;
 }
 
@@ -110,5 +112,26 @@ export function spawnBow(world, x, y) {
   world.add(id, GroundItem);
   world.add(id, Collider, { radius: 8 });
   world.add(id, PointLight, { radius: 50, r: 200, g: 180, b: 100 });
+  return id;
+}
+
+/**
+ * Spawn a sword on the ground. Glowing "/" glyph.
+ * Picking it up upgrades the player's MeleeWeapon.
+ */
+export function spawnSword(world, x, y, tier = 1) {
+  const swords = [
+    { name: 'Rusty Sword',  glyph: '/', damage: 12, r: 160, g: 160, b: 160 },
+    { name: 'Steel Blade',  glyph: '/', damage: 20, r: 200, g: 220, b: 255 },
+    { name: 'Flame Brand',  glyph: '/', damage: 28, r: 255, g: 140, b: 60 },
+  ];
+  const s = swords[Math.min(tier, swords.length - 1)];
+  const id = world.create();
+  world.add(id, Position, { x, y });
+  world.add(id, ItemInfo, { name: s.name, glyph: s.glyph, slot: 'hand', count: 1 });
+  world.add(id, Consumable, { effect: 'melee_upgrade', potency: s.damage });
+  world.add(id, GroundItem);
+  world.add(id, Collider, { radius: 8 });
+  world.add(id, PointLight, { radius: 55, r: s.r, g: s.g, b: s.b });
   return id;
 }

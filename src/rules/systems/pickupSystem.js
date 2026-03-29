@@ -1,5 +1,5 @@
 // rules/systems/pickupSystem.js — walk over ground items to pick them up.
-import { Position, Collider, Health, Input, GroundItem, Consumable, ItemInfo, Spellbook } from '../components/index.js';
+import { Position, Collider, Health, Input, GroundItem, Consumable, ItemInfo, Spellbook, MeleeWeapon } from '../components/index.js';
 
 export function pickupSystem(world, dt) {
   const players = [];
@@ -24,12 +24,19 @@ export function pickupSystem(world, dt) {
               x: p.pos.x, y: p.pos.y,
             });
           } else if (c.effect === 'add_spell' && world.has(p.id, Spellbook)) {
-            // Add a spell based on item name
             const book = world.get(p.id, Spellbook);
             const spellId = info && info.name === 'Short Bow' ? 'arrow' : null;
             if (spellId && !book.spells.includes(spellId)) {
               book.spells.push(spellId);
               world.emit('item.pickup', { entity: p.id, item: info?.name, spellId });
+            }
+          } else if (c.effect === 'melee_upgrade' && world.has(p.id, MeleeWeapon)) {
+            const mw = world.get(p.id, MeleeWeapon);
+            if (c.potency > mw.damage) {
+              mw.damage = c.potency;
+              mw.name = info?.name || mw.name;
+              mw.glyph = info?.glyph || mw.glyph;
+              world.emit('item.pickup', { entity: p.id, item: info?.name });
             }
           }
         }

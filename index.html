@@ -106,7 +106,7 @@ import { ParticleFX } from './src/display/passes/vfx/particles/particlePool.js';
 import { createRenderer } from './src/display/renderer.js';
 import { createFloatTextPass } from './src/display/passes/floatText.js';
 import { createBoltFx } from './src/display/passes/boltFx.js';
-import { spawnPlayer, spawnCaster, spawnPotion, spawnBow } from './src/rules/spawner.js';
+import { spawnPlayer, spawnCaster, spawnPotion, spawnBow, spawnSword } from './src/rules/spawner.js';
 import { PlayerTag, Spellbook } from './src/rules/components/index.js';
 import {
   createInputSystem, createMovementSystem, createAISystem,
@@ -225,9 +225,12 @@ const _onDied = [];
 world.on('entity.died.at', (e) => {
   // Always drop a potion
   spawnPotion(world, e.x + (Math.random() - 0.5) * 16, e.y + (Math.random() - 0.5) * 16, 25);
-  // 25% chance to also drop a bow
-  if (Math.random() < 0.25) {
+  // 20% chance bow, 20% chance sword
+  const roll = Math.random();
+  if (roll < 0.20) {
     spawnBow(world, e.x + (Math.random() - 0.5) * 20, e.y + (Math.random() - 0.5) * 20);
+  } else if (roll < 0.40) {
+    spawnSword(world, e.x + (Math.random() - 0.5) * 20, e.y + (Math.random() - 0.5) * 20, Math.floor(Math.random() * 3));
   }
   // Respawn a new caster somewhere else after a short delay
   setTimeout(() => {
