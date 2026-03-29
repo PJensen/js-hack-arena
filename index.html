@@ -230,11 +230,13 @@ const ZOOM_MIN = 0.3, ZOOM_MAX = 6.0, ZOOM_STEP = 0.15;
 const loop = createFixedTickLoop({
   tickHz: 60,
   simulate(dt) {
-    // Apply zoom from input
+    // Sample input ONCE per tick — systems read via getOutput()
     const o = inputRouter.sample();
     if (o.zoomDelta) {
       cam.targetScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, cam.targetScale + o.zoomDelta * ZOOM_STEP));
     }
+    // Stash spell switch on a shared object so inputSystem can read it
+    sysCtx._lastInput = o;
     world.tick(dt);
   },
   render() {

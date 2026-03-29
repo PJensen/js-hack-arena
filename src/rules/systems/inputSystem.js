@@ -19,7 +19,7 @@ export function createInputSystem(ctx) {
 
   return function inputSystem(world, dt) {
     const inp = world.get(playerId, Input);
-    const o = inputRouter.sample();
+    const o = ctx._lastInput || inputRouter.getOutput();
 
     inp.moveX = o.intent.moveX;
     inp.moveY = o.intent.moveY;
@@ -92,6 +92,12 @@ export function createInputSystem(ctx) {
         // Emit bolt event for visual FX
         world.emit('spell:bolt', { fromX, fromY, toX: best.x, toY: best.y, chain });
         world.emit('damage.dealt', { target: best.id, source: playerId, amount: dmg, x: best.x, y: best.y });
+
+        // Temporary SDF light at impact — feeds into the grid torch pass
+        const flashId = world.create();
+        world.add(flashId, Position, { x: best.x, y: best.y });
+        world.add(flashId, PointLight, { radius: 160, r: 255, g: 240, b: 140 });
+        world.add(flashId, Lifetime, { ttl: 0.2 });
 
         fromX = best.x;
         fromY = best.y;

@@ -1,16 +1,17 @@
-// rules/systems/deathSystem.js — destroy dead mobs with particle burst
-import { Position, Health, Actor, ActorKind } from '../components/index.js';
+// rules/systems/deathSystem.js — destroy dead mobs, reap expired lifetimes
+import { Position, Health, Actor, ActorKind, Lifetime, Projectile } from '../components/index.js';
 
 export function createDeathSystem(ctx) {
   const { fx, playerId } = ctx;
 
   return function deathSystem(world, dt) {
     const toDie = [];
+
+    // Mob death
     for (const [id, pos, hp, actor] of world.query(Position, Health, Actor)) {
       if (hp.hp > 0) continue;
-      if (id === playerId) continue;  // player death handled in render
+      if (id === playerId) continue;
 
-      // Death burst particles
       const burst = fx.ensureEmitter('death:' + id, {
         continuous: false, burstCount: 30,
         angle: 0, spread: Math.PI,
@@ -24,6 +25,15 @@ export function createDeathSystem(ctx) {
       burst.step(fx.pool, dt, pos.x, pos.y);
       toDie.push(id);
     }
+
+    // Lifetime reaper — any entity with Lifetime (light flashes, etc.)
+    // Projectiles are handled by projectileSystem, skip them here
+    for (const [id, lt] of world.query(Lifetime)) {
+      if (world.has(id, Projectile)) continue;
+      lt.ttl -= dt;
+      if (lt.ttl <= 0) toDie.push(id);
+    }
+
     for (const id of toDie) {
       world.emit('entity.died', { id });
       world.destroy(id);
