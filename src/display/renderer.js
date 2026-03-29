@@ -2,7 +2,7 @@
 // Main frame renderer — queries ECS world, draws everything.
 // No simulation logic. Pure display.
 
-import { Position, Velocity, Collider, Facing, Health, Actor, ActorKind, Projectile, PointLight, Input } from '../rules/components/index.js';
+import { Position, Velocity, Collider, Facing, Health, Actor, ActorKind, Projectile, PointLight, Input, GroundItem, ItemInfo } from '../rules/components/index.js';
 import { AI } from '../rules/components/index.js';
 import { applyCamera } from './camera/controller.js';
 
@@ -42,6 +42,16 @@ export function createRenderer(deps) {
 
     applyCamera(ctx, cam, canvas);
     ctx.drawImage(caveBake.canvas, 0, 0);
+
+    // Draw ground items (potions etc)
+    for (const [id, ipos, gi, info] of world.query(Position, GroundItem, ItemInfo)) {
+      const t = performance.now() * 0.003;
+      const bob = Math.sin(t + id * 2) * 2;  // gentle bob
+      ctx.fillStyle = '#ff5080';
+      ctx.font = 'bold 18px ui-monospace, monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(info.glyph, ipos.x, ipos.y + bob);
+    }
 
     // Draw player
     ctx.beginPath();

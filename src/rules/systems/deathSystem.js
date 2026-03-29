@@ -35,7 +35,9 @@ export function createDeathSystem(ctx) {
     }
 
     for (const id of toDie) {
+      const dpos = world.has(id, Position) ? world.get(id, Position) : null;
       world.emit('entity.died', { id });
+      if (dpos) world.emit('entity.died.at', { id, x: dpos.x, y: dpos.y });
       world.destroy(id);
     }
   };

@@ -2,7 +2,7 @@
 // Entity creation helpers. Creates entities with the right component bundles.
 // No display logic. Pure ECS.
 
-import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV, PointLight, AI, AIBehavior, Inventory, Projectile, Lifetime, Spellbook, SpellId } from './components/index.js';
+import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV, PointLight, AI, AIBehavior, Inventory, Projectile, Lifetime, Spellbook, SpellId, ItemInfo, Consumable, GroundItem } from './components/index.js';
 
 /**
  * Find open ground near a point using the grid.
@@ -81,5 +81,19 @@ export function spawnProjectile(world, { x, y, angle, speed, damage, owner, radi
   if (light) {
     world.add(id, PointLight, light);
   }
+  return id;
+}
+
+/**
+ * Spawn a health potion on the ground. Glowing "!" glyph.
+ */
+export function spawnPotion(world, x, y, potency = 30) {
+  const id = world.create();
+  world.add(id, Position, { x, y });
+  world.add(id, ItemInfo, { name: 'Health Potion', glyph: '!', slot: 'none', count: 1 });
+  world.add(id, Consumable, { effect: 'heal', potency });
+  world.add(id, GroundItem);
+  world.add(id, Collider, { radius: 8 });
+  world.add(id, PointLight, { radius: 60, r: 255, g: 50, b: 80 });
   return id;
 }
