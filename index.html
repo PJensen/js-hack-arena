@@ -105,6 +105,7 @@ import { createTorchPass } from './src/display/passes/torchPass.js';
 import { ParticleFX } from './src/display/passes/vfx/particles/particlePool.js';
 import { createRenderer } from './src/display/renderer.js';
 import { createFloatTextPass } from './src/display/passes/floatText.js';
+import { createBoltFx } from './src/display/passes/boltFx.js';
 import { spawnPlayer, spawnCaster } from './src/rules/spawner.js';
 import { PlayerTag, Spellbook } from './src/rules/components/index.js';
 import {
@@ -198,9 +199,15 @@ world.on('damage.dealt', (e) => {
   });
 });
 
+// ── Lightning bolt FX ────────────────────────────────────────────
+const boltFx = createBoltFx();
+world.on('spell:bolt', (e) => {
+  boltFx.add(e.fromX, e.fromY, e.toX, e.toY, e.chain);
+});
+
 // ── Renderer ────────────────────────────────────────────────────
 const renderFrame = createRenderer({
-  canvas, ctx, cam, caveBake, torchPass, fx, world, SEED, runtimeEvents, floatText,
+  canvas, ctx, cam, caveBake, torchPass, fx, world, SEED, runtimeEvents, floatText, boltFx,
   hud: {
     hud:         document.getElementById('hud'),
     readL:       document.getElementById('readout-left'),

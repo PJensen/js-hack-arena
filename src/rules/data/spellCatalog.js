@@ -1,8 +1,11 @@
 // rules/data/spellCatalog.js
-// Spell definitions — stats, costs, FX configs.
+// Spell definitions — stats, FX configs.
+// type: 'projectile' = spawns a moving entity
+// type: 'bolt' = instant-hit chain lightning
 
 export const spells = {
   frost_bolt: {
+    type: 'projectile',
     name: 'Frost Bolt',
     glyph: '\u2744',  // ❄
     cooldown: 0.25,
@@ -15,15 +18,13 @@ export const spells = {
     burstColor: '#b0e0ff',
   },
   lightning: {
+    type: 'bolt',
     name: 'Lightning',
     glyph: '\u26A1',  // ⚡
     cooldown: 0.6,
     damage: 25,
-    speed: 500,
-    radius: 4,
-    ttl: 1.0,
-    light: { radius: 180, r: 255, g: 240, b: 140 },
-    trailColor: '#fff080',
-    burstColor: '#ffee88',
+    range: 280,         // max range to first target
+    chainRadius: 120,   // max hop distance between targets
+    maxTargets: 3,      // chain up to 3 enemies
   },
 };

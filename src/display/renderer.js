@@ -21,7 +21,8 @@ import { applyCamera } from './camera/controller.js';
  * @param {object} deps.runtimeEvents
  */
 export function createRenderer(deps) {
-  const { canvas, ctx, cam, caveBake, torchPass, fx, world, hud, input, SEED, runtimeEvents } = deps;
+  const { canvas, ctx, cam, caveBake, torchPass, fx, world, hud, input, SEED, runtimeEvents, boltFx } = deps;
+  let lastRenderTime = 0;
 
   return function renderFrame() {
     // Find local player via Input component query
@@ -132,9 +133,15 @@ export function createRenderer(deps) {
     ctx.lineCap = 'round';
     ctx.stroke();
 
+    // Lightning bolt FX (world space, additive)
+    const now = performance.now() * 0.001;
+    const renderDt = lastRenderTime > 0 ? now - lastRenderTime : 0.016;
+    lastRenderTime = now;
+    if (boltFx) boltFx.render(ctx, renderDt);
+
     // Torch lighting pass
     const lights = [];
-    const t = performance.now() * 0.001;
+    const t = now;
 
     for (const [id, lpos, pl] of world.query(Position, PointLight)) {
       if (!pl.enabled) continue;
