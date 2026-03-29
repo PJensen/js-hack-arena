@@ -185,12 +185,21 @@ export function createRenderer(deps) {
     lastRenderTime = now;
     if (boltFx) boltFx.render(ctx, renderDt);
 
-    // Torch lighting pass
+    // Torch lighting pass — cap projectile lights for perf
     const lights = [];
+    const MAX_PROJ_LIGHTS = 6;
+    let projLightCount = 0;
     const t = now;
 
     for (const [id, lpos, pl] of world.query(Position, PointLight)) {
       if (!pl.enabled) continue;
+
+      // Skip excess projectile lights (small radius = projectile)
+      const isProjectileLight = pl.radius <= 130;
+      if (isProjectileLight) {
+        if (++projLightCount > MAX_PROJ_LIGHTS) continue;
+      }
+
       const isTorch = pl.b < pl.r;
       if (isTorch) {
         const flicker = 1.0
