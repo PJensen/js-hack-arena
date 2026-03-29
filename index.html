@@ -30,6 +30,17 @@
                      border:1px solid rgba(255,255,255,0.15); z-index:40; }
     #readout-left  { left:24px; }
     #readout-right { right:24px; text-align:right; }
+
+    /* ── Spell bar ── */
+    #spell-bar { position:fixed; bottom:200px; left:50%; transform:translateX(-50%);
+                 display:flex; gap:8px; z-index:25; }
+    .spell-btn { width:52px; height:52px; border-radius:12px;
+                 background:rgba(0,0,0,0.6); border:2px solid rgba(255,255,255,0.2);
+                 color:#fff; font-size:24px; line-height:52px; text-align:center;
+                 cursor:pointer; transition:border-color 0.15s, background 0.15s; }
+    .spell-btn.active { border-color:rgba(255,255,255,0.8); background:rgba(255,255,255,0.15); }
+    .spell-btn .spell-key { display:block; font-size:10px; line-height:1;
+                            color:rgba(255,255,255,0.4); margin-top:-8px; }
   </style>
 </head>
 <body>
@@ -45,6 +56,10 @@
   <div class="joystick joystick-right" id="joystick-right"><div class="joystick-knob" id="knob-right"></div></div>
   <div class="touch-dot touch-dot-left" id="touch-left"></div>
   <div class="touch-dot touch-dot-right" id="touch-right"></div>
+  <div id="spell-bar">
+    <div class="spell-btn active" data-slot="0">&#x2744;<span class="spell-key">1</span></div>
+    <div class="spell-btn" data-slot="1">&#x26A1;<span class="spell-key">2</span></div>
+  </div>
 
 <script>
   const ENABLE_SW = true;
@@ -91,7 +106,7 @@ import { ParticleFX } from './src/display/passes/vfx/particles/particlePool.js';
 import { createRenderer } from './src/display/renderer.js';
 import { createFloatTextPass } from './src/display/passes/floatText.js';
 import { spawnPlayer, spawnCaster } from './src/rules/spawner.js';
-import { PlayerTag } from './src/rules/components/index.js';
+import { PlayerTag, Spellbook } from './src/rules/components/index.js';
 import {
   createInputSystem, createMovementSystem, createAISystem,
   bumpSystem, createProjectileSystem, createDeathSystem, createCameraSystem,
@@ -135,6 +150,20 @@ const inputRouter = createInputRouter({
   rightKnob:   document.getElementById('knob-right'),
   rightMarker: document.getElementById('touch-right'),
   canvas,
+});
+
+// ── Spell bar (touch) ───────────────────────────────────────────
+const spellBtns = document.querySelectorAll('.spell-btn');
+spellBtns.forEach(btn => {
+  btn.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    const slot = Number(btn.dataset.slot);
+    // Feed slot pick into InputRouter
+    inputRouter._setSpellSlot(slot);
+    // Update visual
+    spellBtns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
 });
 
 // ── ECS world ───────────────────────────────────────────────────
@@ -203,6 +232,11 @@ const loop = createFixedTickLoop({
   },
   render() {
     renderFrame();
+    // Sync spell bar UI with active spell
+    if (world.has(playerId, Spellbook)) {
+      const sb = world.get(playerId, Spellbook);
+      spellBtns.forEach((b, i) => b.classList.toggle('active', i === sb.activeIndex));
+    }
   },
 });
 

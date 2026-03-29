@@ -333,11 +333,16 @@ export function createInputRouter({
     resetAll();
   }
 
+  function setSpellSlot(slot) {
+    spellSlot = slot;
+  }
+
   return {
     sample,
     destroy,
     pulse,
     reset: resetAll,
+    _setSpellSlot: setSpellSlot,
     getOutput: () => ({ ...output, left: { ...output.left }, right: { ...output.right }, intent: { ...output.intent } }),
   };
 }
