@@ -1,6 +1,6 @@
 // rules/systems/projectileSystem.js — move projectiles, trail particles, hit detection, wall collision
 import { Position, Velocity, Projectile, Lifetime, Collider, Health, AI } from '../components/index.js';
-import { FROST_TRAIL, SHADOW_TRAIL, ARROW_TRAIL, spellTrail } from '../data/fxCatalog.js';
+import { FROST_TRAIL, SHADOW_TRAIL, spellTrail } from '../data/fxCatalog.js';
 
 // Cache spell trails by color to avoid per-frame allocation
 const _trailCache = new Map();
@@ -10,11 +10,8 @@ function cachedTrail(color) {
   return t;
 }
 
-// Reusable origin object to reduce GC pressure
-const _origin = { key: '', x: 0, y: 0, vx: 0, vy: 0 };
-
 export function createProjectileSystem(ctx) {
-  const { grid, fx } = ctx;
+  const { grid, fx, carve } = ctx;
 
   return function projectileSystem(world, dt) {
     const toDestroy = [];
@@ -66,10 +63,11 @@ export function createProjectileSystem(ctx) {
       }
       if (hit) continue;
 
-      // Wall collision
+      // Wall collision — chip away terrain
       if (grid.distanceMove(pos.x, pos.y) < col.radius) {
         const burstColor = proj.burstColor || (isEnemyBolt ? '#d0a0ff' : '#b0e0ff');
         _spawnBurst(fx.pool, pos.x, pos.y, burstColor, 0, 12);
+        if (carve) carve(pos.x, pos.y, proj.damage * 0.5);
         fx.removeEmitter(key);
         toDestroy.push(id);
         continue;

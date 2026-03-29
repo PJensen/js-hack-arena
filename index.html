@@ -101,6 +101,7 @@ import { createFixedTickLoop } from './src/runtime/fixedLoop.js';
 import { createInputRouter } from './src/input/InputRouter.js';
 import { createCamera } from './src/display/camera/controller.js';
 import { bakeCavePass } from './src/display/passes/cavePass.js';
+import { createCarver } from './src/rules/geometry/carve.js';
 import { createTorchPass } from './src/display/passes/torchPass.js';
 import { ParticleFX } from './src/display/passes/vfx/particles/particlePool.js';
 import { createRenderer } from './src/display/renderer.js';
@@ -129,6 +130,7 @@ const spawn = spawns[0];
 // ── Pre-bake display ────────────────────────────────────────────
 const caveBake  = bakeCavePass(caveData);
 const torchPass = createTorchPass(grid);
+const carve     = createCarver(grid, caveBake);
 
 // ── Particle FX ─────────────────────────────────────────────────
 const cam = createCamera();
@@ -189,7 +191,7 @@ world.add(playerId, PlayerTag);
 spawnCaster(world, grid, spawn.x + 200, spawn.y + 150, playerId);
 
 // ── System context (shared deps injected into system closures) ──
-const sysCtx = { grid, fx, cam, inputRouter, playerId };
+const sysCtx = { grid, fx, cam, inputRouter, playerId, carve };
 
 // ── Register systems ────────────────────────────────────────────
 world.system(createInputSystem(sysCtx),      'input');
