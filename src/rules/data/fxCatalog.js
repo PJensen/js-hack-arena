@@ -49,6 +49,19 @@ export function wallBurst(color) {
   };
 }
 
+export function spellTrail(color) {
+  return {
+    continuous: true, rate: 40,
+    angle: Math.PI, spread: Math.PI,
+    speed: 15, speedJitter: 0.8,
+    ax: 0, ay: 0,
+    life: 0.4, lifeJitter: 0.5,
+    size: 6, sizeEnd: 1,
+    color,
+    alpha0: 0.85, alpha1: 0.0,
+  };
+}
+
 export function deathBurst(color) {
   return {
     continuous: false, burstCount: 30,

@@ -6,4 +6,6 @@ export const Projectile = defineComponent('Projectile', {
   owner: null,        // entity ID of shooter (for friendly-fire checks)
   speed: 400,
   piercing: false,
+  trailColor: '#8cd8ff',
+  burstColor: '#b0e0ff',
 });

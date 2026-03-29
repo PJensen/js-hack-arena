@@ -89,6 +89,7 @@ import { bakeCavePass } from './src/display/passes/cavePass.js';
 import { createTorchPass } from './src/display/passes/torchPass.js';
 import { ParticleFX } from './src/display/passes/vfx/particles/particlePool.js';
 import { createRenderer } from './src/display/renderer.js';
+import { createFloatTextPass } from './src/display/passes/floatText.js';
 import { spawnPlayer, spawnCaster } from './src/rules/spawner.js';
 import { PlayerTag } from './src/rules/components/index.js';
 import {
@@ -158,9 +159,19 @@ world.system(createDeathSystem(sysCtx),      'simulate');
 world.system(createCameraSystem(sysCtx),     'camera');
 world.setScheduler(composeScheduler('input', 'simulate', 'camera'));
 
+// ── Float text (damage numbers) ─────────────────────────────────
+const floatText = createFloatTextPass();
+world.on('damage.dealt', (e) => {
+  floatText.add({
+    x: e.x, y: e.y,
+    text: '-' + e.amount,
+    color: e.target === playerId ? '#ff4444' : '#ffcc00',
+  });
+});
+
 // ── Renderer ────────────────────────────────────────────────────
 const renderFrame = createRenderer({
-  canvas, ctx, cam, caveBake, torchPass, fx, world, SEED, runtimeEvents,
+  canvas, ctx, cam, caveBake, torchPass, fx, world, SEED, runtimeEvents, floatText,
   hud: {
     hud:         document.getElementById('hud'),
     readL:       document.getElementById('readout-left'),

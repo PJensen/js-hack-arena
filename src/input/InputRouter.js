@@ -214,6 +214,17 @@ export function createInputRouter({
     rightStick.recalcRadius();
   });
 
+  // Spell switching — track slot picks and cycle requests
+  let spellSlot = null;   // direct slot pick (0, 1, …) or null
+  let spellCycle = 0;     // +1 forward, -1 back, 0 none
+
+  on(window, 'keydown', (e) => {
+    const k = e.key.toLowerCase();
+    if (k === '1') spellSlot = 0;
+    else if (k === '2') spellSlot = 1;
+    else if (k === 'q' || k === 'tab') { spellCycle += 1; e.preventDefault(); }
+  });
+
   // Zoom via +/- keys and mouse wheel
   let zoomDelta = 0;
   on(window, 'keydown', (e) => {
@@ -300,6 +311,10 @@ export function createInputRouter({
     output.right = rightStick.snapshot();
     output.zoomDelta = zoomDelta;
     zoomDelta = 0;  // drain
+    output.spellSlot = spellSlot;
+    output.spellCycle = spellCycle;
+    spellSlot = null;   // drain
+    spellCycle = 0;     // drain
     output.intent = { moveX, moveY, aimX, aimY, fire, sourceMove, sourceAim };
 
     if (bus) bus.emit('input.sampled', output);

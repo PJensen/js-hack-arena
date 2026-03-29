@@ -2,7 +2,7 @@
 // Entity creation helpers. Creates entities with the right component bundles.
 // No display logic. Pure ECS.
 
-import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV, PointLight, AI, AIBehavior, Inventory, Projectile, Lifetime } from './components/index.js';
+import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV, PointLight, AI, AIBehavior, Inventory, Projectile, Lifetime, Spellbook, SpellId } from './components/index.js';
 
 /**
  * Find open ground near a point using the grid.
@@ -33,6 +33,11 @@ export function spawnPlayer(world, x, y) {
   world.add(id, FOV,      { distance: 220, angle: 1.4 });
   world.add(id, PointLight, { radius: 350, r: 255, g: 190, b: 120 });
   world.add(id, Inventory, { items: [], capacity: 10 });
+  world.add(id, Spellbook, {
+    spells: [SpellId.FROST_BOLT, SpellId.LIGHTNING],
+    activeIndex: 0,
+    cooldown: 0,
+  });
   return id;
 }
 
@@ -63,12 +68,15 @@ export function spawnCaster(world, grid, nearX, nearY, targetId) {
 /**
  * Spawn a projectile (frost bolt or shadow bolt).
  */
-export function spawnProjectile(world, { x, y, angle, speed, damage, owner, radius, light }) {
+export function spawnProjectile(world, { x, y, angle, speed, damage, owner, radius, light, trailColor, burstColor, ttl }) {
   const id = world.create();
   world.add(id, Position, { x: x + Math.cos(angle) * 20, y: y + Math.sin(angle) * 20 });
   world.add(id, Velocity, { vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
-  world.add(id, Projectile, { damage, owner, speed, piercing: false });
-  world.add(id, Lifetime, { ttl: 2.5 });
+  const projData = { damage, owner, speed, piercing: false };
+  if (trailColor) projData.trailColor = trailColor;
+  if (burstColor) projData.burstColor = burstColor;
+  world.add(id, Projectile, projData);
+  world.add(id, Lifetime, { ttl: ttl || 2.5 });
   world.add(id, Collider, { radius: radius || 5 });
   if (light) {
     world.add(id, PointLight, light);

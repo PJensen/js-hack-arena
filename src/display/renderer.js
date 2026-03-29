@@ -170,6 +170,14 @@ export function createRenderer(deps) {
     fx.ctx = ctx;
     fx.render({ mode: 'lighter' });
 
+    // Float text (world space, after particles but before HUD)
+    if (deps.floatText) {
+      deps.floatText.stepAuto();
+      applyCamera(ctx, cam, canvas);
+      deps.floatText.render(ctx);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+
     // Player death overlay
     const playerHp = world.get(playerId, Health);
     if (playerHp.hp <= 0) {

@@ -1,6 +1,6 @@
 // rules/systems/projectileSystem.js — move projectiles, trail particles, hit detection, wall collision
 import { Position, Velocity, Projectile, Lifetime, Collider, Health, AI } from '../components/index.js';
-import { FROST_TRAIL, SHADOW_TRAIL } from '../data/fxCatalog.js';
+import { FROST_TRAIL, SHADOW_TRAIL, spellTrail } from '../data/fxCatalog.js';
 
 export function createProjectileSystem(ctx) {
   const { grid, fx } = ctx;
@@ -20,9 +20,11 @@ export function createProjectileSystem(ctx) {
       pos.x += vel.vx * dt;
       pos.y += vel.vy * dt;
 
-      // Trail particles — use AI check on owner to determine trail type
+      // Trail particles — use trailColor if set, else fall back to AI check
       const isEnemyBolt = world.alive.has(proj.owner) && world.has(proj.owner, AI);
-      const trail = isEnemyBolt ? SHADOW_TRAIL : FROST_TRAIL;
+      const trail = proj.trailColor
+        ? spellTrail(proj.trailColor)
+        : (isEnemyBolt ? SHADOW_TRAIL : FROST_TRAIL);
       fx.ensureEmitter('bolt:' + id, trail);
       origins.push({ key: 'bolt:' + id, x: pos.x, y: pos.y, vx: vel.vx * 0.1, vy: vel.vy * 0.1 });
 
@@ -35,9 +37,10 @@ export function createProjectileSystem(ctx) {
         if (dist < col.radius + t.col.radius) {
           // Apply damage
           t.hp.hp = Math.max(0, t.hp.hp - proj.damage);
+          world.emit('damage.dealt', { target: t.id, source: proj.owner, amount: proj.damage, x: pos.x, y: pos.y });
 
           // Impact burst
-          const burstColor = isEnemyBolt ? '#d0a0ff' : '#b0e0ff';
+          const burstColor = proj.burstColor || (isEnemyBolt ? '#d0a0ff' : '#b0e0ff');
           const burst = fx.ensureEmitter('hit:' + id, {
             continuous: false, burstCount: 15,
             angle: Math.atan2(dy, dx), spread: Math.PI * 0.5,
@@ -60,7 +63,7 @@ export function createProjectileSystem(ctx) {
 
       // Wall collision
       if (grid.distanceMove(pos.x, pos.y) < col.radius) {
-        const burstColor = isEnemyBolt ? '#d0a0ff' : '#b0e0ff';
+        const burstColor = proj.burstColor || (isEnemyBolt ? '#d0a0ff' : '#b0e0ff');
         const burst = fx.ensureEmitter('wallhit:' + id, {
           continuous: false, burstCount: 20,
           angle: 0, spread: Math.PI,
