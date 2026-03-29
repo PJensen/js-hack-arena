@@ -100,16 +100,52 @@ export function createRenderer(deps) {
     }
 
     // Draw projectiles
-    for (const [id, bpos, proj, bcol] of world.query(Position, Projectile, Collider)) {
+    for (const [id, bpos, vel, proj, bcol] of world.query(Position, Velocity, Projectile, Collider)) {
       const isEnemy = world.has(proj.owner, AI);
-      ctx.beginPath();
-      ctx.arc(bpos.x, bpos.y, bcol.radius, 0, Math.PI * 2);
-      ctx.fillStyle = isEnemy ? 'rgba(180,80,255,0.9)' : 'rgba(140,210,255,0.9)';
-      ctx.fill();
-      ctx.fillStyle = isEnemy ? '#e0b0ff' : '#e0f4ff';
-      ctx.font = 'bold 10px ui-monospace, monospace';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(isEnemy ? '\u2726' : '\u2744', bpos.x, bpos.y);
+      const isArrow = proj.trailColor === '#c8a050';
+
+      if (isArrow) {
+        // Arrow: rotated line shaft + circular arrowhead (JSHack style)
+        const angle = Math.atan2(vel.vy, vel.vx);
+        const len = 14;
+        const tailX = bpos.x - Math.cos(angle) * len;
+        const tailY = bpos.y - Math.sin(angle) * len;
+
+        // Shaft — warm wood brown
+        ctx.beginPath();
+        ctx.moveTo(tailX, tailY);
+        ctx.lineTo(bpos.x, bpos.y);
+        ctx.strokeStyle = 'rgba(210,180,110,0.9)';
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+
+        // Arrowhead — bright tan circle
+        ctx.beginPath();
+        ctx.arc(bpos.x, bpos.y, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(240,230,200,0.95)';
+        ctx.fill();
+
+        // Fletching notch at tail
+        const fLen = 4;
+        const pnx = -Math.sin(angle), pny = Math.cos(angle);
+        ctx.beginPath();
+        ctx.moveTo(tailX + pnx * fLen, tailY + pny * fLen);
+        ctx.lineTo(tailX - pnx * fLen, tailY - pny * fLen);
+        ctx.strokeStyle = 'rgba(180,160,120,0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      } else {
+        // Magic projectile: circle + glyph
+        ctx.beginPath();
+        ctx.arc(bpos.x, bpos.y, bcol.radius, 0, Math.PI * 2);
+        ctx.fillStyle = isEnemy ? 'rgba(180,80,255,0.9)' : 'rgba(140,210,255,0.9)';
+        ctx.fill();
+        ctx.fillStyle = isEnemy ? '#e0b0ff' : '#e0f4ff';
+        ctx.font = 'bold 10px ui-monospace, monospace';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(isEnemy ? '\u2726' : '\u2744', bpos.x, bpos.y);
+      }
     }
 
     // Health bars

@@ -49,6 +49,17 @@ export function wallBurst(color) {
   };
 }
 
+export const ARROW_TRAIL = {
+  continuous: true, rate: 12,
+  angle: Math.PI, spread: 0.3,
+  speed: 5, speedJitter: 0.5,
+  ax: 0, ay: 0,
+  life: 0.12, lifeJitter: 0.3,
+  size: 2, sizeEnd: 0.5,
+  color: '#c8a050',
+  alpha0: 0.4, alpha1: 0.0,
+};
+
 export function spellTrail(color) {
   return {
     continuous: true, rate: 40,

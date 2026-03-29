@@ -35,7 +35,7 @@ export function spawnPlayer(world, x, y) {
   world.add(id, Inventory, { items: [], capacity: 10 });
   world.add(id, MeleeWeapon, { damage: 5, name: 'Fists', glyph: '\u270A' });
   world.add(id, Spellbook, {
-    spells: [SpellId.FROST_BOLT, SpellId.LIGHTNING],
+    spells: [SpellId.FROST_BOLT, SpellId.LIGHTNING, 'arrow'],
     activeIndex: 0,
     cooldown: 0,
   });

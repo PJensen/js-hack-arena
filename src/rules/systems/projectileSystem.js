@@ -1,6 +1,6 @@
 // rules/systems/projectileSystem.js — move projectiles, trail particles, hit detection, wall collision
 import { Position, Velocity, Projectile, Lifetime, Collider, Health, AI } from '../components/index.js';
-import { FROST_TRAIL, SHADOW_TRAIL, spellTrail } from '../data/fxCatalog.js';
+import { FROST_TRAIL, SHADOW_TRAIL, ARROW_TRAIL, spellTrail } from '../data/fxCatalog.js';
 
 export function createProjectileSystem(ctx) {
   const { grid, fx } = ctx;
@@ -22,9 +22,10 @@ export function createProjectileSystem(ctx) {
 
       // Trail particles — use trailColor if set, else fall back to AI check
       const isEnemyBolt = world.alive.has(proj.owner) && world.has(proj.owner, AI);
-      const trail = proj.trailColor
-        ? spellTrail(proj.trailColor)
-        : (isEnemyBolt ? SHADOW_TRAIL : FROST_TRAIL);
+      const isArrow = proj.trailColor === '#c8a050';
+      const trail = isArrow
+        ? ARROW_TRAIL
+        : (proj.trailColor ? spellTrail(proj.trailColor) : (isEnemyBolt ? SHADOW_TRAIL : FROST_TRAIL));
       fx.ensureEmitter('bolt:' + id, trail);
       origins.push({ key: 'bolt:' + id, x: pos.x, y: pos.y, vx: vel.vx * 0.1, vy: vel.vy * 0.1 });
 
