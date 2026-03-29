@@ -30,15 +30,16 @@ export function createProjectileSystem(ctx) {
       pos.x += vel.vx * dt;
       pos.y += vel.vy * dt;
 
-      // Trail — cached, no allocation
+      // Trail — skip for arrows (physical projectile, no magic particles)
       const isArrow = proj.trailColor === '#c8a050';
       const isEnemyBolt = world.alive.has(proj.owner) && world.has(proj.owner, AI);
-      const trail = isArrow ? ARROW_TRAIL
-        : (proj.trailColor ? cachedTrail(proj.trailColor) : (isEnemyBolt ? SHADOW_TRAIL : FROST_TRAIL));
-
       const key = 'b' + id;
-      fx.ensureEmitter(key, trail);
-      origins.push({ key, x: pos.x, y: pos.y, vx: vel.vx * 0.1, vy: vel.vy * 0.1 });
+
+      if (!isArrow) {
+        const trail = proj.trailColor ? cachedTrail(proj.trailColor) : (isEnemyBolt ? SHADOW_TRAIL : FROST_TRAIL);
+        fx.ensureEmitter(key, trail);
+        origins.push({ key, x: pos.x, y: pos.y, vx: vel.vx * 0.1, vy: vel.vy * 0.1 });
+      }
 
       // Hit detection
       let hit = false;
