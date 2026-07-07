@@ -76,6 +76,8 @@ export class GameRoom {
     this.mobs = [];
     this.projectiles = [];
     this.nextEntityId = 1;
+    this.nextEventId = 1;
+    this.events = [];
     this.tickTimer = null;
   }
 
@@ -258,6 +260,8 @@ export class GameRoom {
     this.mobs = [];
     this.projectiles = [];
     this.nextEntityId = 1;
+    this.nextEventId = 1;
+    this.events = [];
   }
 
   ensureCave() {
@@ -289,6 +293,7 @@ export class GameRoom {
       this.mobs.push({
         id: `m${this.nextEntityId++}`,
         kind: 'mob',
+        glyph: 'W',
         x: pos.x,
         y: pos.y,
         facing: 0,
@@ -321,6 +326,15 @@ export class GameRoom {
       trailColor: '#8cd8ff',
       burstColor: '#b0e0ff',
     });
+    this.emitEvent({
+      type: 'projectile.spawned',
+      id: this.projectiles[this.projectiles.length - 1].id,
+      x: session.state.x + Math.cos(angle) * 20,
+      y: session.state.y + Math.sin(angle) * 20,
+      vx: Math.cos(angle) * PROJECTILE_SPEED,
+      vy: Math.sin(angle) * PROJECTILE_SPEED,
+      color: '#8cd8ff',
+    });
   }
 
   stepProjectiles(grid) {
@@ -331,7 +345,17 @@ export class GameRoom {
       projectile.ttl -= SERVER_DT;
 
       if (projectile.ttl <= 0) continue;
-      if (grid.distanceMove(projectile.x, projectile.y) < projectile.radius) continue;
+      if (grid.distanceMove(projectile.x, projectile.y) < projectile.radius) {
+        this.emitEvent({
+          type: 'projectile.destroyed',
+          reason: 'wall',
+          id: projectile.id,
+          x: projectile.x,
+          y: projectile.y,
+          color: projectile.burstColor,
+        });
+        continue;
+      }
 
       let hit = false;
       for (const mob of this.mobs) {
@@ -342,6 +366,24 @@ export class GameRoom {
         if (dx * dx + dy * dy >= minDist * minDist) continue;
 
         mob.hp = Math.max(0, mob.hp - projectile.damage);
+        this.emitEvent({
+          type: 'projectile.destroyed',
+          reason: 'hit',
+          id: projectile.id,
+          targetId: mob.id,
+          x: projectile.x,
+          y: projectile.y,
+          color: projectile.burstColor,
+        });
+        if (mob.hp <= 0) {
+          this.emitEvent({
+            type: 'mob.died',
+            id: mob.id,
+            x: mob.x,
+            y: mob.y,
+            glyph: mob.glyph,
+          });
+        }
         hit = true;
         break;
       }
@@ -356,7 +398,17 @@ export class GameRoom {
     return {
       mobs: this.mobs.map((mob) => ({ ...mob })),
       projectiles: this.projectiles.map((projectile) => ({ ...projectile })),
+      events: this.events.slice(-32),
     };
+  }
+
+  emitEvent(event) {
+    this.events.push({
+      eventId: this.nextEventId++,
+      tick: this.tick,
+      ...event,
+    });
+    if (this.events.length > 64) this.events.splice(0, this.events.length - 64);
   }
 
   startTicking() {

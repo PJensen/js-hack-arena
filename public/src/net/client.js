@@ -15,6 +15,8 @@ export function createNetClient({
 } = {}) {
   const peers = new Map();
   const entities = { mobs: [], projectiles: [] };
+  const pendingEvents = [];
+  let lastEventId = 0;
   const minSendMs = 1000 / Math.max(1, sendHz);
   let socket = null;
   let peerId = null;
@@ -167,6 +169,10 @@ export function createNetClient({
     return entities;
   }
 
+  function drainEvents() {
+    return pendingEvents.splice(0);
+  }
+
   function hasServerEntities() {
     return Boolean(welcome);
   }
@@ -203,6 +209,13 @@ export function createNetClient({
     if (!next) return;
     entities.mobs = Array.isArray(next.mobs) ? next.mobs : [];
     entities.projectiles = Array.isArray(next.projectiles) ? next.projectiles : [];
+    if (Array.isArray(next.events)) {
+      for (const event of next.events) {
+        if (!Number.isFinite(event?.eventId) || event.eventId <= lastEventId) continue;
+        lastEventId = event.eventId;
+        pendingEvents.push(event);
+      }
+    }
   }
 
   function destroy() {
@@ -215,11 +228,14 @@ export function createNetClient({
   function clearEntities() {
     entities.mobs = [];
     entities.projectiles = [];
+    pendingEvents.length = 0;
+    lastEventId = 0;
   }
 
   return {
     connect,
     destroy,
+    drainEvents,
     getEntities,
     getLocalPeer,
     getRemotePeers,

@@ -39,7 +39,10 @@ reconciliation is a later step.
 The room also owns the first networked combat slice: deterministic mob spawns,
 player frost-bolt projectiles from fire input, projectile wall collision, and
 projectile damage against server-owned mobs. These are broadcast as snapshot
-entities and drawn as a network overlay by the browser.
+entities and drawn as a network overlay by the browser. Snapshot events carry
+projectile impacts and mob deaths for synchronized particles/removals.
+When connected to a room, the browser disables local AI/combat/projectile
+simulation and renders server-owned state to avoid dual simulation drift.
 
 ## Commands
 

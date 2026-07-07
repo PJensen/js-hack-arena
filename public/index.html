@@ -108,7 +108,7 @@ import { createRenderer } from './src/display/renderer.js';
 import { createFloatTextPass } from './src/display/passes/floatText.js';
 import { createBoltFx } from './src/display/passes/boltFx.js';
 import { spawnPlayer, spawnCaster, spawnPotion, spawnBow, spawnSword } from './src/rules/spawner.js';
-import { PlayerTag, Spellbook, Position } from './src/rules/components/index.js';
+import { PlayerTag, Spellbook, Position, Facing } from './src/rules/components/index.js';
 import { createNetClient } from './src/net/client.js';
 import {
   createInputSystem, createMovementSystem, createAISystem,
@@ -128,6 +128,7 @@ const netClient = createNetClient({
   roomId,
 });
 const netWelcome = await netClient.connect();
+const isNetworked = Boolean(netWelcome);
 
 // ── Seed + cave ─────────────────────────────────────────────────
 const SEED = netWelcome?.seed ?? resolveSeed().seed;
@@ -198,21 +199,26 @@ const runtimeEvents = { casts: 0 };
 // ── Spawn entities ──────────────────────────────────────────────
 const playerId = spawnPlayer(world, spawn.x, spawn.y);
 world.add(playerId, PlayerTag);
-spawnCaster(world, grid, spawn.x + 200, spawn.y + 150, playerId);
+if (!isNetworked) spawnCaster(world, grid, spawn.x + 200, spawn.y + 150, playerId);
 
 // ── System context (shared deps injected into system closures) ──
 const sysCtx = { grid, fx, cam, inputRouter, playerId, carve };
 
 // ── Register systems ────────────────────────────────────────────
-world.system(createInputSystem(sysCtx),      'input');
-world.system(createMovementSystem(sysCtx),   'simulate');
-world.system(createAISystem(sysCtx),         'simulate');
-world.system(bumpSystem,                     'simulate');
-world.system(pickupSystem,                   'simulate');
-world.system(createProjectileSystem(sysCtx), 'simulate');
-world.system(createDeathSystem(sysCtx),      'simulate');
-world.system(createCameraSystem(sysCtx),     'camera');
-world.setScheduler(composeScheduler('input', 'simulate', 'camera'));
+if (isNetworked) {
+  world.system(createCameraSystem(sysCtx), 'camera');
+  world.setScheduler(composeScheduler('camera'));
+} else {
+  world.system(createInputSystem(sysCtx),      'input');
+  world.system(createMovementSystem(sysCtx),   'simulate');
+  world.system(createAISystem(sysCtx),         'simulate');
+  world.system(bumpSystem,                     'simulate');
+  world.system(pickupSystem,                   'simulate');
+  world.system(createProjectileSystem(sysCtx), 'simulate');
+  world.system(createDeathSystem(sysCtx),      'simulate');
+  world.system(createCameraSystem(sysCtx),     'camera');
+  world.setScheduler(composeScheduler('input', 'simulate', 'camera'));
+}
 
 // ── Float text (damage numbers) ─────────────────────────────────
 const floatText = createFloatTextPass();
@@ -234,6 +240,7 @@ world.on('entity.died', (e) => {
 // Patch: listen for mob death with position data
 const _onDied = [];
 world.on('entity.died.at', (e) => {
+  if (isNetworked) return;
   // Always drop a potion
   spawnPotion(world, e.x + (Math.random() - 0.5) * 16, e.y + (Math.random() - 0.5) * 16, 25);
   // 20% chance bow, 20% chance sword
@@ -281,11 +288,12 @@ function rebuildSpellBar() {
     });
   });
 }
-world.on('item.pickup', () => rebuildSpellBar());
+if (!isNetworked) world.on('item.pickup', () => rebuildSpellBar());
 
 // ── Lightning bolt FX ────────────────────────────────────────────
 const boltFx = createBoltFx();
 world.on('spell:bolt', (e) => {
+  if (isNetworked) return;
   boltFx.add(e.fromX, e.fromY, e.toX, e.toY, e.chain);
 });
 
@@ -323,6 +331,7 @@ const loop = createFixedTickLoop({
     }
     // Stash spell switch on a shared object so inputSystem can read it
     sysCtx._lastInput = o;
+    if (isNetworked) syncLocalPlayerFromServer();
     world.tick(dt);
     netClient.update(++netTick, o);
   },
@@ -335,6 +344,20 @@ const loop = createFixedTickLoop({
     }
   },
 });
+
+function syncLocalPlayerFromServer() {
+  const peer = netClient.getLocalPeer();
+  const state = peer?.state;
+  if (!Number.isFinite(state?.x) || !Number.isFinite(state?.y)) return;
+
+  const pos = world.get(playerId, Position);
+  if (pos) {
+    pos.x = state.x;
+    pos.y = state.y;
+  }
+  const fac = world.get(playerId, Facing);
+  if (fac && Number.isFinite(state.facing)) fac.angle = state.facing;
+}
 
 loop.start();
 console.log(`Cave: seed=${SEED.toString(16)} grid=${grid.cols}x${grid.rows} spawns=${spawns.length}`);
