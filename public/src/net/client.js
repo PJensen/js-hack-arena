@@ -14,9 +14,6 @@ export function createNetClient({
   sendHz = 15,
 } = {}) {
   const peers = new Map();
-  const entities = { mobs: [], projectiles: [] };
-  const pendingEvents = [];
-  let lastEventId = 0;
   const minSendMs = 1000 / Math.max(1, sendHz);
   let socket = null;
   let peerId = null;
@@ -60,7 +57,6 @@ export function createNetClient({
       socket.addEventListener('close', () => {
         socket = null;
         peers.clear();
-        clearEntities();
         setStatus('offline', 'socket closed');
         resolveWelcome(null);
       });
@@ -72,7 +68,6 @@ export function createNetClient({
     } catch (err) {
       socket = null;
       peers.clear();
-      clearEntities();
       setStatus('offline', err.message);
       resolveWelcome(null);
       return null;
@@ -115,7 +110,6 @@ export function createNetClient({
       };
       room = welcome.roomId;
       applyPeerList(msg.peers);
-      applyEntities(msg.entities);
       setStatus('connected', room);
       resolveWelcome(welcome);
       return;
@@ -123,7 +117,6 @@ export function createNetClient({
 
     if (msg.type === MESSAGE.SNAPSHOT || msg.type === MESSAGE.PEER_JOINED) {
       applyPeerList(msg.peers);
-      applyEntities(msg.entities);
       return;
     }
 
@@ -164,19 +157,6 @@ export function createNetClient({
     return peerId ? peers.get(peerId) || null : null;
   }
 
-  function getEntities(kind = null) {
-    if (kind) return entities[kind] || [];
-    return entities;
-  }
-
-  function drainEvents() {
-    return pendingEvents.splice(0);
-  }
-
-  function hasServerEntities() {
-    return Boolean(welcome);
-  }
-
   function getStatusText() {
     const remoteCount = getRemotePeers().length;
     if (status === 'connected') return `net:${room} seed:${welcome?.seed?.toString(16) || '-'} peers:${remoteCount}`;
@@ -205,43 +185,19 @@ export function createNetClient({
     resolve(value);
   }
 
-  function applyEntities(next = null) {
-    if (!next) return;
-    entities.mobs = Array.isArray(next.mobs) ? next.mobs : [];
-    entities.projectiles = Array.isArray(next.projectiles) ? next.projectiles : [];
-    if (Array.isArray(next.events)) {
-      for (const event of next.events) {
-        if (!Number.isFinite(event?.eventId) || event.eventId <= lastEventId) continue;
-        lastEventId = event.eventId;
-        pendingEvents.push(event);
-      }
-    }
-  }
-
   function destroy() {
     if (socket) socket.close();
     socket = null;
     peers.clear();
-    clearEntities();
-  }
-
-  function clearEntities() {
-    entities.mobs = [];
-    entities.projectiles = [];
-    pendingEvents.length = 0;
-    lastEventId = 0;
   }
 
   return {
     connect,
     destroy,
-    drainEvents,
-    getEntities,
     getLocalPeer,
     getRemotePeers,
     getSeed,
     getStatusText,
-    hasServerEntities,
     update,
   };
 }

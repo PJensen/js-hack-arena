@@ -33,16 +33,13 @@ Static/offline play still falls back to the local seed resolver.
 
 The Durable Object currently simulates basic player movement from the latest
 input frames on a 20 Hz room tick and broadcasts authoritative player positions
-at 10 Hz. The browser still runs local movement immediately for responsiveness;
-reconciliation is a later step.
+at 10 Hz. Connected browsers render the server-reported local player position;
+local prediction/reconciliation is a later step.
 
-The room also owns the first networked combat slice: deterministic mob spawns,
-player frost-bolt projectiles from fire input, projectile wall collision, and
-projectile damage against server-owned mobs. These are broadcast as snapshot
-entities and drawn as a network overlay by the browser. Snapshot events carry
-projectile impacts and mob deaths for synchronized particles/removals.
-When connected to a room, the browser disables local AI/combat/projectile
-simulation and renders server-owned state to avoid dual simulation drift.
+Networked rooms are currently movement-only. The browser disables local
+AI/combat/projectile simulation when connected to avoid dual-simulation drift;
+combat should return only after the existing rules layer is extracted into a
+shared simulation path used by both the browser and Worker.
 
 ## Commands
 

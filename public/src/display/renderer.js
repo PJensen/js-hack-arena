@@ -5,7 +5,6 @@
 import { Position, Velocity, Collider, Facing, Health, Actor, ActorKind, Projectile, PointLight, Input, GroundItem, ItemInfo } from '../rules/components/index.js';
 import { AI } from '../rules/components/index.js';
 import { applyCamera } from './camera/controller.js';
-import { Particle } from './passes/vfx/particles/particlePool.js';
 
 /**
  * @param {object} deps
@@ -55,7 +54,6 @@ export function createRenderer(deps) {
 
     applyCamera(ctx, cam, canvas);
     ctx.drawImage(caveBake.canvas, 0, 0);
-    const useServerEntities = Boolean(net?.hasServerEntities?.());
 
     // Draw ground items (potions etc)
     for (const [id, ipos, gi, info] of world.query(Position, GroundItem, ItemInfo)) {
@@ -119,33 +117,16 @@ export function createRenderer(deps) {
       }
     }
 
-    if (useServerEntities) {
-      for (const mob of net.getEntities('mobs')) {
-        drawNetMob(ctx, mob);
-      }
-    }
-
     // Draw mobs
-    if (!useServerEntities) {
-      for (const [id, mpos, mcol, actor, mfac] of world.query(Position, Collider, Actor, Facing)) {
-        if (actor.kind !== ActorKind.MOB) continue;
-        drawMob(ctx, mpos.x, mpos.y, mcol.radius, mfac.angle, actor.glyph);
-      }
-    }
-
-    if (useServerEntities) {
-      for (const projectile of net.getEntities('projectiles')) {
-        drawNetProjectile(ctx, projectile);
-        spawnNetProjectileTrail(fx, projectile);
-      }
+    for (const [id, mpos, mcol, actor, mfac] of world.query(Position, Collider, Actor, Facing)) {
+      if (actor.kind !== ActorKind.MOB) continue;
+      drawMob(ctx, mpos.x, mpos.y, mcol.radius, mfac.angle, actor.glyph);
     }
 
     // Draw projectiles
-    if (!useServerEntities) {
-      for (const [id, bpos, vel, proj, bcol] of world.query(Position, Velocity, Projectile, Collider)) {
-        const isEnemy = world.has(proj.owner, AI);
-        drawProjectile(ctx, bpos.x, bpos.y, vel.vx, vel.vy, bcol.radius, proj.trailColor, isEnemy);
-      }
+    for (const [id, bpos, vel, proj, bcol] of world.query(Position, Velocity, Projectile, Collider)) {
+      const isEnemy = world.has(proj.owner, AI);
+      drawProjectile(ctx, bpos.x, bpos.y, vel.vx, vel.vy, bcol.radius, proj.trailColor, isEnemy);
     }
 
     // Health bars
@@ -184,11 +165,6 @@ export function createRenderer(deps) {
     const renderDt = lastRenderTime > 0 ? now - lastRenderTime : 0.016;
     lastRenderTime = now;
     if (boltFx) boltFx.render(ctx, renderDt);
-    if (useServerEntities) {
-      for (const event of net.drainEvents()) {
-        handleNetEvent(fx, event);
-      }
-    }
 
     // Torch lighting pass — cap projectile lights for perf
     const lights = [];
@@ -227,16 +203,6 @@ export function createRenderer(deps) {
           x: lpos.x, y: lpos.y,
           radius: pl.radius * shimmer,
           color: [pl.r * shimmer, pl.g * shimmer, pl.b],
-        });
-      }
-    }
-    if (useServerEntities) {
-      for (const projectile of net.getEntities('projectiles')) {
-        lights.push({
-          x: projectile.x,
-          y: projectile.y,
-          radius: 120,
-          color: [140, 200, 255],
         });
       }
     }
@@ -284,11 +250,6 @@ export function createRenderer(deps) {
   };
 }
 
-function drawNetMob(ctx, mob) {
-  if (!Number.isFinite(mob?.x) || !Number.isFinite(mob?.y)) return;
-  drawMob(ctx, mob.x, mob.y, mob.radius || 12, mob.facing || 0, mob.glyph || 'W');
-}
-
 function drawMob(ctx, x, y, radius, facing, glyph) {
   ctx.beginPath();
   ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -311,25 +272,7 @@ function drawMob(ctx, x, y, radius, facing, glyph) {
   ctx.lineCap = 'round';
   ctx.stroke();
 
-  ctx.fillStyle = '#f1d8ff';
-  ctx.font = `bold ${Math.max(16, Math.floor(radius * 1.6))}px ui-monospace, monospace`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
   ctx.fillText(glyph, x, y + 1);
-}
-
-function drawNetProjectile(ctx, projectile) {
-  if (!Number.isFinite(projectile?.x) || !Number.isFinite(projectile?.y)) return;
-  drawProjectile(
-    ctx,
-    projectile.x,
-    projectile.y,
-    projectile.vx || 0,
-    projectile.vy || 0,
-    projectile.radius || 5,
-    projectile.trailColor,
-    false,
-  );
 }
 
 function drawProjectile(ctx, x, y, vx, vy, radius, trailColor, isEnemy) {
@@ -375,79 +318,4 @@ function drawProjectile(ctx, x, y, vx, vy, radius, trailColor, isEnemy) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(isEnemy ? '\u2726' : '\u2744', x, y);
-}
-
-function spawnNetProjectileTrail(fx, projectile) {
-  if (!fx?.pool || !Number.isFinite(projectile?.x) || !Number.isFinite(projectile?.y)) return;
-  const rgb = hexRgb(projectile.trailColor || '#8cd8ff');
-  const angle = Math.atan2(projectile.vy || 0, projectile.vx || 0) + Math.PI;
-  for (let i = 0; i < 2; i++) {
-    const spread = (Math.random() - 0.5) * 0.8;
-    const speed = 12 + Math.random() * 28;
-    fx.pool.spawn(new Particle({
-      x: projectile.x,
-      y: projectile.y,
-      vx: Math.cos(angle + spread) * speed,
-      vy: Math.sin(angle + spread) * speed,
-      ax: 0,
-      ay: 0,
-      life: 0.18 + Math.random() * 0.16,
-      size0: 3,
-      size1: 0.5,
-      r: rgb.r,
-      g: rgb.g,
-      b: rgb.b,
-      a0: 0.8,
-      a1: 0,
-    }));
-  }
-}
-
-function handleNetEvent(fx, event) {
-  if (!fx?.pool || !Number.isFinite(event?.x) || !Number.isFinite(event?.y)) return;
-  if (event.type === 'projectile.destroyed') {
-    spawnBurst(fx, event.x, event.y, event.color || '#b0e0ff', 12, 45);
-  } else if (event.type === 'mob.died') {
-    spawnBurst(fx, event.x, event.y, '#d0a0ff', 22, 75);
-  }
-}
-
-function spawnBurst(fx, x, y, color, count, speedBase) {
-  const rgb = hexRgb(color);
-  for (let i = 0; i < count; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const speed = speedBase * (0.45 + Math.random() * 0.75);
-    fx.pool.spawn(new Particle({
-      x,
-      y,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
-      ax: 0,
-      ay: 0,
-      life: 0.22 + Math.random() * 0.22,
-      size0: 4,
-      size1: 0.5,
-      r: rgb.r,
-      g: rgb.g,
-      b: rgb.b,
-      a0: 0.9,
-      a1: 0,
-    }));
-  }
-}
-
-const RGB_CACHE = new Map();
-function hexRgb(hex) {
-  const key = String(hex || '#ffffff');
-  let rgb = RGB_CACHE.get(key);
-  if (rgb) return rgb;
-  const h = key.replace('#', '');
-  const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
-  rgb = {
-    r: (n >> 16) & 255,
-    g: (n >> 8) & 255,
-    b: n & 255,
-  };
-  RGB_CACHE.set(key, rgb);
-  return rgb;
 }

@@ -19,13 +19,6 @@ const JSON_HEADERS = {
 const PLAYER_RADIUS = 14;
 const PLAYER_SPEED = 200;
 const PLAYER_HP = 100;
-const PLAYER_FIRE_COOLDOWN = 0.25;
-const PROJECTILE_SPEED = 320;
-const PROJECTILE_RADIUS = 5;
-const PROJECTILE_DAMAGE = 15;
-const PROJECTILE_TTL = 2.0;
-const MOB_RADIUS = 12;
-const MOB_HP = 60;
 const SERVER_TICK_HZ = 20;
 const SNAPSHOT_HZ = 10;
 const SERVER_TICK_MS = 1000 / SERVER_TICK_HZ;
@@ -73,11 +66,6 @@ export class GameRoom {
     this.roomId = DEFAULT_ROOM_ID;
     this.seed = makeRoomSeed(this.roomId);
     this.caveData = null;
-    this.mobs = [];
-    this.projectiles = [];
-    this.nextEntityId = 1;
-    this.nextEventId = 1;
-    this.events = [];
     this.tickTimer = null;
   }
 
@@ -119,7 +107,6 @@ export class GameRoom {
       joinedAt: Date.now(),
       lastSeenAt: Date.now(),
       input: makeInputFrame(),
-      fireCooldown: 0,
       state: makePlayerState({
         x: spawn.x,
         y: spawn.y,
@@ -139,7 +126,6 @@ export class GameRoom {
       tickHz: SERVER_TICK_HZ,
       snapshotHz: SNAPSHOT_HZ,
       peers: this.peerList(),
-      entities: this.entitySnapshot(),
     });
     this.broadcast(MESSAGE.PEER_JOINED, { peerId, peers: this.peerList() }, socket);
 
@@ -182,7 +168,6 @@ export class GameRoom {
         tickHz: SERVER_TICK_HZ,
         snapshotHz: SNAPSHOT_HZ,
         peers: this.peerList(),
-        entities: this.entitySnapshot(),
       });
       return;
     }
@@ -204,7 +189,6 @@ export class GameRoom {
       const input = session.input;
       const dx = input.moveX * PLAYER_SPEED * SERVER_DT;
       const dy = input.moveY * PLAYER_SPEED * SERVER_DT;
-      session.fireCooldown = Math.max(0, session.fireCooldown - SERVER_DT);
 
       if (Math.abs(input.aimX) > 0.1 || Math.abs(input.aimY) > 0.1) {
         state.facing = Math.atan2(input.aimY, input.aimX);
@@ -217,17 +201,12 @@ export class GameRoom {
         state.x = moved.x;
         state.y = moved.y;
       }
-
-      this.tryFire(session);
     }
-
-    this.stepProjectiles(grid);
 
     if (this.tick % SNAPSHOT_EVERY_TICKS !== 0) return;
     this.broadcast(MESSAGE.SNAPSHOT, {
       tick: this.tick,
       peers: this.peerList(),
-      entities: this.entitySnapshot(),
     });
   }
 
@@ -257,11 +236,6 @@ export class GameRoom {
     this.roomId = roomId;
     this.seed = makeRoomSeed(roomId);
     this.caveData = null;
-    this.mobs = [];
-    this.projectiles = [];
-    this.nextEntityId = 1;
-    this.nextEventId = 1;
-    this.events = [];
   }
 
   ensureCave() {
@@ -273,7 +247,6 @@ export class GameRoom {
         profile: CaveProfile.CAVERNS,
         spawnCount: 4,
       });
-      this.spawnMobs();
     }
     return this.caveData;
   }
@@ -281,134 +254,6 @@ export class GameRoom {
   spawnForPeer(peerIndex) {
     const { spawns } = this.ensureCave();
     return spawns[peerIndex % spawns.length] || { x: 1000, y: 1000 };
-  }
-
-  spawnMobs() {
-    this.mobs = [];
-    const { grid, spawns } = this.caveData;
-    const anchors = spawns.length > 0 ? spawns : [{ x: 1000, y: 1000 }];
-    for (let i = 0; i < Math.min(4, anchors.length); i++) {
-      const anchor = anchors[i];
-      const pos = findOpenNear(grid, anchor.x + 200, anchor.y + 150, 400);
-      this.mobs.push({
-        id: `m${this.nextEntityId++}`,
-        kind: 'mob',
-        glyph: 'W',
-        x: pos.x,
-        y: pos.y,
-        facing: 0,
-        radius: MOB_RADIUS,
-        hp: MOB_HP,
-        maxHp: MOB_HP,
-      });
-    }
-  }
-
-  tryFire(session) {
-    const input = session.input;
-    const aiming = Math.abs(input.aimX) > 0.1 || Math.abs(input.aimY) > 0.1;
-    if (!aiming || !input.fire || session.fireCooldown > 0) return;
-
-    session.fireCooldown = PLAYER_FIRE_COOLDOWN;
-    const angle = Math.atan2(input.aimY, input.aimX);
-    session.state.facing = angle;
-    this.projectiles.push({
-      id: `p${this.nextEntityId++}`,
-      kind: 'projectile',
-      owner: session.id,
-      x: session.state.x + Math.cos(angle) * 20,
-      y: session.state.y + Math.sin(angle) * 20,
-      vx: Math.cos(angle) * PROJECTILE_SPEED,
-      vy: Math.sin(angle) * PROJECTILE_SPEED,
-      radius: PROJECTILE_RADIUS,
-      damage: PROJECTILE_DAMAGE,
-      ttl: PROJECTILE_TTL,
-      trailColor: '#8cd8ff',
-      burstColor: '#b0e0ff',
-    });
-    this.emitEvent({
-      type: 'projectile.spawned',
-      id: this.projectiles[this.projectiles.length - 1].id,
-      x: session.state.x + Math.cos(angle) * 20,
-      y: session.state.y + Math.sin(angle) * 20,
-      vx: Math.cos(angle) * PROJECTILE_SPEED,
-      vy: Math.sin(angle) * PROJECTILE_SPEED,
-      color: '#8cd8ff',
-    });
-  }
-
-  stepProjectiles(grid) {
-    const liveProjectiles = [];
-    for (const projectile of this.projectiles) {
-      projectile.x += projectile.vx * SERVER_DT;
-      projectile.y += projectile.vy * SERVER_DT;
-      projectile.ttl -= SERVER_DT;
-
-      if (projectile.ttl <= 0) continue;
-      if (grid.distanceMove(projectile.x, projectile.y) < projectile.radius) {
-        this.emitEvent({
-          type: 'projectile.destroyed',
-          reason: 'wall',
-          id: projectile.id,
-          x: projectile.x,
-          y: projectile.y,
-          color: projectile.burstColor,
-        });
-        continue;
-      }
-
-      let hit = false;
-      for (const mob of this.mobs) {
-        if (mob.hp <= 0) continue;
-        const dx = mob.x - projectile.x;
-        const dy = mob.y - projectile.y;
-        const minDist = mob.radius + projectile.radius;
-        if (dx * dx + dy * dy >= minDist * minDist) continue;
-
-        mob.hp = Math.max(0, mob.hp - projectile.damage);
-        this.emitEvent({
-          type: 'projectile.destroyed',
-          reason: 'hit',
-          id: projectile.id,
-          targetId: mob.id,
-          x: projectile.x,
-          y: projectile.y,
-          color: projectile.burstColor,
-        });
-        if (mob.hp <= 0) {
-          this.emitEvent({
-            type: 'mob.died',
-            id: mob.id,
-            x: mob.x,
-            y: mob.y,
-            glyph: mob.glyph,
-          });
-        }
-        hit = true;
-        break;
-      }
-      if (!hit) liveProjectiles.push(projectile);
-    }
-
-    this.projectiles = liveProjectiles;
-    this.mobs = this.mobs.filter((mob) => mob.hp > 0);
-  }
-
-  entitySnapshot() {
-    return {
-      mobs: this.mobs.map((mob) => ({ ...mob })),
-      projectiles: this.projectiles.map((projectile) => ({ ...projectile })),
-      events: this.events.slice(-32),
-    };
-  }
-
-  emitEvent(event) {
-    this.events.push({
-      eventId: this.nextEventId++,
-      tick: this.tick,
-      ...event,
-    });
-    if (this.events.length > 64) this.events.splice(0, this.events.length - 64);
   }
 
   startTicking() {
@@ -451,17 +296,6 @@ function websocketUrl(request, pathname) {
   url.pathname = pathname;
   url.search = '';
   return url.toString();
-}
-
-function findOpenNear(grid, x, y, searchRadius = 200) {
-  for (let r = 0; r < searchRadius; r += 8) {
-    for (let a = 0; a < Math.PI * 2; a += 0.4) {
-      const tx = x + Math.cos(a) * r;
-      const ty = y + Math.sin(a) * r;
-      if (grid.distanceMove(tx, ty) >= 20) return { x: tx, y: ty };
-    }
-  }
-  return { x, y };
 }
 
 function json(body, init = {}) {
