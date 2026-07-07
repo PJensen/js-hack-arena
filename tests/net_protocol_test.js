@@ -6,7 +6,7 @@ import {
   encodeMessage,
   makeInputFrame,
   normalizeRoomId,
-} from '../src/net/protocol.js';
+} from '../public/src/net/protocol.js';
 
 Deno.test("normalizeRoomId: keeps room ids URL-safe", () => {
   assertEquals(normalizeRoomId(" The Cave Room!! "), "the-cave-room");

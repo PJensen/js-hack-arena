@@ -2,10 +2,10 @@
 // deno test --allow-read tests/geometry_test.js
 
 import { assertEquals, assert, assertAlmostEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
-import * as SDF from '../src/rules/geometry/sdf.js';
-import { createKernel } from '../src/rules/geometry/kernel.js';
-import { sweepMaxFree, moveWithSlide } from '../src/rules/geometry/sweep.js';
-import { generateCave, CaveProfile } from '../src/rules/geometry/caveGen.js';
+import * as SDF from '../public/src/rules/geometry/sdf.js';
+import { createKernel } from '../public/src/rules/geometry/kernel.js';
+import { sweepMaxFree, moveWithSlide } from '../public/src/rules/geometry/sweep.js';
+import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
 
 // ── SDF primitives ─────────────────────────────────────────────
 

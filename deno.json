@@ -2,7 +2,7 @@
   "tasks": {
     "dev": "deno run -A npm:wrangler@^4.0.0 dev",
     "deploy": "deno run -A npm:wrangler@^4.0.0 deploy",
-    "check": "deno check src/net/protocol.js src/net/index.js worker/index.js tests/net_protocol_test.js",
+    "check": "deno check public/src/net/protocol.js public/src/net/index.js worker/index.js tests/net_protocol_test.js",
     "test": "deno test --allow-read tests/net_protocol_test.js"
   }
 }

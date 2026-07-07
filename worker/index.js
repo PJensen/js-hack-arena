@@ -5,7 +5,7 @@ import {
   encodeMessage,
   makeInputFrame,
   normalizeRoomId,
-} from '../src/net/protocol.js';
+} from '../public/src/net/protocol.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',

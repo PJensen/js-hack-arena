@@ -5,7 +5,7 @@ compatibility_date = "2026-07-07"
 # The browser client is still a static site. Cloudflare serves these assets,
 # while the Worker handles server routes such as /api/* and /ws/*.
 [assets]
-directory = "."
+directory = "public"
 binding = "ASSETS"
 not_found_handling = "404-page"
 
