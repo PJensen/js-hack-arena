@@ -31,10 +31,10 @@ Rooms are server-seeded. On a Worker-backed connection, `WELCOME` includes the
 authoritative room seed and the browser generates cave geometry from that seed.
 Static/offline play still falls back to the local seed resolver.
 
-The Durable Object currently simulates basic player movement from input frames
-and broadcasts authoritative player positions in snapshots. The browser still
-runs local movement immediately for responsiveness; reconciliation is a later
-step.
+The Durable Object currently simulates basic player movement from the latest
+input frames on a 20 Hz room tick and broadcasts authoritative player positions
+at 10 Hz. The browser still runs local movement immediately for responsiveness;
+reconciliation is a later step.
 
 ## Commands
 

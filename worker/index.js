@@ -19,7 +19,11 @@ const JSON_HEADERS = {
 const PLAYER_RADIUS = 14;
 const PLAYER_SPEED = 200;
 const PLAYER_HP = 100;
-const MAX_STEP_DT = 0.1;
+const SERVER_TICK_HZ = 20;
+const SNAPSHOT_HZ = 10;
+const SERVER_TICK_MS = 1000 / SERVER_TICK_HZ;
+const SERVER_DT = 1 / SERVER_TICK_HZ;
+const SNAPSHOT_EVERY_TICKS = Math.max(1, Math.round(SERVER_TICK_HZ / SNAPSHOT_HZ));
 
 export default {
   async fetch(request, env) {
@@ -62,7 +66,7 @@ export class GameRoom {
     this.roomId = DEFAULT_ROOM_ID;
     this.seed = makeRoomSeed(this.roomId);
     this.caveData = null;
-    this.lastStepAt = Date.now();
+    this.tickTimer = null;
   }
 
   async fetch(request) {
@@ -77,6 +81,8 @@ export class GameRoom {
         seed: this.seed,
         peers: this.sessions.size,
         tick: this.tick,
+        tickHz: SERVER_TICK_HZ,
+        snapshotHz: SNAPSHOT_HZ,
       });
     }
 
@@ -111,11 +117,14 @@ export class GameRoom {
     };
 
     this.sessions.set(socket, session);
+    this.startTicking();
     this.send(socket, MESSAGE.WELCOME, {
       peerId,
       roomId: this.roomId,
       seed: this.seed,
       tick: this.tick,
+      tickHz: SERVER_TICK_HZ,
+      snapshotHz: SNAPSHOT_HZ,
       peers: this.peerList(),
     });
     this.broadcast(MESSAGE.PEER_JOINED, { peerId, peers: this.peerList() }, socket);
@@ -156,6 +165,8 @@ export class GameRoom {
         roomId: this.roomId,
         seed: this.seed,
         tick: this.tick,
+        tickHz: SERVER_TICK_HZ,
+        snapshotHz: SNAPSHOT_HZ,
         peers: this.peerList(),
       });
       return;
@@ -163,7 +174,6 @@ export class GameRoom {
 
     if (msg.type === MESSAGE.INPUT) {
       session.input = makeInputFrame(msg.input);
-      this.step();
       return;
     }
 
@@ -171,33 +181,29 @@ export class GameRoom {
   }
 
   step() {
-    const now = Date.now();
-    const dt = Math.min(MAX_STEP_DT, Math.max(0, (now - this.lastStepAt) / 1000));
-    this.lastStepAt = now;
     this.tick += 1;
 
-    if (dt > 0) {
-      const { grid } = this.ensureCave();
-      for (const session of this.sessions.values()) {
-        const state = session.state;
-        const input = session.input;
-        const dx = input.moveX * PLAYER_SPEED * dt;
-        const dy = input.moveY * PLAYER_SPEED * dt;
+    const { grid } = this.ensureCave();
+    for (const session of this.sessions.values()) {
+      const state = session.state;
+      const input = session.input;
+      const dx = input.moveX * PLAYER_SPEED * SERVER_DT;
+      const dy = input.moveY * PLAYER_SPEED * SERVER_DT;
 
-        if (Math.abs(input.aimX) > 0.1 || Math.abs(input.aimY) > 0.1) {
-          state.facing = Math.atan2(input.aimY, input.aimX);
-        } else if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
-          state.facing = Math.atan2(dy, dx);
-        }
+      if (Math.abs(input.aimX) > 0.1 || Math.abs(input.aimY) > 0.1) {
+        state.facing = Math.atan2(input.aimY, input.aimX);
+      } else if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
+        state.facing = Math.atan2(dy, dx);
+      }
 
-        if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
-          const moved = moveWithSlide(grid, state.x, state.y, dx, dy, PLAYER_RADIUS);
-          state.x = moved.x;
-          state.y = moved.y;
-        }
+      if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
+        const moved = moveWithSlide(grid, state.x, state.y, dx, dy, PLAYER_RADIUS);
+        state.x = moved.x;
+        state.y = moved.y;
       }
     }
 
+    if (this.tick % SNAPSHOT_EVERY_TICKS !== 0) return;
     this.broadcast(MESSAGE.SNAPSHOT, {
       tick: this.tick,
       peers: this.peerList(),
@@ -212,6 +218,7 @@ export class GameRoom {
       peerId: session.id,
       peers: this.peerList(),
     });
+    if (this.sessions.size === 0) this.stopTicking();
   }
 
   peerList() {
@@ -229,7 +236,6 @@ export class GameRoom {
     this.roomId = roomId;
     this.seed = makeRoomSeed(roomId);
     this.caveData = null;
-    this.lastStepAt = Date.now();
   }
 
   ensureCave() {
@@ -248,6 +254,28 @@ export class GameRoom {
   spawnForPeer(peerIndex) {
     const { spawns } = this.ensureCave();
     return spawns[peerIndex % spawns.length] || { x: 1000, y: 1000 };
+  }
+
+  startTicking() {
+    if (this.tickTimer !== null) return;
+    this.tickTimer = setTimeout(() => this.tickLoop(), SERVER_TICK_MS);
+  }
+
+  stopTicking() {
+    if (this.tickTimer === null) return;
+    clearTimeout(this.tickTimer);
+    this.tickTimer = null;
+  }
+
+  tickLoop() {
+    this.tickTimer = null;
+    if (this.sessions.size === 0) return;
+
+    try {
+      this.step();
+    } finally {
+      if (this.sessions.size > 0) this.startTicking();
+    }
   }
 
   send(socket, type, payload) {
