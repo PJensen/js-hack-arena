@@ -95,7 +95,7 @@ export function spawnPotion(world, x, y, potency = 30) {
   world.add(id, ItemInfo, { name: 'Health Potion', glyph: '!', slot: 'none', count: 1 });
   world.add(id, Consumable, { effect: 'heal', potency });
   world.add(id, GroundItem);
-  world.add(id, Collider, { radius: 8 });
+  world.add(id, Collider, { radius: 10 });
   world.add(id, PointLight, { radius: 60, r: 255, g: 50, b: 80 });
   return id;
 }
@@ -110,7 +110,7 @@ export function spawnBow(world, x, y) {
   world.add(id, ItemInfo, { name: 'Short Bow', glyph: ')', slot: 'hand', count: 1 });
   world.add(id, Consumable, { effect: 'add_spell', potency: 0 });
   world.add(id, GroundItem);
-  world.add(id, Collider, { radius: 8 });
+  world.add(id, Collider, { radius: 10 });
   world.add(id, PointLight, { radius: 50, r: 200, g: 180, b: 100 });
   return id;
 }
@@ -131,7 +131,92 @@ export function spawnSword(world, x, y, tier = 1) {
   world.add(id, ItemInfo, { name: s.name, glyph: s.glyph, slot: 'hand', count: 1 });
   world.add(id, Consumable, { effect: 'melee_upgrade', potency: s.damage });
   world.add(id, GroundItem);
-  world.add(id, Collider, { radius: 8 });
+  world.add(id, Collider, { radius: 10 });
   world.add(id, PointLight, { radius: 55, r: s.r, g: s.g, b: s.b });
+  return id;
+}
+
+/**
+ * Spawn an epic sword — high damage, purple glow.
+ */
+export function spawnEpicSword(world, x, y) {
+  const id = world.create();
+  world.add(id, Position, { x, y });
+  world.add(id, ItemInfo, { name: 'Void Reaver', glyph: '\u2020', slot: 'hand', count: 1 });
+  world.add(id, Consumable, { effect: 'melee_upgrade', potency: 42 });
+  world.add(id, GroundItem);
+  world.add(id, Collider, { radius: 10 });
+  world.add(id, PointLight, { radius: 80, r: 200, g: 80, b: 255 });
+  return id;
+}
+
+/**
+ * Spawn an epic bow — adds arrow spell + upgrades arrow damage via event.
+ */
+export function spawnEpicBow(world, x, y) {
+  const id = world.create();
+  world.add(id, Position, { x, y });
+  world.add(id, ItemInfo, { name: 'Shadow Longbow', glyph: '}', slot: 'hand', count: 1 });
+  world.add(id, Consumable, { effect: 'add_spell', potency: 0 });
+  world.add(id, GroundItem);
+  world.add(id, Collider, { radius: 10 });
+  world.add(id, PointLight, { radius: 70, r: 160, g: 60, b: 255 });
+  return id;
+}
+
+/**
+ * Spawn arrow ammo on the ground — restores arrow charges / heals a small amount.
+ */
+export function spawnArrows(world, x, y, count = 5) {
+  const id = world.create();
+  world.add(id, Position, { x, y });
+  world.add(id, ItemInfo, { name: `Arrows (${count})`, glyph: '\u2191', slot: 'none', count });
+  world.add(id, Consumable, { effect: 'heal', potency: 5 });
+  world.add(id, GroundItem);
+  world.add(id, Collider, { radius: 10 });
+  world.add(id, PointLight, { radius: 35, r: 200, g: 180, b: 100 });
+  return id;
+}
+
+/**
+ * Spawn an epic chest on the ground — glowing purple chest.
+ * On pickup, rolls the epic chest loot table and spawns the result nearby.
+ */
+export function spawnEpicChest(world, x, y) {
+  const id = world.create();
+  world.add(id, Position, { x, y });
+  world.add(id, ItemInfo, { name: 'Epic Chest', glyph: '\u2302', slot: 'none', count: 1 });
+  world.add(id, Consumable, { effect: 'epic_chest', potency: 0 });
+  world.add(id, GroundItem);
+  world.add(id, Collider, { radius: 12 });
+  world.add(id, PointLight, { radius: 100, r: 200, g: 80, b: 255 });
+  return id;
+}
+
+/**
+ * Spawn a legendary sword — massive damage, golden glow, pulsing light.
+ */
+export function spawnLegendarySword(world, x, y) {
+  const id = world.create();
+  world.add(id, Position, { x, y });
+  world.add(id, ItemInfo, { name: 'Godslayer', glyph: '\u2694', slot: 'hand', count: 1 });
+  world.add(id, Consumable, { effect: 'melee_upgrade', potency: 60 });
+  world.add(id, GroundItem);
+  world.add(id, Collider, { radius: 10 });
+  world.add(id, PointLight, { radius: 120, r: 255, g: 200, b: 50 });
+  return id;
+}
+
+/**
+ * Spawn a legendary bow — golden glow.
+ */
+export function spawnLegendaryBow(world, x, y) {
+  const id = world.create();
+  world.add(id, Position, { x, y });
+  world.add(id, ItemInfo, { name: 'Sunfire Longbow', glyph: '}', slot: 'hand', count: 1 });
+  world.add(id, Consumable, { effect: 'add_spell', potency: 0 });
+  world.add(id, GroundItem);
+  world.add(id, Collider, { radius: 10 });
+  world.add(id, PointLight, { radius: 110, r: 255, g: 200, b: 50 });
   return id;
 }

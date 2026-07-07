@@ -12,7 +12,8 @@ export function pickupSystem(world, dt) {
     for (const p of players) {
       const dx = p.pos.x - ipos.x, dy = p.pos.y - ipos.y;
       const dist = Math.hypot(dx, dy);
-      if (dist < p.col.radius + icol.radius) {
+      // Generous pickup radius — player radius + item radius + 6px grace
+      if (dist < p.col.radius + icol.radius + 6) {
         if (world.has(itemId, Consumable)) {
           const c = world.get(itemId, Consumable);
           const info = world.has(itemId, ItemInfo) ? world.get(itemId, ItemInfo) : null;
@@ -25,19 +26,23 @@ export function pickupSystem(world, dt) {
             });
           } else if (c.effect === 'add_spell' && world.has(p.id, Spellbook)) {
             const book = world.get(p.id, Spellbook);
-            const spellId = info && info.name === 'Short Bow' ? 'arrow' : null;
+            const spellId = (info && (info.name === 'Short Bow' || info.name === 'Shadow Longbow' || info.name === 'Sunfire Longbow')) ? 'arrow' : null;
             if (spellId && !book.spells.includes(spellId)) {
               book.spells.push(spellId);
-              world.emit('item.pickup', { entity: p.id, item: info?.name, spellId });
             }
+            world.emit('item.pickup', { entity: p.id, item: info?.name, spellId });
           } else if (c.effect === 'melee_upgrade' && world.has(p.id, MeleeWeapon)) {
             const mw = world.get(p.id, MeleeWeapon);
             if (c.potency > mw.damage) {
               mw.damage = c.potency;
               mw.name = info?.name || mw.name;
               mw.glyph = info?.glyph || mw.glyph;
-              world.emit('item.pickup', { entity: p.id, item: info?.name });
             }
+            world.emit('item.pickup', { entity: p.id, item: info?.name });
+          } else if (c.effect === 'epic_chest') {
+            // Epic chest: emit event so index.html can roll the chest table and spawn loot
+            world.emit('chest.opened', { entity: p.id, x: ipos.x, y: ipos.y });
+            world.emit('item.pickup', { entity: p.id, item: info?.name });
           }
         }
         toDestroy.push(itemId);
