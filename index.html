@@ -159,7 +159,6 @@ const inputRouter = createInputRouter({
 // ── Spell bar (touch) ───────────────────────────────────────────
 // Spell bar — intercept touches BEFORE InputRouter claims them
 const spellBar = document.getElementById('spell-bar');
-const spellBtns = document.querySelectorAll('.spell-btn');
 spellBar.addEventListener('touchstart', (e) => {
   e.preventDefault();
   e.stopPropagation();
@@ -167,7 +166,7 @@ spellBar.addEventListener('touchstart', (e) => {
   if (!btn) return;
   const slot = Number(btn.dataset.slot);
   inputRouter._setSpellSlot(slot);
-  spellBtns.forEach(b => b.classList.remove('active'));
+  spellBar.querySelectorAll('.spell-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 }, { capture: true });
 spellBar.addEventListener('pointerdown', (e) => {
@@ -177,7 +176,7 @@ spellBar.addEventListener('pointerdown', (e) => {
   if (!btn) return;
   const slot = Number(btn.dataset.slot);
   inputRouter._setSpellSlot(slot);
-  spellBtns.forEach(b => b.classList.remove('active'));
+  spellBar.querySelectorAll('.spell-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 });
 
@@ -319,7 +318,7 @@ const loop = createFixedTickLoop({
     // Sync spell bar UI with active spell
     if (world.has(playerId, Spellbook)) {
       const sb = world.get(playerId, Spellbook);
-      spellBtns.forEach((b, i) => b.classList.toggle('active', i === sb.activeIndex));
+      spellBar.querySelectorAll('.spell-btn').forEach((b, i) => b.classList.toggle('active', i === sb.activeIndex));
     }
   },
 });

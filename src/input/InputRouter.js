@@ -220,8 +220,7 @@ export function createInputRouter({
 
   on(window, 'keydown', (e) => {
     const k = e.key.toLowerCase();
-    if (k === '1') spellSlot = 0;
-    else if (k === '2') spellSlot = 1;
+    if (/^[1-9]$/.test(k)) spellSlot = Number(k) - 1;
     else if (k === 'q' || k === 'tab') { spellCycle += 1; e.preventDefault(); }
   });
 
