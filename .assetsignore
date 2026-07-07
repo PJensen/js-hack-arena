@@ -1,0 +1,12 @@
+.git/
+.agents/
+.claude/
+.codex/
+.wrangler/
+.assetsignore
+deno.json
+deno.lock
+README.md
+tests/
+worker/
+wrangler.toml
