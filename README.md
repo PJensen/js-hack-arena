@@ -8,7 +8,7 @@ Experimental cooperative cave-delving prototype.
 - Cloudflare asset root: `public/`.
 - Server runtime: Cloudflare Worker in `worker/index.js`.
 - Realtime rooms: Cloudflare Durable Object `GameRoom`, routed through `/ws/:roomId`.
-- Shared net contract: `public/src/net/protocol.js`.
+- Shared net contract: `public/src/shared/net/protocol.js`.
 
 The client should remain deployable as static assets. Worker code owns server
 routes such as `/api/*` and `/ws/*`, then falls back to static asset serving.
@@ -24,8 +24,12 @@ routes such as `/api/*` and `/ws/*`, then falls back to static asset serving.
 Useful routes once running under Wrangler:
 
 - `/api/health` - Worker health check.
-- `/api/rooms/default?room=lobby` - returns the WebSocket URL for a room.
+- `/api/rooms/default?room=lobby` - returns the room seed and WebSocket URL.
 - `/ws/lobby` - upgrades to a room WebSocket.
+
+Rooms are server-seeded. On a Worker-backed connection, `WELCOME` includes the
+authoritative room seed and the browser generates cave geometry from that seed.
+Static/offline play still falls back to the local seed resolver.
 
 ## Commands
 

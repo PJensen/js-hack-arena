@@ -6,12 +6,18 @@ import {
   encodeMessage,
   makeInputFrame,
   makePlayerState,
+  makeRoomSeed,
   normalizeRoomId,
-} from '../public/src/net/protocol.js';
+} from '../public/src/shared/net/protocol.js';
 
 Deno.test("normalizeRoomId: keeps room ids URL-safe", () => {
   assertEquals(normalizeRoomId(" The Cave Room!! "), "the-cave-room");
   assertEquals(normalizeRoomId(""), "lobby");
+});
+
+Deno.test("makeRoomSeed: derives stable seeds from normalized room ids", () => {
+  assertEquals(makeRoomSeed(" The Cave Room!! "), makeRoomSeed("the-cave-room"));
+  assertEquals(makeRoomSeed("lobby"), makeRoomSeed(""));
 });
 
 Deno.test("protocol: encode/decode roundtrip", () => {

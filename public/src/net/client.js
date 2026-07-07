@@ -5,6 +5,7 @@ import {
   encodeMessage,
   makeInputFrame,
   makePlayerState,
+  normalizeSeed,
   normalizeRoomId,
 } from './index.js';
 
@@ -22,13 +23,18 @@ export function createNetClient({
   let seq = 0;
   let lastSendAt = 0;
   let room = normalizeRoomId(roomId);
+  let welcome = null;
+  let connectPromise = null;
+  let resolveConnect = null;
 
   async function connect() {
     if (!('WebSocket' in globalThis)) {
       setStatus('offline', 'websocket unavailable');
-      return;
+      return null;
     }
-    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+    if (welcome) return welcome;
+    if (connectPromise) return connectPromise;
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return null;
 
     setStatus('connecting', room);
     try {
@@ -38,9 +44,12 @@ export function createNetClient({
       if (!response.ok) throw new Error(`room lookup failed: ${response.status}`);
       const info = await response.json();
       socket = new WebSocket(info.ws);
+      connectPromise = new Promise((resolve) => {
+        resolveConnect = resolve;
+      });
 
       socket.addEventListener('open', () => {
-        setStatus('connected', room);
+        setStatus('joining', room);
         send(MESSAGE.HELLO, {});
       });
       socket.addEventListener('message', (event) => {
@@ -50,14 +59,19 @@ export function createNetClient({
         socket = null;
         peers.clear();
         setStatus('offline', 'socket closed');
+        resolveWelcome(null);
       });
       socket.addEventListener('error', () => {
         setStatus('error', 'socket error');
+        resolveWelcome(null);
       });
+      return connectPromise;
     } catch (err) {
       socket = null;
       peers.clear();
       setStatus('offline', err.message);
+      resolveWelcome(null);
+      return null;
     }
   }
 
@@ -91,8 +105,15 @@ export function createNetClient({
 
     if (msg.type === MESSAGE.WELCOME) {
       peerId = msg.peerId;
+      welcome = {
+        ...msg,
+        seed: normalizeSeed(msg.seed),
+        roomId: normalizeRoomId(msg.roomId || room),
+      };
+      room = welcome.roomId;
       applyPeerList(msg.peers);
       setStatus('connected', room);
+      resolveWelcome(welcome);
       return;
     }
 
@@ -136,8 +157,12 @@ export function createNetClient({
 
   function getStatusText() {
     const remoteCount = getRemotePeers().length;
-    if (status === 'connected') return `net:${room} peers:${remoteCount}`;
+    if (status === 'connected') return `net:${room} seed:${welcome?.seed?.toString(16) || '-'} peers:${remoteCount}`;
     return `net:${status}${statusDetail ? ' ' + statusDetail : ''}`;
+  }
+
+  function getSeed() {
+    return welcome?.seed ?? null;
   }
 
   function send(type, payload) {
@@ -150,6 +175,14 @@ export function createNetClient({
     statusDetail = detail;
   }
 
+  function resolveWelcome(value) {
+    if (!resolveConnect) return;
+    const resolve = resolveConnect;
+    resolveConnect = null;
+    connectPromise = null;
+    resolve(value);
+  }
+
   function destroy() {
     if (socket) socket.close();
     socket = null;
@@ -160,6 +193,7 @@ export function createNetClient({
     connect,
     destroy,
     getRemotePeers,
+    getSeed,
     getStatusText,
     update,
   };

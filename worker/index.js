@@ -5,8 +5,9 @@ import {
   encodeMessage,
   makeInputFrame,
   makePlayerState,
+  makeRoomSeed,
   normalizeRoomId,
-} from '../public/src/net/protocol.js';
+} from '../public/src/shared/net/protocol.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -29,6 +30,7 @@ export default {
       const roomId = normalizeRoomId(url.searchParams.get('room') || DEFAULT_ROOM_ID);
       return json({
         roomId,
+        seed: makeRoomSeed(roomId),
         ws: websocketUrl(request, `/ws/${roomId}`),
       });
     }
@@ -50,13 +52,20 @@ export class GameRoom {
     this.sessions = new Map();
     this.tick = 0;
     this.createdAt = Date.now();
+    this.roomId = DEFAULT_ROOM_ID;
+    this.seed = makeRoomSeed(this.roomId);
   }
 
   async fetch(request) {
+    const url = new URL(request.url);
+    this.setRoomId(normalizeRoomId(url.pathname.startsWith('/ws/') ? url.pathname.slice('/ws/'.length) : DEFAULT_ROOM_ID));
+
     if (request.headers.get('upgrade') !== 'websocket') {
       return json({
         ok: true,
+        roomId: this.roomId,
         room: this.state.id.toString(),
+        seed: this.seed,
         peers: this.sessions.size,
         tick: this.tick,
       });
@@ -88,6 +97,8 @@ export class GameRoom {
     this.sessions.set(socket, session);
     this.send(socket, MESSAGE.WELCOME, {
       peerId,
+      roomId: this.roomId,
+      seed: this.seed,
       tick: this.tick,
       peers: this.peerList(),
     });
@@ -126,6 +137,8 @@ export class GameRoom {
     if (msg.type === MESSAGE.HELLO) {
       this.send(socket, MESSAGE.WELCOME, {
         peerId: session.id,
+        roomId: this.roomId,
+        seed: this.seed,
         tick: this.tick,
         peers: this.peerList(),
       });
@@ -169,6 +182,12 @@ export class GameRoom {
       input: session.input,
       state: session.state,
     }));
+  }
+
+  setRoomId(roomId) {
+    if (this.roomId === roomId) return;
+    this.roomId = roomId;
+    this.seed = makeRoomSeed(roomId);
   }
 
   send(socket, type, payload) {
