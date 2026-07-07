@@ -4,6 +4,7 @@ import {
   decodeMessage,
   encodeMessage,
   makeInputFrame,
+  makePlayerState,
   normalizeRoomId,
 } from '../public/src/net/protocol.js';
 
@@ -81,6 +82,7 @@ export class GameRoom {
       joinedAt: Date.now(),
       lastSeenAt: Date.now(),
       input: makeInputFrame(),
+      state: null,
     };
 
     this.sessions.set(socket, session);
@@ -132,6 +134,7 @@ export class GameRoom {
 
     if (msg.type === MESSAGE.INPUT) {
       session.input = makeInputFrame(msg.input);
+      if (msg.state) session.state = makePlayerState(msg.state);
       this.step();
       return;
     }
@@ -164,6 +167,7 @@ export class GameRoom {
       joinedAt: session.joinedAt,
       lastSeenAt: session.lastSeenAt,
       input: session.input,
+      state: session.state,
     }));
   }
 

@@ -5,6 +5,7 @@ import {
   decodeMessage,
   encodeMessage,
   makeInputFrame,
+  makePlayerState,
   normalizeRoomId,
 } from '../public/src/net/protocol.js';
 
@@ -35,5 +36,15 @@ Deno.test("makeInputFrame: clamps analog values", () => {
     aimY: 0,
     fire: true,
     spellSlot: null,
+  });
+});
+
+Deno.test("makePlayerState: normalizes finite position state", () => {
+  assertEquals(makePlayerState({ x: "12.5", y: Infinity, facing: Math.PI, hp: "90", maxHp: NaN }), {
+    x: 12.5,
+    y: 0,
+    facing: Math.PI,
+    hp: 90,
+    maxHp: null,
   });
 });

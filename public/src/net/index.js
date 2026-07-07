@@ -11,5 +11,6 @@ export {
   decodeMessage,
   encodeMessage,
   makeInputFrame,
+  makePlayerState,
   normalizeRoomId,
 } from './protocol.js';

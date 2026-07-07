@@ -108,7 +108,8 @@ import { createRenderer } from './src/display/renderer.js';
 import { createFloatTextPass } from './src/display/passes/floatText.js';
 import { createBoltFx } from './src/display/passes/boltFx.js';
 import { spawnPlayer, spawnCaster, spawnPotion, spawnBow, spawnSword } from './src/rules/spawner.js';
-import { PlayerTag, Spellbook } from './src/rules/components/index.js';
+import { PlayerTag, Spellbook, Position, Facing, Health } from './src/rules/components/index.js';
+import { createNetClient } from './src/net/client.js';
 import {
   createInputSystem, createMovementSystem, createAISystem,
   bumpSystem, createProjectileSystem, createDeathSystem, createCameraSystem,
@@ -189,6 +190,25 @@ const playerId = spawnPlayer(world, spawn.x, spawn.y);
 world.add(playerId, PlayerTag);
 spawnCaster(world, grid, spawn.x + 200, spawn.y + 150, playerId);
 
+// -- Ultra-basic multiplayer location sync ----------------------
+const roomId = new URLSearchParams(location.search).get('room') || 'lobby';
+const netClient = createNetClient({
+  roomId,
+  getPlayerState: () => {
+    const p = world.get(playerId, Position);
+    const f = world.get(playerId, Facing);
+    const hp = world.get(playerId, Health);
+    return {
+      x: p?.x,
+      y: p?.y,
+      facing: f?.angle,
+      hp: hp?.hp,
+      maxHp: hp?.maxHp,
+    };
+  },
+});
+netClient.connect();
+
 // ── System context (shared deps injected into system closures) ──
 const sysCtx = { grid, fx, cam, inputRouter, playerId, carve };
 
@@ -215,7 +235,6 @@ world.on('damage.dealt', (e) => {
 });
 
 // ── Loot drops + enemy respawn ──────────────────────────────────
-import { Position as _Pos } from './src/rules/components/index.js';
 world.on('entity.died', (e) => {
   // Drop a potion where the mob died (if position still accessible)
   // Note: entity is already destroyed, but deathSystem emits before destroy
@@ -235,7 +254,7 @@ world.on('entity.died.at', (e) => {
   }
   // Respawn a new caster somewhere else after a short delay
   setTimeout(() => {
-    const px = world.get(playerId, _Pos);
+    const px = world.get(playerId, Position);
     if (!px) return;
     const offset = 250 + Math.random() * 200;
     const angle = Math.random() * Math.PI * 2;
@@ -282,6 +301,7 @@ world.on('spell:bolt', (e) => {
 // ── Renderer ────────────────────────────────────────────────────
 const renderFrame = createRenderer({
   canvas, ctx, cam, caveBake, torchPass, fx, world, SEED, runtimeEvents, floatText, boltFx,
+  net: netClient,
   hud: {
     hud:         document.getElementById('hud'),
     readL:       document.getElementById('readout-left'),
@@ -300,6 +320,7 @@ const renderFrame = createRenderer({
 
 // ── Game loop (fixed tick + render) ─────────────────────────────
 const ZOOM_MIN = 0.3, ZOOM_MAX = 6.0, ZOOM_STEP = 0.15;
+let netTick = 0;
 
 const loop = createFixedTickLoop({
   tickHz: 60,
@@ -312,6 +333,7 @@ const loop = createFixedTickLoop({
     // Stash spell switch on a shared object so inputSystem can read it
     sysCtx._lastInput = o;
     world.tick(dt);
+    netClient.update(++netTick, o);
   },
   render() {
     renderFrame();
@@ -329,6 +351,7 @@ console.log(`Cave: seed=${SEED.toString(16)} grid=${grid.cols}x${grid.rows} spaw
 addEventListener('beforeunload', () => {
   loop.stop();
   inputRouter.destroy();
+  netClient.destroy();
 });
 </script>
 </body>

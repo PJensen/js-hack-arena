@@ -63,8 +63,34 @@ export function makeInputFrame({
   };
 }
 
+export function makePlayerState({
+  x = 0,
+  y = 0,
+  facing = 0,
+  hp = null,
+  maxHp = null,
+} = {}) {
+  return {
+    x: finiteOrZero(x),
+    y: finiteOrZero(y),
+    facing: finiteOrZero(facing),
+    hp: finiteOrNull(hp),
+    maxHp: finiteOrNull(maxHp),
+  };
+}
+
 function clampUnit(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
   return Math.max(-1, Math.min(1, n));
+}
+
+function finiteOrZero(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function finiteOrNull(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }

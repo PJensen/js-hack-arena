@@ -21,7 +21,7 @@ import { applyCamera } from './camera/controller.js';
  * @param {object} deps.runtimeEvents
  */
 export function createRenderer(deps) {
-  const { canvas, ctx, cam, caveBake, torchPass, fx, world, hud, input, SEED, runtimeEvents, boltFx } = deps;
+  const { canvas, ctx, cam, caveBake, torchPass, fx, world, hud, input, SEED, runtimeEvents, boltFx, net } = deps;
   let lastRenderTime = 0;
 
   return function renderFrame() {
@@ -72,6 +72,38 @@ export function createRenderer(deps) {
     ctx.fillStyle = '#ffbe60';
     ctx.font = 'bold 14px ui-monospace, monospace';
     ctx.fillText('\u2020', pos.x + col.radius + 4, pos.y - col.radius + 2);
+
+    // Draw remote players from the latest network snapshot.
+    if (net) {
+      for (const peer of net.getRemotePeers()) {
+        const rpos = peer.state;
+        if (!Number.isFinite(rpos?.x) || !Number.isFinite(rpos?.y)) continue;
+
+        ctx.beginPath();
+        ctx.arc(rpos.x, rpos.y, col.radius, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(30,80,120,0.72)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(130,220,255,0.9)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(215,245,255,0.95)';
+        ctx.font = `bold ${Math.floor(col.radius * 1.4)}px ui-monospace, monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('@', rpos.x, rpos.y + 1);
+
+        const angle = Number.isFinite(rpos.facing) ? rpos.facing : 0;
+        const aimLen = col.radius + 12;
+        ctx.beginPath();
+        ctx.moveTo(rpos.x + Math.cos(angle) * col.radius, rpos.y + Math.sin(angle) * col.radius);
+        ctx.lineTo(rpos.x + Math.cos(angle) * aimLen, rpos.y + Math.sin(angle) * aimLen);
+        ctx.strokeStyle = 'rgba(140,245,255,0.85)';
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+      }
+    }
 
     // Draw mobs
     for (const [id, mpos, mcol, actor, mfac] of world.query(Position, Collider, Actor, Facing)) {
@@ -256,7 +288,8 @@ export function createRenderer(deps) {
 
     // HUD
     const hpText = playerHp.hp > 0 ? `  HP:${playerHp.hp}/${playerHp.maxHp}` : '';
-    hud.hud.textContent = 'Hack Arena  seed:' + SEED.toString(16) + hpText + '  casts:' + runtimeEvents.casts;
+    const netText = net ? '  ' + net.getStatusText() : '';
+    hud.hud.textContent = 'Hack Arena  seed:' + SEED.toString(16) + hpText + '  casts:' + runtimeEvents.casts + netText;
     hud.zoomReadout.textContent = `zoom: ${cam.scale.toFixed(2)}x  [+/- or scroll]`;
     const routerOut = input.leftStick.getOutput();
     hud.readL.textContent = routerOut.left.active
