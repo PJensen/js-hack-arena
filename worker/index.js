@@ -8,11 +8,18 @@ import {
   makeRoomSeed,
   normalizeRoomId,
 } from '../public/src/shared/net/protocol.js';
+import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
+import { moveWithSlide } from '../public/src/rules/geometry/sweep.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
   'cache-control': 'no-store',
 };
+
+const PLAYER_RADIUS = 14;
+const PLAYER_SPEED = 200;
+const PLAYER_HP = 100;
+const MAX_STEP_DT = 0.1;
 
 export default {
   async fetch(request, env) {
@@ -54,6 +61,8 @@ export class GameRoom {
     this.createdAt = Date.now();
     this.roomId = DEFAULT_ROOM_ID;
     this.seed = makeRoomSeed(this.roomId);
+    this.caveData = null;
+    this.lastStepAt = Date.now();
   }
 
   async fetch(request) {
@@ -85,13 +94,20 @@ export class GameRoom {
     socket.accept();
 
     const peerId = crypto.randomUUID();
+    const spawn = this.spawnForPeer(this.sessions.size);
     const session = {
       id: peerId,
       socket,
       joinedAt: Date.now(),
       lastSeenAt: Date.now(),
       input: makeInputFrame(),
-      state: null,
+      state: makePlayerState({
+        x: spawn.x,
+        y: spawn.y,
+        facing: 0,
+        hp: PLAYER_HP,
+        maxHp: PLAYER_HP,
+      }),
     };
 
     this.sessions.set(socket, session);
@@ -147,7 +163,6 @@ export class GameRoom {
 
     if (msg.type === MESSAGE.INPUT) {
       session.input = makeInputFrame(msg.input);
-      if (msg.state) session.state = makePlayerState(msg.state);
       this.step();
       return;
     }
@@ -156,7 +171,32 @@ export class GameRoom {
   }
 
   step() {
+    const now = Date.now();
+    const dt = Math.min(MAX_STEP_DT, Math.max(0, (now - this.lastStepAt) / 1000));
+    this.lastStepAt = now;
     this.tick += 1;
+
+    if (dt > 0) {
+      const { grid } = this.ensureCave();
+      for (const session of this.sessions.values()) {
+        const state = session.state;
+        const input = session.input;
+        const dx = input.moveX * PLAYER_SPEED * dt;
+        const dy = input.moveY * PLAYER_SPEED * dt;
+
+        if (Math.abs(input.aimX) > 0.1 || Math.abs(input.aimY) > 0.1) {
+          state.facing = Math.atan2(input.aimY, input.aimX);
+        } else if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
+          state.facing = Math.atan2(dy, dx);
+        }
+
+        if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
+          const moved = moveWithSlide(grid, state.x, state.y, dx, dy, PLAYER_RADIUS);
+          state.x = moved.x;
+          state.y = moved.y;
+        }
+      }
+    }
 
     this.broadcast(MESSAGE.SNAPSHOT, {
       tick: this.tick,
@@ -188,6 +228,26 @@ export class GameRoom {
     if (this.roomId === roomId) return;
     this.roomId = roomId;
     this.seed = makeRoomSeed(roomId);
+    this.caveData = null;
+    this.lastStepAt = Date.now();
+  }
+
+  ensureCave() {
+    if (!this.caveData) {
+      this.caveData = generateCave({
+        seed: this.seed,
+        width: 2000,
+        height: 2000,
+        profile: CaveProfile.CAVERNS,
+        spawnCount: 4,
+      });
+    }
+    return this.caveData;
+  }
+
+  spawnForPeer(peerIndex) {
+    const { spawns } = this.ensureCave();
+    return spawns[peerIndex % spawns.length] || { x: 1000, y: 1000 };
   }
 
   send(socket, type, payload) {

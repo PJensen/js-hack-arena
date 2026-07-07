@@ -11,7 +11,6 @@ import {
 
 export function createNetClient({
   roomId = DEFAULT_ROOM_ID,
-  getPlayerState = () => makePlayerState(),
   sendHz = 15,
 } = {}) {
   const peers = new Map();
@@ -90,7 +89,6 @@ export function createNetClient({
         fire: sampledInput?.intent?.fire,
         spellSlot: sampledInput?.spellSlot,
       }),
-      state: makePlayerState(getPlayerState()),
     });
   }
 
@@ -155,6 +153,10 @@ export function createNetClient({
     return [...peers.values()].filter((peer) => peer.id !== peerId);
   }
 
+  function getLocalPeer() {
+    return peerId ? peers.get(peerId) || null : null;
+  }
+
   function getStatusText() {
     const remoteCount = getRemotePeers().length;
     if (status === 'connected') return `net:${room} seed:${welcome?.seed?.toString(16) || '-'} peers:${remoteCount}`;
@@ -192,6 +194,7 @@ export function createNetClient({
   return {
     connect,
     destroy,
+    getLocalPeer,
     getRemotePeers,
     getSeed,
     getStatusText,

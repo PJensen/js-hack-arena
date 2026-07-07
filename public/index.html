@@ -108,7 +108,7 @@ import { createRenderer } from './src/display/renderer.js';
 import { createFloatTextPass } from './src/display/passes/floatText.js';
 import { createBoltFx } from './src/display/passes/boltFx.js';
 import { spawnPlayer, spawnCaster, spawnPotion, spawnBow, spawnSword } from './src/rules/spawner.js';
-import { PlayerTag, Spellbook, Position, Facing, Health } from './src/rules/components/index.js';
+import { PlayerTag, Spellbook, Position } from './src/rules/components/index.js';
 import { createNetClient } from './src/net/client.js';
 import {
   createInputSystem, createMovementSystem, createAISystem,
@@ -126,18 +126,6 @@ addEventListener('resize', resize); resize();
 const roomId = new URLSearchParams(location.search).get('room') || 'lobby';
 const netClient = createNetClient({
   roomId,
-  getPlayerState: () => {
-    const p = world.get(playerId, Position);
-    const f = world.get(playerId, Facing);
-    const hp = world.get(playerId, Health);
-    return {
-      x: p?.x,
-      y: p?.y,
-      facing: f?.angle,
-      hp: hp?.hp,
-      maxHp: hp?.maxHp,
-    };
-  },
 });
 const netWelcome = await netClient.connect();
 
@@ -145,7 +133,10 @@ const netWelcome = await netClient.connect();
 const SEED = netWelcome?.seed ?? resolveSeed().seed;
 const caveData = generateCave({ seed: SEED, width: 2000, height: 2000, profile: CaveProfile.CAVERNS, spawnCount: 4 });
 const { grid, bounds, spawns } = caveData;
-const spawn = spawns[0];
+const localState = netClient.getLocalPeer()?.state;
+const spawn = (Number.isFinite(localState?.x) && Number.isFinite(localState?.y))
+  ? { x: localState.x, y: localState.y }
+  : spawns[0];
 
 // ── Pre-bake display ────────────────────────────────────────────
 const caveBake  = bakeCavePass(caveData);
