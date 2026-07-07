@@ -36,6 +36,11 @@ input frames on a 20 Hz room tick and broadcasts authoritative player positions
 at 10 Hz. The browser still runs local movement immediately for responsiveness;
 reconciliation is a later step.
 
+The room also owns the first networked combat slice: deterministic mob spawns,
+player frost-bolt projectiles from fire input, projectile wall collision, and
+projectile damage against server-owned mobs. These are broadcast as snapshot
+entities and drawn as a network overlay by the browser.
+
 ## Commands
 
 ```bash

@@ -42,6 +42,7 @@ export function createRenderer(deps) {
 
     applyCamera(ctx, cam, canvas);
     ctx.drawImage(caveBake.canvas, 0, 0);
+    const useServerEntities = Boolean(net?.hasServerEntities?.());
 
     // Draw ground items (potions etc)
     for (const [id, ipos, gi, info] of world.query(Position, GroundItem, ItemInfo)) {
@@ -105,78 +106,31 @@ export function createRenderer(deps) {
       }
     }
 
+    if (useServerEntities) {
+      for (const mob of net.getEntities('mobs')) {
+        drawNetMob(ctx, mob);
+      }
+    }
+
     // Draw mobs
-    for (const [id, mpos, mcol, actor, mfac] of world.query(Position, Collider, Actor, Facing)) {
-      if (actor.kind !== ActorKind.MOB) continue;
-      ctx.beginPath();
-      ctx.arc(mpos.x, mpos.y, mcol.radius, 0, Math.PI * 2);
-      ctx.fillStyle = '#2a1540';
-      ctx.fill();
-      ctx.strokeStyle = '#a050ff';
-      ctx.lineWidth = 2;
-      ctx.stroke();
+    if (!useServerEntities) {
+      for (const [id, mpos, mcol, actor, mfac] of world.query(Position, Collider, Actor, Facing)) {
+        if (actor.kind !== ActorKind.MOB) continue;
+        drawMob(ctx, mpos.x, mpos.y, mcol.radius, mfac.angle, actor.glyph);
+      }
+    }
 
-      ctx.fillStyle = '#d0a0ff';
-      ctx.font = `bold ${Math.floor(mcol.radius * 1.4)}px ui-monospace, monospace`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(actor.glyph, mpos.x, mpos.y + 1);
-
-      const mAimLen = mcol.radius + 10;
-      ctx.beginPath();
-      ctx.moveTo(mpos.x + Math.cos(mfac.angle) * mcol.radius, mpos.y + Math.sin(mfac.angle) * mcol.radius);
-      ctx.lineTo(mpos.x + Math.cos(mfac.angle) * mAimLen, mpos.y + Math.sin(mfac.angle) * mAimLen);
-      ctx.strokeStyle = '#c070ff';
-      ctx.lineWidth = 2;
-      ctx.lineCap = 'round';
-      ctx.stroke();
+    if (useServerEntities) {
+      for (const projectile of net.getEntities('projectiles')) {
+        drawNetProjectile(ctx, projectile);
+      }
     }
 
     // Draw projectiles
-    for (const [id, bpos, vel, proj, bcol] of world.query(Position, Velocity, Projectile, Collider)) {
-      const isEnemy = world.has(proj.owner, AI);
-      const isArrow = proj.trailColor === '#c8a050';
-
-      if (isArrow) {
-        // Arrow: rotated line shaft + circular arrowhead (JSHack style)
-        const angle = Math.atan2(vel.vy, vel.vx);
-        const len = 14;
-        const tailX = bpos.x - Math.cos(angle) * len;
-        const tailY = bpos.y - Math.sin(angle) * len;
-
-        // Shaft — warm wood brown
-        ctx.beginPath();
-        ctx.moveTo(tailX, tailY);
-        ctx.lineTo(bpos.x, bpos.y);
-        ctx.strokeStyle = 'rgba(210,180,110,0.9)';
-        ctx.lineWidth = 2;
-        ctx.lineCap = 'round';
-        ctx.stroke();
-
-        // Arrowhead — bright tan circle
-        ctx.beginPath();
-        ctx.arc(bpos.x, bpos.y, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(240,230,200,0.95)';
-        ctx.fill();
-
-        // Fletching notch at tail
-        const fLen = 4;
-        const pnx = -Math.sin(angle), pny = Math.cos(angle);
-        ctx.beginPath();
-        ctx.moveTo(tailX + pnx * fLen, tailY + pny * fLen);
-        ctx.lineTo(tailX - pnx * fLen, tailY - pny * fLen);
-        ctx.strokeStyle = 'rgba(180,160,120,0.6)';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      } else {
-        // Magic projectile: circle + glyph
-        ctx.beginPath();
-        ctx.arc(bpos.x, bpos.y, bcol.radius, 0, Math.PI * 2);
-        ctx.fillStyle = isEnemy ? 'rgba(180,80,255,0.9)' : 'rgba(140,210,255,0.9)';
-        ctx.fill();
-        ctx.fillStyle = isEnemy ? '#e0b0ff' : '#e0f4ff';
-        ctx.font = 'bold 10px ui-monospace, monospace';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(isEnemy ? '\u2726' : '\u2744', bpos.x, bpos.y);
+    if (!useServerEntities) {
+      for (const [id, bpos, vel, proj, bcol] of world.query(Position, Velocity, Projectile, Collider)) {
+        const isEnemy = world.has(proj.owner, AI);
+        drawProjectile(ctx, bpos.x, bpos.y, vel.vx, vel.vy, bcol.radius, proj.trailColor, isEnemy);
       }
     }
 
@@ -257,6 +211,16 @@ export function createRenderer(deps) {
         });
       }
     }
+    if (useServerEntities) {
+      for (const projectile of net.getEntities('projectiles')) {
+        lights.push({
+          x: projectile.x,
+          y: projectile.y,
+          radius: 120,
+          color: [140, 200, 255],
+        });
+      }
+    }
     torchPass.render(ctx, lights, canvas.width, canvas.height, cam);
 
     // Particles
@@ -299,4 +263,93 @@ export function createRenderer(deps) {
       ? `R x:${inp.aimX.toFixed(2)} y:${inp.aimY.toFixed(2)}`
       : 'R stick idle';
   };
+}
+
+function drawNetMob(ctx, mob) {
+  if (!Number.isFinite(mob?.x) || !Number.isFinite(mob?.y)) return;
+  drawMob(ctx, mob.x, mob.y, mob.radius || 12, mob.facing || 0, 'W');
+}
+
+function drawMob(ctx, x, y, radius, facing, glyph) {
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fillStyle = '#2a1540';
+  ctx.fill();
+  ctx.strokeStyle = '#a050ff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.fillStyle = '#d0a0ff';
+  ctx.font = `bold ${Math.floor(radius * 1.4)}px ui-monospace, monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(glyph, x, y + 1);
+
+  const aimLen = radius + 10;
+  ctx.beginPath();
+  ctx.moveTo(x + Math.cos(facing) * radius, y + Math.sin(facing) * radius);
+  ctx.lineTo(x + Math.cos(facing) * aimLen, y + Math.sin(facing) * aimLen);
+  ctx.strokeStyle = '#c070ff';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+}
+
+function drawNetProjectile(ctx, projectile) {
+  if (!Number.isFinite(projectile?.x) || !Number.isFinite(projectile?.y)) return;
+  drawProjectile(
+    ctx,
+    projectile.x,
+    projectile.y,
+    projectile.vx || 0,
+    projectile.vy || 0,
+    projectile.radius || 5,
+    projectile.trailColor,
+    false,
+  );
+}
+
+function drawProjectile(ctx, x, y, vx, vy, radius, trailColor, isEnemy) {
+  const isArrow = trailColor === '#c8a050';
+
+  if (isArrow) {
+    const angle = Math.atan2(vy, vx);
+    const len = 14;
+    const tailX = x - Math.cos(angle) * len;
+    const tailY = y - Math.sin(angle) * len;
+
+    ctx.beginPath();
+    ctx.moveTo(tailX, tailY);
+    ctx.lineTo(x, y);
+    ctx.strokeStyle = 'rgba(210,180,110,0.9)';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(240,230,200,0.95)';
+    ctx.fill();
+
+    const fLen = 4;
+    const pnx = -Math.sin(angle);
+    const pny = Math.cos(angle);
+    ctx.beginPath();
+    ctx.moveTo(tailX + pnx * fLen, tailY + pny * fLen);
+    ctx.lineTo(tailX - pnx * fLen, tailY - pny * fLen);
+    ctx.strokeStyle = 'rgba(180,160,120,0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    return;
+  }
+
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fillStyle = isEnemy ? 'rgba(180,80,255,0.9)' : 'rgba(140,210,255,0.9)';
+  ctx.fill();
+  ctx.fillStyle = isEnemy ? '#e0b0ff' : '#e0f4ff';
+  ctx.font = 'bold 10px ui-monospace, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(isEnemy ? '\u2726' : '\u2744', x, y);
 }
