@@ -2,7 +2,7 @@
 // Main frame renderer — queries ECS world, draws everything.
 // No simulation logic. Pure display.
 
-import { Position, Velocity, Collider, Facing, Health, Actor, ActorKind, Projectile, PointLight, Input, GroundItem, ItemInfo } from '../rules/components/index.js';
+import { Position, Velocity, Collider, Facing, Health, Actor, ActorKind, Projectile, PointLight, Input, GroundItem, ItemInfo, PlayerTag } from '../rules/components/index.js';
 import { AI } from '../rules/components/index.js';
 import { applyCamera } from './camera/controller.js';
 
@@ -21,29 +21,16 @@ import { applyCamera } from './camera/controller.js';
  * @param {object} deps.runtimeEvents
  */
 export function createRenderer(deps) {
-  const { canvas, ctx, cam, caveBake, torchPass, fx, world, hud, input, SEED, runtimeEvents, boltFx, net } = deps;
+  const { canvas, ctx, cam, caveBake, torchPass, fx, world, hud, input, SEED, runtimeEvents, boltFx, net, playerId, presentation } = deps;
   let lastRenderTime = 0;
 
   return function renderFrame() {
-    // Find local player via Input component query
-    let playerId = null, inp = null, pos = null, col = null, fac = null;
-    for (const [id, _inp, _pos, _col, _fac] of world.query(Input, Position, Collider, Facing)) {
-      playerId = id; inp = _inp; pos = _pos; col = _col; fac = _fac;
-      break;
-    }
-    if (!playerId) return; // no player
-    const localPeerState = net?.getLocalPeer?.()?.state;
-    if (Number.isFinite(localPeerState?.x) && Number.isFinite(localPeerState?.y)) {
-      pos = {
-        ...pos,
-        x: localPeerState.x,
-        y: localPeerState.y,
-      };
-      fac = {
-        ...fac,
-        angle: Number.isFinite(localPeerState.facing) ? localPeerState.facing : fac.angle,
-      };
-    }
+    const inp = world.get(playerId, Input);
+    const authoritativePosition = world.get(playerId, Position);
+    const col = world.get(playerId, Collider);
+    const fac = world.get(playerId, Facing);
+    if (!inp || !authoritativePosition || !col || !fac) return;
+    const pos = renderPosition(playerId, authoritativePosition);
 
     const kb = input.keyboardInput();
 
@@ -56,7 +43,7 @@ export function createRenderer(deps) {
     ctx.drawImage(caveBake.canvas, 0, 0);
 
     // Draw ground items (potions etc)
-    for (const [id, ipos, gi, info] of world.query(Position, GroundItem, ItemInfo)) {
+    for (const [id, ipos, _groundItem, info] of world.query(Position, GroundItem, ItemInfo)) {
       const t = performance.now() * 0.003;
       const bob = Math.sin(t + id * 2) * 2;  // gentle bob
       ctx.fillStyle = '#ff5080';
@@ -85,58 +72,59 @@ export function createRenderer(deps) {
     ctx.font = 'bold 14px ui-monospace, monospace';
     ctx.fillText('\u2020', pos.x + col.radius + 4, pos.y - col.radius + 2);
 
-    // Draw remote players from the latest network snapshot.
-    if (net) {
-      for (const peer of net.getRemotePeers()) {
-        const rpos = peer.state;
-        if (!Number.isFinite(rpos?.x) || !Number.isFinite(rpos?.y)) continue;
+    // Remote players are snapshot-resolved ECS entities, just like the local player.
+    for (const [id, rpos, rcol, rfac] of world.query(PlayerTag, Position, Collider, Facing)) {
+      if (id === playerId) continue;
+      const displayPosition = renderPosition(id, rpos);
 
-        ctx.beginPath();
-        ctx.arc(rpos.x, rpos.y, col.radius, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(30,80,120,0.72)';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(130,220,255,0.9)';
-        ctx.lineWidth = 2;
-        ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(displayPosition.x, displayPosition.y, rcol.radius, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(30,80,120,0.72)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(130,220,255,0.9)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
 
-        ctx.fillStyle = 'rgba(215,245,255,0.95)';
-        ctx.font = `bold ${Math.floor(col.radius * 1.4)}px ui-monospace, monospace`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('@', rpos.x, rpos.y + 1);
+      ctx.fillStyle = 'rgba(215,245,255,0.95)';
+      ctx.font = `bold ${Math.floor(rcol.radius * 1.4)}px ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('@', displayPosition.x, displayPosition.y + 1);
 
-        const angle = Number.isFinite(rpos.facing) ? rpos.facing : 0;
-        const aimLen = col.radius + 12;
-        ctx.beginPath();
-        ctx.moveTo(rpos.x + Math.cos(angle) * col.radius, rpos.y + Math.sin(angle) * col.radius);
-        ctx.lineTo(rpos.x + Math.cos(angle) * aimLen, rpos.y + Math.sin(angle) * aimLen);
-        ctx.strokeStyle = 'rgba(140,245,255,0.85)';
-        ctx.lineWidth = 2;
-        ctx.lineCap = 'round';
-        ctx.stroke();
-      }
+      const angle = rfac.angle;
+      const aimLen = rcol.radius + 12;
+      ctx.beginPath();
+      ctx.moveTo(displayPosition.x + Math.cos(angle) * rcol.radius, displayPosition.y + Math.sin(angle) * rcol.radius);
+      ctx.lineTo(displayPosition.x + Math.cos(angle) * aimLen, displayPosition.y + Math.sin(angle) * aimLen);
+      ctx.strokeStyle = 'rgba(140,245,255,0.85)';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.stroke();
     }
 
     // Draw mobs
     for (const [id, mpos, mcol, actor, mfac] of world.query(Position, Collider, Actor, Facing)) {
       if (actor.kind !== ActorKind.MOB) continue;
-      drawMob(ctx, mpos.x, mpos.y, mcol.radius, mfac.angle, actor.glyph);
+      const displayPosition = renderPosition(id, mpos);
+      drawMob(ctx, displayPosition.x, displayPosition.y, mcol.radius, mfac.angle, actor.glyph);
     }
 
     // Draw projectiles
     for (const [id, bpos, vel, proj, bcol] of world.query(Position, Velocity, Projectile, Collider)) {
-      const isEnemy = world.has(proj.owner, AI);
-      drawProjectile(ctx, bpos.x, bpos.y, vel.vx, vel.vy, bcol.radius, proj.trailColor, isEnemy);
+      const displayPosition = renderPosition(id, bpos);
+      const isEnemy = proj.team === 'enemies' || world.has(proj.owner, AI);
+      drawProjectile(ctx, displayPosition.x, displayPosition.y, vel.vx, vel.vy, bcol.radius, proj.trailColor, isEnemy);
     }
 
     // Health bars
     for (const [id, hpos, hcol, hp] of world.query(Position, Collider, Health)) {
+      const displayPosition = renderPosition(id, hpos);
       if (hp.hp >= hp.maxHp && id !== playerId) continue;
       const ratio = Math.max(0, hp.hp / Math.max(1, hp.maxHp));
       const barW = hcol.radius * 2.2;
       const barH = 4;
-      const bx = hpos.x - barW * 0.5;
-      const by = hpos.y - hcol.radius - 10;
+      const bx = displayPosition.x - barW * 0.5;
+      const by = displayPosition.y - hcol.radius - 10;
       const hue = Math.round(120 * ratio);
 
       ctx.fillStyle = 'rgba(10,12,18,0.8)';
@@ -173,6 +161,7 @@ export function createRenderer(deps) {
     const t = now;
 
     for (const [id, lpos, pl] of world.query(Position, PointLight)) {
+      const displayPosition = renderPosition(id, lpos);
       if (!pl.enabled) continue;
 
       // Skip excess projectile lights (small radius = projectile)
@@ -189,7 +178,7 @@ export function createRenderer(deps) {
           + 0.06 * Math.sin(t * 23.1)
           + 0.10 * (Math.random() - 0.5);
         lights.push({
-          x: lpos.x, y: lpos.y,
+          x: displayPosition.x, y: displayPosition.y,
           radius: pl.radius * Math.max(0.7, flicker),
           color: [
             Math.min(255, pl.r * Math.max(0.8, flicker)),
@@ -200,7 +189,7 @@ export function createRenderer(deps) {
       } else {
         const shimmer = 1.0 + 0.05 * Math.sin(t * 20 + id * 7);
         lights.push({
-          x: lpos.x, y: lpos.y,
+          x: displayPosition.x, y: displayPosition.y,
           radius: pl.radius * shimmer,
           color: [pl.r * shimmer, pl.g * shimmer, pl.b],
         });
@@ -248,6 +237,10 @@ export function createRenderer(deps) {
       ? `R x:${inp.aimX.toFixed(2)} y:${inp.aimY.toFixed(2)}`
       : 'R stick idle';
   };
+
+  function renderPosition(entityId, position) {
+    return presentation?.position(entityId, position) ?? position;
+  }
 }
 
 function drawMob(ctx, x, y, radius, facing, glyph) {

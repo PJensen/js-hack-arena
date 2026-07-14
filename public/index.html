@@ -94,27 +94,26 @@
 
 <script type="module">
 // ── Boot: imports ───────────────────────────────────────────────
-import { World, composeScheduler } from './src/lib/ecs-js/index.js';
 import { generateCave, CaveProfile } from './src/rules/geometry/caveGen.js';
 import { resolveSeed } from './src/runtime/rng.js';
 import { createFixedTickLoop } from './src/runtime/fixedLoop.js';
 import { createInputRouter } from './src/input/InputRouter.js';
 import { createCamera } from './src/display/camera/controller.js';
+import { createCameraSystem } from './src/display/camera/system.js';
 import { bakeCavePass } from './src/display/passes/cavePass.js';
 import { createCarver } from './src/rules/geometry/carve.js';
 import { createTorchPass } from './src/display/passes/torchPass.js';
 import { ParticleFX } from './src/display/passes/vfx/particles/particlePool.js';
 import { createRenderer } from './src/display/renderer.js';
+import { createSnapshotInterpolator } from './src/display/snapshotInterpolator.js';
+import { createLocalPlayerPrediction } from './src/display/localPlayerPrediction.js';
 import { createFloatTextPass } from './src/display/passes/floatText.js';
 import { createBoltFx } from './src/display/passes/boltFx.js';
-import { spawnPlayer, spawnCaster, spawnPotion, spawnBow, spawnSword } from './src/rules/spawner.js';
-import { PlayerTag, Spellbook, Position, Facing } from './src/rules/components/index.js';
+import { createProjectileFxController } from './src/display/passes/projectileFx.js';
+import { Spellbook, Position } from './src/rules/components/index.js';
 import { createNetClient } from './src/net/client.js';
-import {
-  createInputSystem, createMovementSystem, createAISystem,
-  bumpSystem, createProjectileSystem, createDeathSystem, createCameraSystem,
-  pickupSystem,
-} from './src/rules/systems/index.js';
+import { samplePlayerCommand } from './src/input/samplePlayerCommand.js';
+import { SIM_MODE, SIM_TICK_HZ, createArenaSimulation } from './src/rules/sim/arenaSim.js';
 
 // ── Canvas + DOM ────────────────────────────────────────────────
 const canvas = document.getElementById('game');
@@ -134,10 +133,7 @@ const isNetworked = Boolean(netWelcome);
 const SEED = netWelcome?.seed ?? resolveSeed().seed;
 const caveData = generateCave({ seed: SEED, width: 2000, height: 2000, profile: CaveProfile.CAVERNS, spawnCount: 4 });
 const { grid, bounds, spawns } = caveData;
-const localState = netClient.getLocalPeer()?.state;
-const spawn = (Number.isFinite(localState?.x) && Number.isFinite(localState?.y))
-  ? { x: localState.x, y: localState.y }
-  : spawns[0];
+const spawn = spawns[0];
 
 // ── Pre-bake display ────────────────────────────────────────────
 const caveBake  = bakeCavePass(caveData);
@@ -193,32 +189,43 @@ spellBar.addEventListener('pointerdown', (e) => {
 });
 
 // ── ECS world ───────────────────────────────────────────────────
-const world = new World({ seed: SEED });
+const sim = createArenaSimulation({
+  seed: SEED,
+  grid,
+  spawns,
+  mode: isNetworked ? SIM_MODE.REPLICA : SIM_MODE.AUTHORITY,
+  enemyCount: 2,
+});
+sim.world.on('terrain.carved', (e) => carve(e.x, e.y, e.radius));
+if (isNetworked && netWelcome.snapshot) sim.applySnapshot(netWelcome.snapshot);
+const playerId = isNetworked
+  ? (sim.getPlayerEntity(netWelcome.peerId) ?? sim.addPlayer(netWelcome.peerId, 0))
+  : sim.addPlayer('local', 0);
+const world = sim.world;
+const interpolation = isNetworked
+  ? createSnapshotInterpolator({ sim, intervalMs: 1000 / (netWelcome.snapshotHz || 10) })
+  : null;
+const localPrediction = isNetworked
+  ? createLocalPlayerPrediction({ world, playerId, grid })
+  : null;
+const presentation = isNetworked ? {
+  position(entityId, position) {
+    return entityId === playerId
+      ? localPrediction.position()
+      : interpolation.position(entityId, position);
+  },
+} : null;
 const runtimeEvents = { casts: 0 };
+const initialPlayerPosition = world.get(playerId, Position);
+cam.x = cam.targetX = initialPlayerPosition.x;
+cam.y = cam.targetY = initialPlayerPosition.y;
 
-// ── Spawn entities ──────────────────────────────────────────────
-const playerId = spawnPlayer(world, spawn.x, spawn.y);
-world.add(playerId, PlayerTag);
-if (!isNetworked) spawnCaster(world, grid, spawn.x + 200, spawn.y + 150, playerId);
-
-// ── System context (shared deps injected into system closures) ──
-const sysCtx = { grid, fx, cam, inputRouter, playerId, carve };
-
-// ── Register systems ────────────────────────────────────────────
-if (isNetworked) {
-  world.system(createCameraSystem(sysCtx), 'camera');
-  world.setScheduler(composeScheduler('camera'));
-} else {
-  world.system(createInputSystem(sysCtx),      'input');
-  world.system(createMovementSystem(sysCtx),   'simulate');
-  world.system(createAISystem(sysCtx),         'simulate');
-  world.system(bumpSystem,                     'simulate');
-  world.system(pickupSystem,                   'simulate');
-  world.system(createProjectileSystem(sysCtx), 'simulate');
-  world.system(createDeathSystem(sysCtx),      'simulate');
-  world.system(createCameraSystem(sysCtx),     'camera');
-  world.setScheduler(composeScheduler('input', 'simulate', 'camera'));
-}
+// ── Client-only camera ──────────────────────────────────────────
+const cameraSystem = createCameraSystem({
+  cam,
+  playerId,
+  positionFor: presentation?.position,
+});
 
 // ── Float text (damage numbers) ─────────────────────────────────
 const floatText = createFloatTextPass();
@@ -229,35 +236,6 @@ world.on('damage.dealt', (e) => {
     text: isHeal ? '+' + Math.abs(e.amount) : '-' + e.amount,
     color: isHeal ? '#44ff66' : (e.target === playerId ? '#ff4444' : '#ffcc00'),
   });
-});
-
-// ── Loot drops + enemy respawn ──────────────────────────────────
-world.on('entity.died', (e) => {
-  // Drop a potion where the mob died (if position still accessible)
-  // Note: entity is already destroyed, but deathSystem emits before destroy
-  // We stash the position in the event — let's read it from the death system
-});
-// Patch: listen for mob death with position data
-const _onDied = [];
-world.on('entity.died.at', (e) => {
-  if (isNetworked) return;
-  // Always drop a potion
-  spawnPotion(world, e.x + (Math.random() - 0.5) * 16, e.y + (Math.random() - 0.5) * 16, 25);
-  // 20% chance bow, 20% chance sword
-  const roll = Math.random();
-  if (roll < 0.20) {
-    spawnBow(world, e.x + (Math.random() - 0.5) * 20, e.y + (Math.random() - 0.5) * 20);
-  } else if (roll < 0.40) {
-    spawnSword(world, e.x + (Math.random() - 0.5) * 20, e.y + (Math.random() - 0.5) * 20, Math.floor(Math.random() * 3));
-  }
-  // Respawn a new caster somewhere else after a short delay
-  setTimeout(() => {
-    const px = world.get(playerId, Position);
-    if (!px) return;
-    const offset = 250 + Math.random() * 200;
-    const angle = Math.random() * Math.PI * 2;
-    spawnCaster(world, grid, px.x + Math.cos(angle) * offset, px.y + Math.sin(angle) * offset, playerId);
-  }, 2000);
 });
 
 // ── Dynamic spell bar (rebuild when spells change) ───────────────
@@ -288,19 +266,20 @@ function rebuildSpellBar() {
     });
   });
 }
-if (!isNetworked) world.on('item.pickup', () => rebuildSpellBar());
+world.on('item.pickup', () => rebuildSpellBar());
 
 // ── Lightning bolt FX ────────────────────────────────────────────
 const boltFx = createBoltFx();
-world.on('spell:bolt', (e) => {
-  if (isNetworked) return;
+world.on('spell.bolt', (e) => {
   boltFx.add(e.fromX, e.fromY, e.toX, e.toY, e.chain);
 });
+const projectileFx = createProjectileFxController({ world, fx, runtimeEvents });
 
 // ── Renderer ────────────────────────────────────────────────────
 const renderFrame = createRenderer({
   canvas, ctx, cam, caveBake, torchPass, fx, world, SEED, runtimeEvents, floatText, boltFx,
-  net: netClient,
+  net: netClient, playerId,
+  presentation,
   hud: {
     hud:         document.getElementById('hud'),
     readL:       document.getElementById('readout-left'),
@@ -322,18 +301,24 @@ const ZOOM_MIN = 0.3, ZOOM_MAX = 6.0, ZOOM_STEP = 0.15;
 let netTick = 0;
 
 const loop = createFixedTickLoop({
-  tickHz: 60,
+  tickHz: SIM_TICK_HZ,
   simulate(dt) {
     // Sample input ONCE per tick — systems read via getOutput()
     const o = inputRouter.sample();
     if (o.zoomDelta) {
       cam.targetScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, cam.targetScale + o.zoomDelta * ZOOM_STEP));
     }
-    // Stash spell switch on a shared object so inputSystem can read it
-    sysCtx._lastInput = o;
-    if (isNetworked) syncLocalPlayerFromServer();
-    world.tick(dt);
-    netClient.update(++netTick, o);
+    if (isNetworked) {
+      const snapshot = netClient.getLatestSnapshot();
+      if (snapshot && interpolation.applySnapshot(snapshot)) localPrediction.reconcile();
+      localPrediction.step(o, dt);
+    } else {
+      sim.setPlayerInput('local', samplePlayerCommand(o, ++netTick));
+      sim.step(dt);
+    }
+    cameraSystem(world, dt);
+    projectileFx.step(dt);
+    if (isNetworked) netClient.update(++netTick, o);
   },
   render() {
     renderFrame();
@@ -344,20 +329,6 @@ const loop = createFixedTickLoop({
     }
   },
 });
-
-function syncLocalPlayerFromServer() {
-  const peer = netClient.getLocalPeer();
-  const state = peer?.state;
-  if (!Number.isFinite(state?.x) || !Number.isFinite(state?.y)) return;
-
-  const pos = world.get(playerId, Position);
-  if (pos) {
-    pos.x = state.x;
-    pos.y = state.y;
-  }
-  const fac = world.get(playerId, Facing);
-  if (fac && Number.isFinite(state.facing)) fac.angle = state.facing;
-}
 
 loop.start();
 console.log(`Cave: seed=${SEED.toString(16)} grid=${grid.cols}x${grid.rows} spawns=${spawns.length}`);

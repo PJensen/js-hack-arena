@@ -9,7 +9,7 @@
  * @returns {(wx, wy, radius) => void}
  */
 export function createCarver(grid, caveBake) {
-  const { moveGrid, cols, rows, cellSize } = grid;
+  const carveGrid = createGridCarver(grid);
   const bakeCtx = caveBake.canvas.getContext('2d');
 
   /**
@@ -17,24 +17,7 @@ export function createCarver(grid, caveBake) {
    * Updates both the collision grid and the visual bake.
    */
   return function carve(wx, wy, radius) {
-    const clearance = 40;  // how "open" carved cells become
-    const invCell = 1 / cellSize;
-
-    // Grid cells to poke
-    const gx0 = Math.max(0, Math.floor((wx - radius) * invCell));
-    const gy0 = Math.max(0, Math.floor((wy - radius) * invCell));
-    const gx1 = Math.min(cols - 1, Math.ceil((wx + radius) * invCell));
-    const gy1 = Math.min(rows - 1, Math.ceil((wy + radius) * invCell));
-    const r2 = radius * radius;
-
-    for (let gy = gy0; gy <= gy1; gy++) {
-      for (let gx = gx0; gx <= gx1; gx++) {
-        const dx = gx * cellSize - wx, dy = gy * cellSize - wy;
-        if (dx * dx + dy * dy <= r2) {
-          moveGrid[gy * cols + gx] = clearance;
-        }
-      }
-    }
+    carveGrid(wx, wy, radius);
 
     // Paint floor on the baked canvas
     bakeCtx.beginPath();
@@ -48,5 +31,27 @@ export function createCarver(grid, caveBake) {
     bakeCtx.arc(wx, wy, radius, 0, Math.PI * 2);
     bakeCtx.fillStyle = '#142030';
     bakeCtx.fill();
+  };
+}
+
+/** Mutate collision geometry only. Safe to use in the authoritative sim. */
+export function createGridCarver(grid) {
+  const { moveGrid, cols, rows, cellSize } = grid;
+  return function carveGrid(wx, wy, radius) {
+    const clearance = 40;
+    const invCell = 1 / cellSize;
+    const gx0 = Math.max(0, Math.floor((wx - radius) * invCell));
+    const gy0 = Math.max(0, Math.floor((wy - radius) * invCell));
+    const gx1 = Math.min(cols - 1, Math.ceil((wx + radius) * invCell));
+    const gy1 = Math.min(rows - 1, Math.ceil((wy + radius) * invCell));
+    const radiusSquared = radius * radius;
+
+    for (let gy = gy0; gy <= gy1; gy++) {
+      for (let gx = gx0; gx <= gx1; gx++) {
+        const dx = gx * cellSize - wx;
+        const dy = gy * cellSize - wy;
+        if (dx * dx + dy * dy <= radiusSquared) moveGrid[gy * cols + gx] = clearance;
+      }
+    }
   };
 }

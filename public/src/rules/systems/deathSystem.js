@@ -1,44 +1,26 @@
-// rules/systems/deathSystem.js — destroy dead mobs, reap expired lifetimes
-import { Position, Health, Actor, ActorKind, Lifetime, Projectile } from '../components/index.js';
+// Authoritative entity lifecycle. Presentation observes entity.died events.
+import { Actor, Health, Lifetime, PlayerTag, Position, Projectile } from '../components/index.js';
 
-export function createDeathSystem(ctx) {
-  const { fx, playerId } = ctx;
+export function deathSystem(world, _dt) {
+  const destroy = new Set();
 
-  return function deathSystem(world, dt) {
-    const toDie = [];
+  for (const [id, position, health, actor] of world.query(Position, Health, Actor)) {
+    if (health.hp > 0 || world.has(id, PlayerTag)) continue;
+    world.emit('entity.died', {
+      id,
+      kind: actor.kind,
+      x: position.x,
+      y: position.y,
+      glyph: actor.glyph,
+    });
+    destroy.add(id);
+  }
 
-    // Mob death
-    for (const [id, pos, hp, actor] of world.query(Position, Health, Actor)) {
-      if (hp.hp > 0) continue;
-      if (id === playerId) continue;
+  for (const [id, lifetime] of world.query(Lifetime)) {
+    if (world.has(id, Projectile)) continue;
+    lifetime.ttl -= _dt;
+    if (lifetime.ttl <= 0) destroy.add(id);
+  }
 
-      const burst = fx.ensureEmitter('death:' + id, {
-        continuous: false, burstCount: 30,
-        angle: 0, spread: Math.PI,
-        speed: 40, speedJitter: 0.7,
-        ax: 0, ay: 0,
-        life: 0.5, lifeJitter: 0.4,
-        size: 6, sizeEnd: 1,
-        color: actor.kind === ActorKind.MOB ? '#a050ff' : '#ffffff',
-        alpha0: 0.9, alpha1: 0.0,
-      });
-      burst.step(fx.pool, dt, pos.x, pos.y);
-      toDie.push(id);
-    }
-
-    // Lifetime reaper — any entity with Lifetime (light flashes, etc.)
-    // Projectiles are handled by projectileSystem, skip them here
-    for (const [id, lt] of world.query(Lifetime)) {
-      if (world.has(id, Projectile)) continue;
-      lt.ttl -= dt;
-      if (lt.ttl <= 0) toDie.push(id);
-    }
-
-    for (const id of toDie) {
-      const dpos = world.has(id, Position) ? world.get(id, Position) : null;
-      world.emit('entity.died', { id });
-      if (dpos) world.emit('entity.died.at', { id, x: dpos.x, y: dpos.y });
-      world.destroy(id);
-    }
-  };
+  for (const id of destroy) world.destroy(id);
 }

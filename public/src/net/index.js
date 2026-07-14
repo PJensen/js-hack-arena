@@ -11,7 +11,6 @@ export {
   decodeMessage,
   encodeMessage,
   makeInputFrame,
-  makePlayerState,
   makeRoomSeed,
   normalizeRoomId,
   normalizeSeed,

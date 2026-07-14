@@ -1,9 +1,8 @@
 // rules/systems/aiSystem.js — AI pathing, LOS, tactical behaviour, projectile spawning
-import { Position, Velocity, Speed, Facing, AI, Collider, Projectile, Lifetime, PointLight } from '../components/index.js';
+import { Position, Velocity, Speed, Facing, AI, Collider, Projectile, Lifetime } from '../components/index.js';
 import { moveWithSlide } from '../geometry/sweep.js';
 import { astar } from '../ai/pathfind.js';
 
-const aiPaths = new Map();       // entityId -> { path: [{x,y}], age: number }
 const PATH_REFRESH = 0.5;        // recompute every 0.5s
 
 function hasLOS(grid, ax, ay, bx, by) {
@@ -19,11 +18,10 @@ function hasLOS(grid, ax, ay, bx, by) {
 
 export function createAISystem(ctx) {
   const { grid } = ctx;
-
-  // Listen for entity deaths to clean up cached paths
-  // (caller should wire world.on('entity.died', ...) if available)
+  const aiPaths = new Map();
 
   return function aiSystem(world, dt) {
+    for (const id of aiPaths.keys()) if (!world.alive.has(id)) aiPaths.delete(id);
     for (const [id, pos, vel, spd, fac, ai, col] of world.query(Position, Velocity, Speed, Facing, AI, Collider)) {
       if (ai.target === null) continue;
       if (!world.alive.has(ai.target)) { ai.target = null; continue; }
@@ -63,10 +61,17 @@ export function createAISystem(ctx) {
           const boltId = world.create();
           world.add(boltId, Position,   { x: pos.x + Math.cos(angle) * 18, y: pos.y + Math.sin(angle) * 18 });
           world.add(boltId, Velocity,   { vx: Math.cos(angle) * ai.projSpeed, vy: Math.sin(angle) * ai.projSpeed });
-          world.add(boltId, Projectile, { damage: 12, owner: id, speed: ai.projSpeed, piercing: false });
+          world.add(boltId, Projectile, {
+            damage: 12,
+            owner: id,
+            team: 'enemies',
+            speed: ai.projSpeed,
+            piercing: false,
+            trailColor: '#b060ff',
+            burstColor: '#d0a0ff',
+          });
           world.add(boltId, Lifetime,   { ttl: 2.5 });
           world.add(boltId, Collider,   { radius: 5 });
-          world.add(boltId, PointLight, { radius: 90, r: 180, g: 60, b: 255 });
         }
       } else {
         // ── No LOS — A* pathfind ──
@@ -105,9 +110,4 @@ export function createAISystem(ctx) {
       }
     }
   };
-}
-
-// Clean up cached path when an entity dies
-export function onEntityDied({ id }) {
-  aiPaths.delete(id);
 }

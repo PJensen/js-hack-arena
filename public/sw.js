@@ -1,7 +1,7 @@
 // sw.js
 // Asset-free service worker for js-hack-arena.
 
-const SW_VERSION = 'arena-sw-2026-03-28-1';
+const SW_VERSION = 'arena-sw-2026-07-13-1';
 const SHELL_CACHE = `shell-${SW_VERSION}`;
 const RUNTIME_CACHE = `runtime-${SW_VERSION}`;
 const APP_SHELL = ['./', './index.html'];
@@ -66,21 +66,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Same-origin runtime requests: stale-while-revalidate.
+  // Same-origin runtime requests: network first so a room never mixes module
+  // generations across tabs. The cache remains an offline fallback.
   event.respondWith((async () => {
     const cache = await caches.open(RUNTIME_CACHE);
-    const cached = await cache.match(req);
-    const networkPromise = fetch(req)
-      .then((res) => {
-        if (res && res.ok) cache.put(req, res.clone());
-        return res;
-      })
-      .catch(() => null);
-
-    if (cached) return cached;
-
-    const network = await networkPromise;
-    if (network) return network;
+    try {
+      const network = await fetch(req);
+      if (network && network.ok) cache.put(req, network.clone());
+      return network;
+    } catch {
+      const cached = await cache.match(req);
+      if (cached) return cached;
+    }
 
     const shell = await caches.open(SHELL_CACHE);
     return (await shell.match('./index.html')) || Response.error();

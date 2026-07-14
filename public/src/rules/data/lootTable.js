@@ -65,8 +65,9 @@ export const epicChestTotalWeight = epicChestTable.reduce((s, e) => s + e.weight
 /**
  * Pick a weighted random entry from a table.
  */
-export function rollTable(table, totalWeight) {
-  let roll = Math.random() * totalWeight;
+export function rollTable(table, totalWeight, random) {
+  if (typeof random !== 'function') throw new Error('rollTable requires an authoritative RNG');
+  let roll = random() * totalWeight;
   for (const entry of table) {
     roll -= entry.weight;
     if (roll <= 0) return entry;

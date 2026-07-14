@@ -4,14 +4,14 @@ import {
   decodeMessage,
   encodeMessage,
   makeInputFrame,
-  makePlayerState,
   normalizeSeed,
   normalizeRoomId,
 } from './index.js';
+import { normalizeSnapshot } from '../rules/sim/arenaSim.js';
 
 export function createNetClient({
   roomId = DEFAULT_ROOM_ID,
-  sendHz = 15,
+  sendHz = 20,
 } = {}) {
   const peers = new Map();
   const minSendMs = 1000 / Math.max(1, sendHz);
@@ -25,6 +25,7 @@ export function createNetClient({
   let welcome = null;
   let connectPromise = null;
   let resolveConnect = null;
+  let latestSnapshot = null;
 
   async function connect() {
     if (!('WebSocket' in globalThis)) {
@@ -57,6 +58,7 @@ export function createNetClient({
       socket.addEventListener('close', () => {
         socket = null;
         peers.clear();
+        latestSnapshot = null;
         setStatus('offline', 'socket closed');
         resolveWelcome(null);
       });
@@ -68,6 +70,7 @@ export function createNetClient({
     } catch (err) {
       socket = null;
       peers.clear();
+      latestSnapshot = null;
       setStatus('offline', err.message);
       resolveWelcome(null);
       return null;
@@ -107,6 +110,7 @@ export function createNetClient({
         ...msg,
         seed: normalizeSeed(msg.seed),
         roomId: normalizeRoomId(msg.roomId || room),
+        snapshot: acceptSnapshot(msg.snapshot),
       };
       room = welcome.roomId;
       applyPeerList(msg.peers);
@@ -115,7 +119,12 @@ export function createNetClient({
       return;
     }
 
-    if (msg.type === MESSAGE.SNAPSHOT || msg.type === MESSAGE.PEER_JOINED) {
+    if (msg.type === MESSAGE.SNAPSHOT) {
+      acceptSnapshot(msg.snapshot);
+      return;
+    }
+
+    if (msg.type === MESSAGE.PEER_JOINED) {
       applyPeerList(msg.peers);
       return;
     }
@@ -140,8 +149,6 @@ export function createNetClient({
         id: peer.id,
         joinedAt: peer.joinedAt,
         lastSeenAt: peer.lastSeenAt,
-        input: makeInputFrame(peer.input),
-        state: peer.state ? makePlayerState(peer.state) : null,
       });
     }
     for (const id of peers.keys()) {
@@ -167,6 +174,21 @@ export function createNetClient({
     return welcome?.seed ?? null;
   }
 
+  function getLatestSnapshot() {
+    return latestSnapshot;
+  }
+
+  function acceptSnapshot(snapshot) {
+    if (!snapshot) return latestSnapshot;
+    try {
+      const normalized = normalizeSnapshot(snapshot);
+      if (!latestSnapshot || normalized.revision > latestSnapshot.revision) latestSnapshot = normalized;
+    } catch (err) {
+      setStatus('error', err.message);
+    }
+    return latestSnapshot;
+  }
+
   function send(type, payload) {
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
     socket.send(encodeMessage(type, payload));
@@ -189,12 +211,14 @@ export function createNetClient({
     if (socket) socket.close();
     socket = null;
     peers.clear();
+    latestSnapshot = null;
   }
 
   return {
     connect,
     destroy,
     getLocalPeer,
+    getLatestSnapshot,
     getRemotePeers,
     getSeed,
     getStatusText,

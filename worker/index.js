@@ -4,26 +4,24 @@ import {
   decodeMessage,
   encodeMessage,
   makeInputFrame,
-  makePlayerState,
   makeRoomSeed,
   normalizeRoomId,
 } from '../public/src/shared/net/protocol.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
-import { moveWithSlide } from '../public/src/rules/geometry/sweep.js';
+import {
+  SIM_DT,
+  SIM_TICK_HZ,
+  createArenaSimulation,
+} from '../public/src/rules/sim/arenaSim.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
   'cache-control': 'no-store',
 };
 
-const PLAYER_RADIUS = 14;
-const PLAYER_SPEED = 200;
-const PLAYER_HP = 100;
-const SERVER_TICK_HZ = 20;
 const SNAPSHOT_HZ = 10;
-const SERVER_TICK_MS = 1000 / SERVER_TICK_HZ;
-const SERVER_DT = 1 / SERVER_TICK_HZ;
-const SNAPSHOT_EVERY_TICKS = Math.max(1, Math.round(SERVER_TICK_HZ / SNAPSHOT_HZ));
+const SERVER_TICK_MS = 1000 / SIM_TICK_HZ;
+const SNAPSHOT_EVERY_TICKS = Math.max(1, Math.round(SIM_TICK_HZ / SNAPSHOT_HZ));
 
 export default {
   async fetch(request, env) {
@@ -61,11 +59,11 @@ export class GameRoom {
     this.state = state;
     this.env = env;
     this.sessions = new Map();
-    this.tick = 0;
     this.createdAt = Date.now();
     this.roomId = DEFAULT_ROOM_ID;
     this.seed = makeRoomSeed(this.roomId);
     this.caveData = null;
+    this.sim = null;
     this.tickTimer = null;
   }
 
@@ -80,8 +78,8 @@ export class GameRoom {
         room: this.state.id.toString(),
         seed: this.seed,
         peers: this.sessions.size,
-        tick: this.tick,
-        tickHz: SERVER_TICK_HZ,
+        tick: this.sim?.getTick() ?? 0,
+        tickHz: SIM_TICK_HZ,
         snapshotHz: SNAPSHOT_HZ,
       });
     }
@@ -100,34 +98,28 @@ export class GameRoom {
     socket.accept();
 
     const peerId = crypto.randomUUID();
-    const spawn = this.spawnForPeer(this.sessions.size);
     const session = {
       id: peerId,
       socket,
       joinedAt: Date.now(),
       lastSeenAt: Date.now(),
       input: makeInputFrame(),
-      state: makePlayerState({
-        x: spawn.x,
-        y: spawn.y,
-        facing: 0,
-        hp: PLAYER_HP,
-        maxHp: PLAYER_HP,
-      }),
     };
 
+    this.ensureSim().addPlayer(peerId, this.sessions.size);
     this.sessions.set(socket, session);
     this.startTicking();
     this.send(socket, MESSAGE.WELCOME, {
       peerId,
       roomId: this.roomId,
       seed: this.seed,
-      tick: this.tick,
-      tickHz: SERVER_TICK_HZ,
+      tickHz: SIM_TICK_HZ,
       snapshotHz: SNAPSHOT_HZ,
       peers: this.peerList(),
+      snapshot: this.ensureSim().captureSnapshot(),
     });
     this.broadcast(MESSAGE.PEER_JOINED, { peerId, peers: this.peerList() }, socket);
+    this.broadcastSnapshot();
 
     socket.addEventListener('message', (event) => {
       this.handleMessage(socket, event.data);
@@ -155,7 +147,7 @@ export class GameRoom {
     session.lastSeenAt = Date.now();
 
     if (msg.type === MESSAGE.PING) {
-      this.send(socket, MESSAGE.PONG, { tick: this.tick });
+      this.send(socket, MESSAGE.PONG, { tick: this.ensureSim().getTick() });
       return;
     }
 
@@ -164,16 +156,17 @@ export class GameRoom {
         peerId: session.id,
         roomId: this.roomId,
         seed: this.seed,
-        tick: this.tick,
-        tickHz: SERVER_TICK_HZ,
+        tickHz: SIM_TICK_HZ,
         snapshotHz: SNAPSHOT_HZ,
         peers: this.peerList(),
+        snapshot: this.ensureSim().captureSnapshot(),
       });
       return;
     }
 
     if (msg.type === MESSAGE.INPUT) {
       session.input = makeInputFrame(msg.input);
+      this.ensureSim().setPlayerInput(session.id, session.input);
       return;
     }
 
@@ -181,32 +174,12 @@ export class GameRoom {
   }
 
   step() {
-    this.tick += 1;
+    const sim = this.ensureSim();
+    const tick = sim.step(SIM_DT);
 
-    const { grid } = this.ensureCave();
-    for (const session of this.sessions.values()) {
-      const state = session.state;
-      const input = session.input;
-      const dx = input.moveX * PLAYER_SPEED * SERVER_DT;
-      const dy = input.moveY * PLAYER_SPEED * SERVER_DT;
-
-      if (Math.abs(input.aimX) > 0.1 || Math.abs(input.aimY) > 0.1) {
-        state.facing = Math.atan2(input.aimY, input.aimX);
-      } else if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
-        state.facing = Math.atan2(dy, dx);
-      }
-
-      if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
-        const moved = moveWithSlide(grid, state.x, state.y, dx, dy, PLAYER_RADIUS);
-        state.x = moved.x;
-        state.y = moved.y;
-      }
-    }
-
-    if (this.tick % SNAPSHOT_EVERY_TICKS !== 0) return;
+    if (tick % SNAPSHOT_EVERY_TICKS !== 0) return;
     this.broadcast(MESSAGE.SNAPSHOT, {
-      tick: this.tick,
-      peers: this.peerList(),
+      snapshot: sim.captureSnapshot(),
     });
   }
 
@@ -214,10 +187,12 @@ export class GameRoom {
     const session = this.sessions.get(socket);
     if (!session) return;
     this.sessions.delete(socket);
+    this.ensureSim().removePlayer(session.id);
     this.broadcast(MESSAGE.PEER_LEFT, {
       peerId: session.id,
       peers: this.peerList(),
     });
+    this.broadcastSnapshot();
     if (this.sessions.size === 0) this.stopTicking();
   }
 
@@ -226,9 +201,13 @@ export class GameRoom {
       id: session.id,
       joinedAt: session.joinedAt,
       lastSeenAt: session.lastSeenAt,
-      input: session.input,
-      state: session.state,
     }));
+  }
+
+  broadcastSnapshot() {
+    this.broadcast(MESSAGE.SNAPSHOT, {
+      snapshot: this.ensureSim().captureSnapshot(),
+    });
   }
 
   setRoomId(roomId) {
@@ -236,6 +215,7 @@ export class GameRoom {
     this.roomId = roomId;
     this.seed = makeRoomSeed(roomId);
     this.caveData = null;
+    this.sim = null;
   }
 
   ensureCave() {
@@ -251,9 +231,16 @@ export class GameRoom {
     return this.caveData;
   }
 
-  spawnForPeer(peerIndex) {
-    const { spawns } = this.ensureCave();
-    return spawns[peerIndex % spawns.length] || { x: 1000, y: 1000 };
+  ensureSim() {
+    if (!this.sim) {
+      const caveData = this.ensureCave();
+      this.sim = createArenaSimulation({
+        seed: this.seed,
+        grid: caveData.grid,
+        spawns: caveData.spawns,
+      });
+    }
+    return this.sim;
   }
 
   startTicking() {

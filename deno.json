@@ -2,7 +2,7 @@
   "tasks": {
     "dev": "deno run -A npm:wrangler@^4.0.0 dev",
     "deploy": "deno run -A npm:wrangler@^4.0.0 deploy",
-    "check": "deno check public/src/shared/net/protocol.js public/src/net/protocol.js public/src/net/index.js public/src/net/client.js worker/index.js tests/net_protocol_test.js",
-    "test": "deno test --allow-read tests/net_protocol_test.js"
+    "check": "deno check public/src/shared/net/protocol.js public/src/net/protocol.js public/src/net/index.js public/src/net/client.js public/src/input/samplePlayerCommand.js public/src/display/renderer.js public/src/display/camera/system.js public/src/display/snapshotInterpolator.js public/src/display/localPlayerPrediction.js public/src/display/passes/projectileFx.js public/src/rules/sim/arenaSim.js worker/index.js tests/net_protocol_test.js tests/arena_sim_test.js tests/interpolation_test.js tests/game_room_test.js",
+    "test": "deno test --allow-read tests/net_protocol_test.js tests/arena_sim_test.js tests/interpolation_test.js tests/game_room_test.js"
   }
 }
