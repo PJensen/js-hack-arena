@@ -1,0 +1,5 @@
+hang on boss, make 100% certain to know that.
+
+1. the client is a static site
+2. web workers are the "server"
+3. both should exist in the same project if at all possible.
