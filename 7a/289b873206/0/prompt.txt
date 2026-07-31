@@ -1,0 +1,29 @@
+Implemented the next step: the Worker now simulates basic player movement from input.
+
+What changed:
+- `worker/index.js`
+  - Imports shared cave generation and wall-slide movement.
+  - Initializes each joining player at a deterministic cave spawn.
+  - Stores authoritative player state server-side.
+  - Applies `moveX/moveY` input at `PLAYER_SPEED` with collision against the generated cave grid.
+  - Updates facing from aim or movement.
+  - Broadcasts server-derived player positions in snapshots.
+  - Ignores client-sent position state entirely.
+
+- `public/src/net/client.js`
+  - No longer accepts `getPlayerState`.
+  - Sends `INPUT` packets only, with no `state` payload.
+
+- `public/index.html`
+  - Removed the client-side state hook from net setup.
+
+- `README.md`
+  - Notes that the Durable Object now simulates basic player movement, while browser reconciliation is still future work.
+
+Verified:
+- `deno task check`
+- `deno task test`
+
+Caveat: this is still event-driven by incoming input packets, not a standalone fixed-rate server tick. Since the client sends input at 15 Hz, held movement advances on the server, but the next real step is a proper room tick loop plus local-player reconciliation.
+
+WE BROKE IT DOING THE ABOVE
