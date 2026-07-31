@@ -1,0 +1,3 @@
+do it -- go as far as you can
+
+NOTE: logged into dev instance on two browsers, players do not currently see one another.
