@@ -1,0 +1,7 @@
+I like this as a next step:
+
+My practical next step would be: change the current netcode so the server sends the seed in WELCOME, and the browser waits for that seed before generating the cave when connected. After that, move player spawning/state into the Worker and replace client-sent state with client-sent input only.
+
+Why dont we give that a shot.
+
+NOTE: it strikes me that some code is now officially "shared"
