@@ -1,0 +1,1 @@
+after picking up bow and arrow, the number keys no longer work to switch between spells and weapons.
