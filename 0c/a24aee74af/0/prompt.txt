@@ -1,0 +1,1 @@
+next: server simulates players from input -- hit it, while you're doing that I'll look into deploying to CF/
