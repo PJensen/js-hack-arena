@@ -1,0 +1,21 @@
+I've been working on the net code for `js-hack-arena` and what I realized is that the server was drifting away from using the canonical simulation rules and was starting to implement it's own very rough rendition of the rules.
+
+the last 5 (outgoing) commits all push us towards centralizing rules. there is much more do to -- please note, this project is entirely greenfield, we have no users, we are not going to break anything, I think you'll understand the architecture very quickly.
+
+I'll explain a little bit what I'm looking for.
+
+think of a multi-player, arcade paces, dual thumbstick, cooperative dungeon crawler that is influenced by the very best of rougelike games, think nethack, ADOM, and beyond.
+
+except:
+
+it's fully realtime
+
+in which case we should think more about Baulders Gate (for PS1) the cooperative multiplayer game.
+
+long story short, we need to come up with a simple yet canonical rules engine that can suppport running server side and to be able to resolve snapshots.
+
+I'm saying a lot -- but maybe not getting to the point.
+
+1. build the shared simulation substrate
+2. confirm the architectural direction (client + server)
+3. lay a solid foundation for the stated goal
