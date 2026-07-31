@@ -1,0 +1,1 @@
+what did you think I meant when I said to make rules "shared" the project root -- instead you effectively made a variation of the sim/rules layer inside the server that diverges completely from the original client side rules.
