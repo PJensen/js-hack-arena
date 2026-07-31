@@ -1,0 +1,9 @@
+very interesting -- a few things
+
+1. shots are missing particles from remote peers
+2. mobs are missing their glyph
+3. deaths are not syncronized
+
+:-)
+
+we'll stop there for the day once you get those naile.
