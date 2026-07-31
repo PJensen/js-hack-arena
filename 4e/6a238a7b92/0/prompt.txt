@@ -1,0 +1,1 @@
+in the future, it's almost certain that the server will contain all authorative state, when players arrive, only the seed it shipped down to each client -- maybe I should ask -- how would you do it?
