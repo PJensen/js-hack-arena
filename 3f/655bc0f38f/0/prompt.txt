@@ -1,0 +1,7 @@
+here is what I see happening:
+
+1. we've created an approximation of game logic server side
+2. when a shot is fire no particle trail follows the projectile
+3. dots are left behind
+
+I feel like this might be not recoverable; a sort of second system emerging server side - which I guess I wasn't paying attention.
