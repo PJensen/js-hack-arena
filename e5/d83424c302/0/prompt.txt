@@ -1,0 +1,5 @@
+I would love to get this project ready to be hosted on cloud-flare, .toml file, specifically gearing  up for a web-worker, sockets, game-state, net-code and beyond.
+
+naturally, as you can tell everything present is very much a prototype -- we're lacking much of the cannonical stuff we need. 
+
+but where I think we're headed is towards cooperative dungeon crawling, cave delving type adventure game.
