@@ -1,0 +1,8 @@
+whoah -- that worked even locally -- 
+
+it keeps saying
+
+"local server updated and ready"
+"reloading local server"
+
+repeatedly -- thoughts?
