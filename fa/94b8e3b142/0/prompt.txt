@@ -1,0 +1,5 @@
+I need you to understand -- it's so eary in this project that the "rules" "sim" domain is really, really thin so far let me outline some top level goals.
+
+1. feel: arcade like dungeon crawling hack and slash, think dungeon delving with your best buddy, geting powerups, rare weapon drops -- thnk multi-player nethack!
+2. server: authorative for combat, enemies, projectiles, and beyond
+3. client: strict ownership over particles, interpoolation and more
