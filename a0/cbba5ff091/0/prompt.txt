@@ -1,0 +1,13 @@
+# AGENTS.md instructions
+
+<INSTRUCTIONS>
+@/home/pjensen/.codex/RTK.md
+</INSTRUCTIONS>
+
+<environment_context>
+  <cwd>/home/pjensen/Repos/js-hack-arena</cwd>
+  <shell>bash</shell>
+  <current_date>2026-07-07</current_date>
+  <timezone>America/New_York</timezone>
+  <filesystem><workspace_roots><root>/home/pjensen/Repos/js-hack-arena</root></workspace_roots><permission_profile type="managed"><file_system type="restricted"><entry access="read"><special>:root</special></entry><entry access="write"><path>/home/pjensen/Repos/js-hack-arena</path></entry><entry access="write"><special>:slash_tmp</special></entry><entry access="write"><special>:tmpdir</special></entry><entry access="read"><path>/home/pjensen/Repos/js-hack-arena/.git</path></entry><entry access="read"><path>/home/pjensen/Repos/js-hack-arena/.agents</path></entry><entry access="read"><path>/home/pjensen/Repos/js-hack-arena/.codex</path></entry></file_system></permission_profile></filesystem>
+</environment_context>
