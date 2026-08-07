@@ -92,6 +92,7 @@ function bakeGrid(seed, width, height, profile, cellSize) {
   const rows = Math.ceil(height / cellSize) + 1;
   const total = cols * rows;
   const moveGrid = new Float32Array(total);
+  const densityGrid = new Float32Array(total);
 
   const cav = profile.cavern;
   const tun = profile.tunnel;
@@ -118,6 +119,7 @@ function bakeGrid(seed, width, height, profile, cellSize) {
 
       // Open if EITHER layer says so (max = union)
       const val = Math.max(vc, vt);
+      densityGrid[rowOff + gx] = val;
       moveGrid[rowOff + gx] = val > 0 ? val * 200 : 0;
     }
   }
@@ -143,7 +145,7 @@ function bakeGrid(seed, width, height, profile, cellSize) {
     return top * (1 - ty) + bottom * ty;
   }
 
-  return { distanceMove, cellSize, cols, rows, width, height, moveGrid };
+  return { distanceMove, cellSize, cols, rows, width, height, moveGrid, densityGrid };
 }
 
 // ── Spawn finding ──────────────────────────────────────────────

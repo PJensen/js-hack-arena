@@ -2,6 +2,32 @@
 
 Experimental cooperative cave-delving prototype.
 
+## WebGL Incubation
+
+Arena now incubates its next presentation foundation directly under
+`public/src/display/webgl/`. The browser entry point uses WebGL2 rather than a
+Canvas2D context while retaining the game's flat, top-down visual language. The
+active slice includes an orthographic world camera, GPU cave-field sampling,
+analytic actor shapes, a glyph atlas, shader lighting, and batched particles.
+The 3D-capable matrix and terrain-mesh experiments remain available for later
+selective depth effects, but they do not determine Arena's active look.
+
+The directory is intentionally split between reusable mechanisms and
+Arena-specific composition:
+
+- `device.js`, `math.js`, and `particles.js` must not import ECS components or
+  Arena rules. They are candidates for later extraction into Unbuilt.
+- `terrainMesh.js` preserves the experimental scalar-field-to-3D-mesh path but
+  does not own cave generation or collision.
+- `arenaRenderer.js` is the game adapter. It may query Arena components, choose
+  colors and lighting, and compose the frame.
+
+Arena retains both the signed procedural `densityGrid` used for presentation
+and the positive `moveGrid` used by current gameplay collision. Destructive
+terrain events update gameplay clearance and mark the GPU field texture dirty.
+The old Canvas modules remain temporarily as reference implementations, but
+the application entry point no longer imports them.
+
 ## Runtime Shape
 
 - Static client: `public/index.html`, `public/sw.js`, and browser modules under `public/src/`.

@@ -100,15 +100,11 @@ import { createFixedTickLoop } from './src/runtime/fixedLoop.js';
 import { createInputRouter } from './src/input/InputRouter.js';
 import { createCamera } from './src/display/camera/controller.js';
 import { createCameraSystem } from './src/display/camera/system.js';
-import { bakeCavePass } from './src/display/passes/cavePass.js';
-import { createCarver } from './src/rules/geometry/carve.js';
-import { createTorchPass } from './src/display/passes/torchPass.js';
-import { ParticleFX } from './src/display/passes/vfx/particles/particlePool.js';
-import { createRenderer } from './src/display/renderer.js';
+import { createGridCarver } from './src/rules/geometry/carve.js';
+import { ParticleFX } from './src/display/webgl/particles.js';
+import { createWebGLArenaRenderer } from './src/display/webgl/arenaRenderer.js';
 import { createSnapshotInterpolator } from './src/display/snapshotInterpolator.js';
 import { createLocalPlayerPrediction } from './src/display/localPlayerPrediction.js';
-import { createFloatTextPass } from './src/display/passes/floatText.js';
-import { createBoltFx } from './src/display/passes/boltFx.js';
 import { createProjectileFxController } from './src/display/passes/projectileFx.js';
 import { Spellbook, Position } from './src/rules/components/index.js';
 import { createNetClient } from './src/net/client.js';
@@ -117,9 +113,6 @@ import { SIM_MODE, SIM_TICK_HZ, createArenaSimulation } from './src/rules/sim/ar
 
 // ── Canvas + DOM ────────────────────────────────────────────────
 const canvas = document.getElementById('game');
-const ctx    = canvas.getContext('2d');
-function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
-addEventListener('resize', resize); resize();
 
 // -- Ultra-basic multiplayer location sync ----------------------
 const roomId = new URLSearchParams(location.search).get('room') || 'lobby';
@@ -135,10 +128,7 @@ const caveData = generateCave({ seed: SEED, width: 2000, height: 2000, profile: 
 const { grid, bounds, spawns } = caveData;
 const spawn = spawns[0];
 
-// ── Pre-bake display ────────────────────────────────────────────
-const caveBake  = bakeCavePass(caveData);
-const torchPass = createTorchPass(grid);
-const carve     = createCarver(grid, caveBake);
+const carve = createGridCarver(grid);
 
 // ── Particle FX ─────────────────────────────────────────────────
 const cam = createCamera();
@@ -147,11 +137,6 @@ cam.y = cam.targetY = spawn.y;
 cam.scale = cam.targetScale = 1.8;
 
 const fx = new ParticleFX({ capacity: 2048, seedBase: SEED });
-fx.worldToScreen = (x, y, size, out) => {
-  out.x = (x - cam.x) * cam.scale + canvas.width * 0.5;
-  out.y = (y - cam.y) * cam.scale + canvas.height * 0.5;
-  out.size = size * cam.scale;
-};
 
 // ── Input ───────────────────────────────────────────────────────
 const inputRouter = createInputRouter({
@@ -196,7 +181,11 @@ const sim = createArenaSimulation({
   mode: isNetworked ? SIM_MODE.REPLICA : SIM_MODE.AUTHORITY,
   enemyCount: 2,
 });
-sim.world.on('terrain.carved', (e) => carve(e.x, e.y, e.radius));
+let renderer = null;
+sim.world.on('terrain.carved', (event) => {
+  carve(event.x, event.y, event.radius);
+  renderer?.terrainChanged();
+});
 if (isNetworked && netWelcome.snapshot) sim.applySnapshot(netWelcome.snapshot);
 const playerId = isNetworked
   ? (sim.getPlayerEntity(netWelcome.peerId) ?? sim.addPlayer(netWelcome.peerId, 0))
@@ -225,17 +214,6 @@ const cameraSystem = createCameraSystem({
   cam,
   playerId,
   positionFor: presentation?.position,
-});
-
-// ── Float text (damage numbers) ─────────────────────────────────
-const floatText = createFloatTextPass();
-world.on('damage.dealt', (e) => {
-  const isHeal = e.amount < 0;
-  floatText.add({
-    x: e.x, y: e.y,
-    text: isHeal ? '+' + Math.abs(e.amount) : '-' + e.amount,
-    color: isHeal ? '#44ff66' : (e.target === playerId ? '#ff4444' : '#ffcc00'),
-  });
 });
 
 // ── Dynamic spell bar (rebuild when spells change) ───────────────
@@ -268,16 +246,11 @@ function rebuildSpellBar() {
 }
 world.on('item.pickup', () => rebuildSpellBar());
 
-// ── Lightning bolt FX ────────────────────────────────────────────
-const boltFx = createBoltFx();
-world.on('spell.bolt', (e) => {
-  boltFx.add(e.fromX, e.fromY, e.toX, e.toY, e.chain);
-});
 const projectileFx = createProjectileFxController({ world, fx, runtimeEvents });
 
 // ── Renderer ────────────────────────────────────────────────────
-const renderFrame = createRenderer({
-  canvas, ctx, cam, caveBake, torchPass, fx, world, SEED, runtimeEvents, floatText, boltFx,
+renderer = createWebGLArenaRenderer({
+  canvas, cam, grid, fx, world, SEED, runtimeEvents,
   net: netClient, playerId,
   presentation,
   hud: {
@@ -321,7 +294,7 @@ const loop = createFixedTickLoop({
     if (isNetworked) netClient.update(++netTick, o);
   },
   render() {
-    renderFrame();
+    renderer.renderFrame();
     // Sync spell bar UI with active spell
     if (world.has(playerId, Spellbook)) {
       const sb = world.get(playerId, Spellbook);
@@ -337,6 +310,7 @@ addEventListener('beforeunload', () => {
   loop.stop();
   inputRouter.destroy();
   netClient.destroy();
+  renderer.dispose();
 });
 </script>
 </body>
