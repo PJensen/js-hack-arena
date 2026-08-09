@@ -9,4 +9,5 @@ export const Projectile = defineComponent('Projectile', {
   piercing: false,
   trailColor: '#8cd8ff',
   burstColor: '#b0e0ff',
+  power: 1,           // normalized cast investment, used by damage and VFX
 });

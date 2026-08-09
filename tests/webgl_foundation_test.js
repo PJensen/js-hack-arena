@@ -1,6 +1,7 @@
 import { assert, assertAlmostEquals, assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { multiply, perspective } from '../public/src/display/webgl/math.js';
 import { ParticleFX, ParticlePool } from '../public/src/display/webgl/particles.js';
+import { MAX_DYNAMIC_LIGHTS } from '../public/src/display/webgl/arenaRenderer.js';
 import { buildTerrainMesh } from '../public/src/display/webgl/terrainMesh.js';
 import { generateCave } from '../public/src/rules/geometry/caveGen.js';
 
@@ -72,4 +73,8 @@ Deno.test('webgl foundation: keyed emitters produce deterministic presentation s
   assertEquals(left.pool.count, 3);
   assertEquals([...left.pool.vx.slice(0, 3)], [...right.pool.vx.slice(0, 3)]);
   assertEquals([...left.pool.vy.slice(0, 3)], [...right.pool.vy.slice(0, 3)]);
+});
+
+Deno.test('webgl foundation: lighting remains a multi-source storytelling layer', () => {
+  assert(MAX_DYNAMIC_LIGHTS >= 16);
 });

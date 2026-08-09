@@ -38,6 +38,7 @@ export const mobDropTable = [
   { weight: 10, type: 'sword',        tier: 1, rarity: Rarity.UNCOMMON },
   { weight: 7,  type: 'sword',        tier: 2, rarity: Rarity.RARE },
   { weight: 8,  type: 'arrows',       count: 5 },
+  { weight: 7,  type: 'mana_surge',   rarity: Rarity.RARE },
   { weight: 8,  type: 'epic_chest',   rarity: Rarity.EPIC },
   { weight: 5,  type: 'epic_sword',   rarity: Rarity.EPIC },
   { weight: 4,  type: 'epic_bow',     rarity: Rarity.EPIC },

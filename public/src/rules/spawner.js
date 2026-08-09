@@ -2,7 +2,7 @@
 // Entity creation helpers. Creates entities with the right component bundles.
 // No display logic. Pure ECS.
 
-import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, Mana, FOV, PointLight, AI, AIBehavior, Inventory, Projectile, Lifetime, Spellbook, SpellId, ItemInfo, Consumable, GroundItem, MeleeWeapon } from './components/index.js';
+import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, Mana, Powerups, FOV, PointLight, AI, AIBehavior, Inventory, Projectile, Lifetime, Spellbook, SpellId, ItemInfo, Consumable, GroundItem, MeleeWeapon } from './components/index.js';
 
 /**
  * Find open ground near a point using the grid.
@@ -30,7 +30,8 @@ export function spawnPlayer(world, x, y) {
   world.add(id, Input);
   world.add(id, Actor,    { kind: ActorKind.PLAYER, name: 'Player', glyph: '@' });
   world.add(id, Health,   { hp: 100, maxHp: 100 });
-  world.add(id, Mana,     { mana: 100, maxMana: 100, regenPerSecond: 12 });
+  world.add(id, Mana,     { mana: 100, maxMana: 100, regenPerSecond: 5 });
+  world.add(id, Powerups);
   world.add(id, FOV,      { distance: 220, angle: 1.4 });
   world.add(id, PointLight, { radius: 350, r: 255, g: 190, b: 120 });
   world.add(id, Inventory, { items: [], capacity: 10 });
@@ -58,7 +59,8 @@ export function spawnCaster(world, grid, nearX, nearY, targetId) {
   world.add(id, Speed,    { max: 80 });
   world.add(id, Actor,    { kind: ActorKind.MOB, name: 'Wraith', glyph: 'W' });
   world.add(id, Health,   { hp: 60, maxHp: 60 });
-  world.add(id, Mana,     { mana: 50, maxMana: 50, regenPerSecond: 8 });
+  world.add(id, Mana,     { mana: 50, maxMana: 50, regenPerSecond: 6 });
+  world.add(id, PointLight, { radius: 105, r: 145, g: 70, b: 220 });
   world.add(id, AI, {
     behavior: AIBehavior.CASTER,
     target: targetId,
@@ -101,6 +103,18 @@ export function spawnPotion(world, x, y, potency = 30) {
   world.add(id, GroundItem);
   world.add(id, Collider, { radius: 10 });
   world.add(id, PointLight, { radius: 60, r: 255, g: 50, b: 80 });
+  return id;
+}
+
+/** Spawn a temporary mana-regeneration powerup. */
+export function spawnManaSurge(world, x, y, duration = 8) {
+  const id = world.create();
+  world.add(id, Position, { x, y });
+  world.add(id, ItemInfo, { name: 'Arcane Surge', glyph: '*', slot: 'none', count: 1 });
+  world.add(id, Consumable, { effect: 'mana_regen', potency: duration });
+  world.add(id, GroundItem);
+  world.add(id, Collider, { radius: 10 });
+  world.add(id, PointLight, { radius: 95, r: 65, g: 145, b: 255 });
   return id;
 }
 

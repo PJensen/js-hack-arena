@@ -43,7 +43,7 @@ export function createProjectileFxController({ world, fx, runtimeEvents }) {
         activeTrails.add(key);
       }
       if (!world.has(id, PointLight) && projectile.trailColor !== '#c8a050') {
-        world.add(id, PointLight, lightFor(projectile.trailColor));
+        world.add(id, PointLight, lightFor(projectile.trailColor, projectile.power));
       }
       origins.push({ key, x: position.x, y: position.y, vx: velocity.vx * 0.1, vy: velocity.vy * 0.1 });
     }
@@ -61,11 +61,15 @@ export function createProjectileFxController({ world, fx, runtimeEvents }) {
 
 function trailFor(projectile) {
   if (projectile.trailColor === '#c8a050') return ARROW_TRAIL;
-  if (projectile.trailColor) return spellTrail(projectile.trailColor);
+  if (projectile.trailColor) {
+    const preset = spellTrail(projectile.trailColor);
+    const scale = 0.7 + Math.max(0.25, projectile.power || 1) * 1.15;
+    return { ...preset, rate: Math.round(preset.rate * scale), size: preset.size * scale, sizeEnd: preset.sizeEnd * scale };
+  }
   return projectile.owner == null ? FROST_TRAIL : SHADOW_TRAIL;
 }
 
-function lightFor(color) {
-  if (color === '#8cd8ff') return { radius: 120, r: 140, g: 200, b: 255 };
+function lightFor(color, power = 1) {
+  if (color === '#8cd8ff') return { radius: 105 + 95 * power, r: 140, g: 210, b: 255 };
   return { radius: 90, r: 180, g: 60, b: 255 };
 }

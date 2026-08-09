@@ -4,9 +4,9 @@ import {
   assertEquals,
   assertThrows,
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
-import { AI, Facing, Health, Input, Mana, Position, Spellbook } from '../public/src/rules/components/index.js';
+import { AI, Facing, Health, Input, Mana, Position, Powerups, Projectile, Spellbook, Collider } from '../public/src/rules/components/index.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
-import { spawnPotion } from '../public/src/rules/spawner.js';
+import { spawnManaSurge, spawnPotion } from '../public/src/rules/spawner.js';
 import {
   SIM_DT,
   SIM_MODE,
@@ -219,7 +219,8 @@ Deno.test("arena sim: enemy projectiles retain faction and owner identity after 
 Deno.test("arena sim: snapshot records are versioned and validated", () => {
   const state = {
     x: 0, y: 0, vx: 0, vy: 0, facing: 0, radius: 14, hp: 100, maxHp: 100,
-    mana: 100, maxMana: 100, manaRegen: 12,
+    mana: 100, maxMana: 100, manaRegen: 5,
+    manaRegenMultiplier: 1, manaRegenSeconds: 0,
     spells: ['frost_bolt'], activeSpell: 0, cooldown: 0,
     charge: 0, charging: false, chargeAimX: 0, chargeAimY: 0, chargeSpellIndex: 0,
     weapon: { name: 'Fists', glyph: '!', damage: 5 },
@@ -277,4 +278,46 @@ Deno.test("arena sim: health pickups heal injuries and wait when health is full"
   sim.step();
   assertEquals(health.hp, 85);
   assertEquals(sim.world.alive.has(potionId), false);
+});
+
+Deno.test("arena sim: frost projectile size scales with cast investment", () => {
+  const low = makeOpenSim(902, { enemyCount: 0 });
+  const high = makeOpenSim(902, { enemyCount: 0 });
+  for (const sim of [low, high]) sim.addPlayer('peer-a');
+
+  low.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 0 });
+  low.step();
+  low.setPlayerInput('peer-a', { seq: 2, fire: false });
+  low.step();
+
+  high.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 0 });
+  for (let i = 0; i < 20; i++) high.step();
+  high.setPlayerInput('peer-a', { seq: 2, fire: false });
+  high.step();
+
+  const lowShot = [...low.world.query(Projectile, Collider)][0];
+  const highShot = [...high.world.query(Projectile, Collider)][0];
+  assert(lowShot && highShot);
+  assert(highShot[2].radius > lowShot[2].radius * 1.5);
+  assert(highShot[1].power > lowShot[1].power);
+});
+
+Deno.test("arena sim: mana surge powerup boosts regeneration and expires visibly", () => {
+  const sim = makeOpenSim(903, { enemyCount: 0 });
+  const playerId = sim.addPlayer('peer-a');
+  const position = sim.world.get(playerId, Position);
+  const mana = sim.world.get(playerId, Mana);
+  mana.mana = 0;
+  spawnManaSurge(sim.world, position.x, position.y, 1);
+  sim.step();
+
+  const powerups = sim.world.get(playerId, Powerups);
+  assertEquals(powerups.manaRegenMultiplier, 2.5);
+  assert(powerups.manaRegenSeconds > 0);
+  const boostedMana = mana.mana;
+  sim.step();
+  assert(mana.mana - boostedMana > mana.regenPerSecond * SIM_DT);
+  for (let i = 0; i < 20; i++) sim.step();
+  assertEquals(powerups.manaRegenMultiplier, 1);
+  assertEquals(powerups.manaRegenSeconds, 0);
 });

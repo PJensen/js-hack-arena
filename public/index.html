@@ -20,6 +20,8 @@
     .hud-stat { padding:3px 7px; border-radius:5px; font-weight:700; font-variant-numeric:tabular-nums; }
     .hud-stat.hp { color:#70ef8d; background:rgba(40,190,83,.1); }
     .hud-stat.mana { color:#72adff; background:rgba(67,140,255,.12); }
+    .hud-stat.mana.boosted { color:#c9f4ff; border:1px solid rgba(100,210,255,.55); animation:surge-pulse .8s ease-in-out infinite alternate; }
+    @keyframes surge-pulse { to { background:rgba(67,140,255,.32); box-shadow:0 0 14px rgba(75,175,255,.38); } }
     .hud-meta { color:rgba(203,220,235,.48); }
 
     /* ── Joysticks ── */
@@ -139,11 +141,13 @@ import { SIM_MODE, SIM_TICK_HZ, createArenaSimulation } from './src/rules/sim/ar
 const canvas = document.getElementById('game');
 
 // -- Ultra-basic multiplayer location sync ----------------------
-const roomId = new URLSearchParams(location.search).get('room') || 'lobby';
+const pageParams = new URLSearchParams(location.search);
+const roomId = pageParams.get('room') || 'lobby';
+const forceOffline = pageParams.has('offline');
 const netClient = createNetClient({
   roomId,
 });
-const netWelcome = await netClient.connect();
+const netWelcome = forceOffline ? null : await netClient.connect();
 const isNetworked = Boolean(netWelcome);
 
 // ── Seed + cave ─────────────────────────────────────────────────

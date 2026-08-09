@@ -1,5 +1,5 @@
 // rules/systems/pickupSystem.js — walk over ground items to pick them up.
-import { Position, Collider, Health, Input, GroundItem, Consumable, ItemInfo, Spellbook, MeleeWeapon } from '../components/index.js';
+import { Position, Collider, Health, Input, GroundItem, Consumable, ItemInfo, Spellbook, MeleeWeapon, Powerups } from '../components/index.js';
 
 export function pickupSystem(world, dt) {
   const players = [];
@@ -34,6 +34,11 @@ export function pickupSystem(world, dt) {
               book.spells.push(spellId);
             }
             world.emit('item.pickup', { entity: p.id, item: info?.name, spellId });
+          } else if (c.effect === 'mana_regen' && world.has(p.id, Powerups)) {
+            const powerups = world.get(p.id, Powerups);
+            powerups.manaRegenMultiplier = 2.5;
+            powerups.manaRegenSeconds = Math.max(powerups.manaRegenSeconds, c.potency);
+            world.emit('item.pickup', { entity: p.id, item: info?.name, powerup: 'mana_regen', duration: c.potency });
           } else if (c.effect === 'melee_upgrade' && world.has(p.id, MeleeWeapon)) {
             const mw = world.get(p.id, MeleeWeapon);
             if (c.potency > mw.damage) {

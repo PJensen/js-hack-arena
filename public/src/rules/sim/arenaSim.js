@@ -13,6 +13,8 @@ import {
   Lifetime,
   MeleeWeapon,
   Mana,
+  PointLight,
+  Powerups,
   PlayerTag,
   Position,
   Projectile,
@@ -30,6 +32,7 @@ import {
   spawnEpicSword,
   spawnLegendaryBow,
   spawnLegendarySword,
+  spawnManaSurge,
   spawnPlayer,
   spawnPotion,
   spawnSword,
@@ -45,7 +48,7 @@ import { createProjectileSystem } from '../systems/projectileSystem.js';
 
 export const SIM_TICK_HZ = 20;
 export const SIM_DT = 1 / SIM_TICK_HZ;
-export const SIM_SNAPSHOT_VERSION = 3;
+export const SIM_SNAPSHOT_VERSION = 4;
 export const SIM_MODE = Object.freeze({
   AUTHORITY: 'authority',
   REPLICA: 'replica',
@@ -248,6 +251,7 @@ export function createArenaSimulation({
     const health = world.get(entityId, Health);
     const mana = world.get(entityId, Mana);
     const book = world.get(entityId, Spellbook);
+    const powerups = world.get(entityId, Powerups);
     const weapon = world.get(entityId, MeleeWeapon);
     return {
       id: ensureNetworkId(entityId, 'player'),
@@ -261,6 +265,8 @@ export function createArenaSimulation({
         radius: collider.radius,
         hp: health.hp, maxHp: health.maxHp,
         mana: mana.mana, maxMana: mana.maxMana, manaRegen: mana.regenPerSecond,
+        manaRegenMultiplier: powerups.manaRegenMultiplier,
+        manaRegenSeconds: powerups.manaRegenSeconds,
         spells: [...book.spells], activeSpell: book.activeIndex, cooldown: book.cooldown,
         charge: book.charge, charging: book.charging,
         chargeAimX: book.chargeAimX, chargeAimY: book.chargeAimY,
@@ -311,6 +317,7 @@ export function createArenaSimulation({
         piercing: projectile.piercing,
         trailColor: projectile.trailColor,
         burstColor: projectile.burstColor,
+        power: projectile.power,
         ttl: lifetime.ttl,
         owner: ensureNetworkId(projectile.owner, world.has(projectile.owner, AI) ? 'mob' : 'player'),
       },
@@ -358,6 +365,7 @@ export function createArenaSimulation({
       world.add(entityId, Mana, { mana: state.mana, maxMana: state.maxMana, regenPerSecond: state.manaRegen });
       world.add(entityId, Actor, { kind: ActorKind.MOB, name: state.name, glyph: state.glyph });
       world.add(entityId, AI, { target: null });
+      world.add(entityId, PointLight, { radius: 105, r: 145, g: 70, b: 220 });
     } else if (record.kind === 'projectile') {
       world.add(entityId, Velocity, { vx: state.vx, vy: state.vy });
       world.add(entityId, Collider, { radius: state.radius });
@@ -368,6 +376,7 @@ export function createArenaSimulation({
       world.add(entityId, GroundItem);
       world.add(entityId, ItemInfo, { name: state.name, glyph: state.glyph });
       if (state.effect) world.add(entityId, Consumable, { effect: state.effect, potency: state.potency });
+      world.add(entityId, PointLight, replicaItemLight(state.effect));
     }
   }
 
@@ -399,6 +408,7 @@ export function createArenaSimulation({
     if (record.kind === 'player') {
       lastInputSeqByPeer.set(record.owner, record.inputSeq);
       const book = world.get(entityId, Spellbook);
+      const powerups = world.get(entityId, Powerups);
       book.spells = [...state.spells];
       book.activeIndex = state.activeSpell;
       book.cooldown = state.cooldown;
@@ -407,6 +417,8 @@ export function createArenaSimulation({
       book.chargeAimX = state.chargeAimX;
       book.chargeAimY = state.chargeAimY;
       book.chargeSpellIndex = state.chargeSpellIndex;
+      powerups.manaRegenMultiplier = state.manaRegenMultiplier;
+      powerups.manaRegenSeconds = state.manaRegenSeconds;
       const weapon = world.get(entityId, MeleeWeapon);
       Object.assign(weapon, state.weapon);
     } else if (record.kind === 'mob') {
@@ -570,6 +582,7 @@ function spawnDrop(world, drop, x, y) {
   if (drop.type === 'bow') return spawnBow(world, x, y);
   if (drop.type === 'sword') return spawnSword(world, x, y, drop.tier);
   if (drop.type === 'arrows') return spawnArrows(world, x, y, drop.count);
+  if (drop.type === 'mana_surge') return spawnManaSurge(world, x, y);
   if (drop.type === 'epic_chest') return spawnEpicChest(world, x, y);
   if (drop.type === 'epic_sword') return spawnEpicSword(world, x, y);
   if (drop.type === 'epic_bow') return spawnEpicBow(world, x, y);
@@ -615,6 +628,8 @@ function normalizePlayerState(id, state) {
     chargeAimX: finiteNumber(state.chargeAimX, `${id}.chargeAimX`),
     chargeAimY: finiteNumber(state.chargeAimY, `${id}.chargeAimY`),
     chargeSpellIndex: nonNegativeInteger(state.chargeSpellIndex, `${id}.chargeSpellIndex`),
+    manaRegenMultiplier: finiteNumber(state.manaRegenMultiplier, `${id}.manaRegenMultiplier`),
+    manaRegenSeconds: finiteNumber(state.manaRegenSeconds, `${id}.manaRegenSeconds`),
     weapon: {
       name: String(weapon.name), glyph: String(weapon.glyph),
       damage: finiteNumber(weapon.damage, `${id}.weapon.damage`),
@@ -647,6 +662,7 @@ function normalizeProjectileState(id, state) {
     team: String(state.team || 'neutral'),
     piercing: Boolean(state.piercing),
     trailColor: String(state.trailColor || ''), burstColor: String(state.burstColor || ''),
+    power: finiteNumber(state.power, `${id}.power`),
     ttl: finiteNumber(state.ttl, `${id}.ttl`), owner: normalizeNetworkId(state.owner),
   };
 }
@@ -682,7 +698,15 @@ function recordToProjectile(state) {
     piercing: state.piercing,
     trailColor: state.trailColor,
     burstColor: state.burstColor,
+    power: state.power,
   };
+}
+
+function replicaItemLight(effect) {
+  if (effect === 'heal') return { radius: 60, r: 255, g: 50, b: 80 };
+  if (effect === 'mana_regen') return { radius: 95, r: 65, g: 145, b: 255 };
+  if (effect === 'epic_chest') return { radius: 100, r: 200, g: 80, b: 255 };
+  return { radius: 55, r: 210, g: 180, b: 110 };
 }
 
 function cloneEvent(event) {

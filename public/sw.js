@@ -1,7 +1,7 @@
 // sw.js
 // Asset-free service worker for js-hack-arena.
 
-const SW_VERSION = 'arena-sw-2026-08-09-1';
+const SW_VERSION = 'arena-sw-2026-08-09-2';
 const SHELL_CACHE = `shell-${SW_VERSION}`;
 const RUNTIME_CACHE = `runtime-${SW_VERSION}`;
 const APP_SHELL = ['./', './index.html'];

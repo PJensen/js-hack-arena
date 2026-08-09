@@ -1,10 +1,14 @@
 import {
   Actor, ActorKind, Collider, Facing, GroundItem, Health, Input, ItemInfo, Mana,
-  PlayerTag, Position, Projectile, Spellbook,
+  PlayerTag, PointLight, Position, Powerups, Projectile, Spellbook,
 } from '../../rules/components/index.js';
 import { AI } from '../../rules/components/AI.js';
 import { createWebGLDevice } from './device.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
+
+// Lighting is a core gameplay/readability layer. Keep enough simultaneous
+// sources for actors, loot, projectiles, and transient spell illumination.
+export const MAX_DYNAMIC_LIGHTS = 24;
 
 const WORLD_VERTEX = `#version 300 es
 layout(location=0) in vec2 a_position;
@@ -12,6 +16,7 @@ uniform vec4 u_view;
 uniform vec2 u_position;
 uniform vec2 u_size;
 out vec2 v_uv;
+out vec2 v_world;
 vec2 world_to_clip(vec2 world) {
   vec2 clip = (world - u_view.xy) * 2.0 / u_view.zw;
   return vec2(clip.x, -clip.y);
@@ -20,6 +25,7 @@ void main() {
   vec2 world = u_position + a_position * u_size;
   gl_Position = vec4(world_to_clip(world), 0.0, 1.0);
   v_uv = a_position + 0.5;
+  v_world = world;
 }`;
 
 const CAVE_VERTEX = `#version 300 es
@@ -136,6 +142,27 @@ uniform vec4 u_color;
 out vec4 out_color;
 void main() { out_color = u_color; }`;
 
+const LIGHT_FRAGMENT = `#version 300 es
+precision highp float;
+#define MAX_LIGHTS ${MAX_DYNAMIC_LIGHTS}
+uniform int u_light_count;
+uniform vec4 u_lights[MAX_LIGHTS];
+uniform vec3 u_light_colors[MAX_LIGHTS];
+in vec2 v_world;
+out vec4 out_color;
+void main() {
+  vec3 illumination = vec3(0.13, 0.16, 0.21);
+  for (int i = 0; i < MAX_LIGHTS; i++) {
+    if (i >= u_light_count) break;
+    vec4 source = u_lights[i];
+    float distanceRatio = distance(v_world, source.xy) / max(1.0, source.z);
+    float falloff = 1.0 - smoothstep(0.0, 1.0, distanceRatio);
+    falloff *= falloff;
+    illumination += u_light_colors[i] * falloff * source.w * 1.35;
+  }
+  out_color = vec4(clamp(illumination, 0.0, 1.25), 1.0);
+}`;
+
 const QUAD = new Float32Array([
   -0.5, -0.5, 0.5, -0.5, -0.5, 0.5,
   -0.5, 0.5, 0.5, -0.5, 0.5, 0.5,
@@ -179,6 +206,10 @@ export function createWebGLArenaRenderer(deps) {
   glyph.color = uniform(gl, glyph.program, 'u_color');
   const solid = worldProgram(device, SOLID_FRAGMENT);
   solid.color = uniform(gl, solid.program, 'u_color');
+  const lighting = worldProgram(device, LIGHT_FRAGMENT);
+  lighting.count = uniform(gl, lighting.program, 'u_light_count');
+  lighting.lights = uniform(gl, lighting.program, 'u_lights[0]');
+  lighting.colors = uniform(gl, lighting.program, 'u_light_colors[0]');
 
   const lineProgram = device.program(LINE_VERTEX, SOLID_FRAGMENT);
   const lineLocations = {
@@ -244,6 +275,8 @@ export function createWebGLArenaRenderer(deps) {
   gl.bindVertexArray(null);
 
   const view = new Float32Array(4);
+  const lightData = new Float32Array(MAX_DYNAMIC_LIGHTS * 4);
+  const lightColors = new Float32Array(MAX_DYNAMIC_LIGHTS * 3);
   let fieldDirty = false;
   let disposed = false;
   const bolts = [];
@@ -326,6 +359,78 @@ export function createWebGLArenaRenderer(deps) {
       px = x; py = y;
     }
     return new Float32Array(points);
+  }
+
+  function collectLights(now, shownPlayer) {
+    const candidates = [];
+    for (const [id, position, source] of world.query(Position, PointLight)) {
+      if (!source.enabled) continue;
+      const shown = displayPosition(id, position);
+      const distance = Math.hypot(shown.x - shownPlayer.x, shown.y - shownPlayer.y);
+      if (distance > source.radius + Math.max(view[2], view[3]) * 0.75) continue;
+      let intensity = 0.82;
+      if (world.has(id, PlayerTag)) {
+        intensity = 0.92 + 0.07 * Math.sin(now * 4.7 + id) + 0.035 * Math.sin(now * 11.3);
+      } else if (world.has(id, Projectile)) {
+        intensity = 1.12 + 0.12 * Math.sin(now * 19 + id * 2.3);
+      } else if (world.has(id, GroundItem)) {
+        intensity = 0.72 + 0.16 * Math.sin(now * 2.1 + id * 1.7);
+      } else if (world.has(id, AI)) {
+        intensity = 0.58 + 0.08 * Math.sin(now * 1.3 + id * 0.9);
+      }
+      candidates.push({
+        x: shown.x, y: shown.y, radius: source.radius, intensity,
+        r: source.r / 255, g: source.g / 255, b: source.b / 255,
+        distance,
+      });
+    }
+    for (const bolt of bolts) {
+      const alpha = Math.max(0, 1 - bolt.age / bolt.duration);
+      const dx = bolt.toX - bolt.fromX;
+      const dy = bolt.toY - bolt.fromY;
+      const midX = bolt.fromX + dx * 0.5;
+      const midY = bolt.fromY + dy * 0.5;
+      candidates.push({
+        x: midX, y: midY,
+        radius: Math.max(100, Math.hypot(dx, dy) * 0.72),
+        intensity: 2.2 * alpha,
+        r: 0.42, g: 0.8, b: 1,
+        distance: Math.hypot(midX - shownPlayer.x, midY - shownPlayer.y),
+      });
+      candidates.push({
+        x: bolt.toX, y: bolt.toY, radius: 125,
+        intensity: 1.8 * alpha,
+        r: 0.68, g: 0.92, b: 1,
+        distance: Math.hypot(bolt.toX - shownPlayer.x, bolt.toY - shownPlayer.y),
+      });
+    }
+    candidates.sort((a, b) => a.distance - b.distance);
+    const count = Math.min(MAX_DYNAMIC_LIGHTS, candidates.length);
+    for (let i = 0; i < count; i++) {
+      const source = candidates[i];
+      const lightOffset = i * 4;
+      const colorOffset = i * 3;
+      lightData[lightOffset] = source.x;
+      lightData[lightOffset + 1] = source.y;
+      lightData[lightOffset + 2] = source.radius;
+      lightData[lightOffset + 3] = source.intensity;
+      lightColors[colorOffset] = source.r;
+      lightColors[colorOffset + 1] = source.g;
+      lightColors[colorOffset + 2] = source.b;
+    }
+    return count;
+  }
+
+  function drawLighting(lightCount) {
+    gl.useProgram(lighting.program);
+    gl.bindVertexArray(quadVao);
+    setWorld(lighting, view[0], view[1], view[2], view[3]);
+    gl.uniform1i(lighting.count, lightCount);
+    gl.uniform4fv(lighting.lights, lightData);
+    gl.uniform3fv(lighting.colors, lightColors);
+    gl.blendFunc(gl.DST_COLOR, gl.ZERO);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
   function drawParticles(pixelScale) {
@@ -414,7 +519,22 @@ export function createWebGLArenaRenderer(deps) {
       const shown = displayPosition(id, position);
       const enemy = projectile.team === 'enemies' || world.has(projectile.owner, AI);
       drawDisc(shown.x, shown.y, Math.max(3, collider.radius), enemy ? [0.7, 0.3, 1, 0.9] : [0.55, 0.82, 1, 0.9], enemy ? [0.88, 0.69, 1, 1] : [0.88, 0.96, 1, 1]);
-      drawGlyph(projectile.trailColor === '#c8a050' ? '→' : (enemy ? '✦' : '❄'), shown.x, shown.y, 11, [1, 1, 1, 0.95]);
+      const projectileSize = projectile.trailColor === '#8cd8ff'
+        ? Math.max(11, collider.radius * 2.7)
+        : 11;
+      drawGlyph(projectile.trailColor === '#c8a050' ? '→' : (enemy ? '✦' : '❄'), shown.x, shown.y, projectileSize, [1, 1, 1, 0.95]);
+    }
+
+    // Lighting is a full-world GPU composition pass. Everything except the
+    // intentionally luminous VFX and HUD participates in darkness and color.
+    drawLighting(collectLights(now, shownPlayer));
+
+    const activePowerups = world.get(playerId, Powerups);
+    if (activePowerups?.manaRegenSeconds > 0) {
+      const pulse = 0.5 + 0.5 * Math.sin(now * 5.5);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+      drawDisc(shownPlayer.x, shownPlayer.y, playerCollider.radius + 7 + pulse * 4, [0.08, 0.28, 0.72, 0.08], [0.3, 0.72, 1, 0.45 + pulse * 0.35]);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     }
 
     // World-space status bars for every living actor.
@@ -479,7 +599,11 @@ export function createWebGLArenaRenderer(deps) {
     const router = input.leftStick.getOutput();
     const mana = world.get(playerId, Mana);
     hud.hp.textContent = `♥ ${Math.ceil(hp?.hp ?? 0)}/${hp?.maxHp ?? 0}`;
-    hud.mana.textContent = `◆ ${Math.floor(mana?.mana ?? 0)}/${mana?.maxMana ?? 0}`;
+    const boosted = activePowerups?.manaRegenSeconds > 0;
+    hud.mana.textContent = boosted
+      ? `◆ ${Math.floor(mana?.mana ?? 0)}/${mana?.maxMana ?? 0} · SURGE ${Math.ceil(activePowerups.manaRegenSeconds)}s`
+      : `◆ ${Math.floor(mana?.mana ?? 0)}/${mana?.maxMana ?? 0}`;
+    hud.mana.classList.toggle('boosted', boosted);
     hud.meta.textContent = `casts ${runtimeEvents.casts}${net ? ` · ${net.getStatusText()}` : ''}`;
     hud.zoomReadout.textContent = `zoom: ${cam.scale.toFixed(2)}x  particles:${fx.pool.count}`;
     hud.readL.textContent = router.left.active ? `L x:${playerInput.moveX.toFixed(2)} y:${playerInput.moveY.toFixed(2)}` : (Math.abs(keyboard.mx) + Math.abs(keyboard.my) ? `KB ${keyboard.mx},${keyboard.my}` : 'L stick idle');

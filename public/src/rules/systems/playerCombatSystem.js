@@ -44,14 +44,13 @@ export function createPlayerCombatSystem({ grid }) {
       const spell = spellCatalog[spellId];
       if (!spell) continue;
 
+      const charge = Math.max(0.25, Math.min(1, heldCharge / (spell.chargeTime || 1)));
       const mana = world.get(playerId, Mana);
-      const manaCost = spell.manaCost || 0;
+      const manaCost = Math.round((spell.manaCost || 0) * (0.55 + charge * 0.45));
       if (mana && mana.mana < manaCost) {
         world.emit('spell.denied', { playerId, spellId, reason: 'mana' });
         continue;
       }
-
-      const charge = Math.max(0.25, Math.min(1, heldCharge / (spell.chargeTime || 1)));
 
       const angle = Math.atan2(book.chargeAimY, book.chargeAimX);
       if (spell.type === 'bolt') {
@@ -136,9 +135,10 @@ function spawnSpellProjectile(world, playerId, position, angle, spell, charge) {
     piercing: false,
     trailColor: spell.trailColor,
     burstColor: spell.burstColor,
+    power: charge,
   });
   world.add(projectileId, Lifetime, { ttl: spell.ttl });
-  world.add(projectileId, Collider, { radius: spell.radius * (0.8 + charge * 0.45) });
+  world.add(projectileId, Collider, { radius: spell.radius * (0.65 + charge * 1.6) });
 }
 
 function hasLineOfSight(grid, ax, ay, bx, by) {
