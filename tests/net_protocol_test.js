@@ -7,11 +7,18 @@ import {
   makeInputFrame,
   makeRoomSeed,
   normalizeRoomId,
+  normalizePlayerName,
 } from '../public/src/shared/net/protocol.js';
 
 Deno.test("normalizeRoomId: keeps room ids URL-safe", () => {
   assertEquals(normalizeRoomId(" The Cave Room!! "), "the-cave-room");
   assertEquals(normalizeRoomId(""), "lobby");
+});
+
+Deno.test('normalizePlayerName: produces a compact safe world label', () => {
+  assertEquals(normalizePlayerName('  Ada   the\nBold  '), 'Ada theBold');
+  assertEquals(normalizePlayerName(''), 'Adventurer');
+  assertEquals(normalizePlayerName('abcdefghijklmnopqrstuv'), 'abcdefghijklmnopqrst');
 });
 
 Deno.test("makeRoomSeed: derives stable seeds from normalized room ids", () => {

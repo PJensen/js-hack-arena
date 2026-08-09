@@ -20,7 +20,7 @@ export function findOpenNear(grid, x, y, searchRadius = 200) {
 /**
  * Spawn the local player entity.
  */
-export function spawnPlayer(world, x, y) {
+export function spawnPlayer(world, x, y, name = 'Player') {
   const id = world.create();
   world.add(id, Position, { x, y });
   world.add(id, Velocity, { vx: 0, vy: 0 });
@@ -28,7 +28,7 @@ export function spawnPlayer(world, x, y) {
   world.add(id, Collider, { radius: 14 });
   world.add(id, Speed,    { max: 200 });
   world.add(id, Input);
-  world.add(id, Actor,    { kind: ActorKind.PLAYER, name: 'Player', glyph: '@' });
+  world.add(id, Actor,    { kind: ActorKind.PLAYER, name, glyph: '@' });
   world.add(id, Health,   { hp: 100, maxHp: 100 });
   world.add(id, Mana,     { mana: 100, maxMana: 100, regenPerSecond: 5 });
   world.add(id, Powerups);
@@ -81,14 +81,17 @@ export function spawnTank(world, grid, nearX, nearY, targetId) {
 
 function spawnMob(world, grid, nearX, nearY, targetId, config) {
   const pos = findOpenNear(grid, nearX, nearY, 400);
+  const rare = world.rand() < 0.09;
+  const healthScale = rare ? 1.65 : 1;
+  const damageScale = rare ? 1.35 : 1;
   const id = world.create();
   world.add(id, Position, { x: pos.x, y: pos.y });
   world.add(id, Velocity, { vx: 0, vy: 0 });
   world.add(id, Facing,   { angle: 0 });
   world.add(id, Collider, { radius: config.radius });
   world.add(id, Speed,    { max: config.speed });
-  world.add(id, Actor,    { kind: ActorKind.MOB, name: config.name, glyph: config.glyph, theme: config.theme });
-  world.add(id, Health,   { hp: config.hp, maxHp: config.hp });
+  world.add(id, Actor,    { kind: ActorKind.MOB, name: config.name, glyph: config.glyph, theme: config.theme, rare });
+  world.add(id, Health,   { hp: Math.round(config.hp * healthScale), maxHp: Math.round(config.hp * healthScale) });
   world.add(id, Mana,     { mana: config.mana, maxMana: config.mana, regenPerSecond: config.manaRegen });
   world.add(id, PointLight, config.light);
   world.add(id, AI, {
@@ -99,7 +102,7 @@ function spawnMob(world, grid, nearX, nearY, targetId, config) {
     projSpeed: config.projSpeed,
     aggroRange: config.aggroRange,
   });
-  world.add(id, MeleeWeapon, { damage: config.meleeDamage, name: config.weapon, glyph: config.glyph });
+  world.add(id, MeleeWeapon, { damage: Math.round(config.meleeDamage * damageScale), name: config.weapon, glyph: config.glyph });
   return id;
 }
 

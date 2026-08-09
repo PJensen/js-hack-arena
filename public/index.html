@@ -11,6 +11,22 @@
     html,body { width:100%; height:100%; overflow:hidden; background:#080d14; color:#fff;
                 font-family:Inter,"Segoe UI",system-ui,-apple-system,sans-serif; }
     canvas { display:block; width:100%; height:100%; }
+    #world-overlay { position:fixed; inset:0; pointer-events:none; z-index:12; }
+    #entry-gate { position:fixed; inset:0; z-index:100; display:grid; place-items:center;
+                  background:radial-gradient(circle at 50% 45%,rgba(18,55,76,.9),rgba(3,7,12,.98)); }
+    #entry-card { width:min(390px,calc(100vw - 34px)); padding:28px; text-align:center;
+                  background:linear-gradient(165deg,rgba(13,29,44,.98),rgba(5,10,18,.98));
+                  border:1px solid rgba(112,230,255,.34); border-radius:16px;
+                  box-shadow:0 24px 80px rgba(0,0,0,.58),inset 0 0 35px rgba(60,180,230,.05); }
+    #entry-card h1 { font-size:23px; letter-spacing:.16em; color:#e9fbff; text-shadow:0 0 18px rgba(112,230,255,.62); }
+    #entry-card p { margin:10px 0 20px; color:rgba(210,228,242,.62); font-size:13px; }
+    #player-name { width:100%; padding:12px 14px; color:#fff; background:rgba(1,6,12,.72);
+                   border:1px solid rgba(112,230,255,.3); border-radius:8px; outline:none;
+                   font:700 16px ui-monospace,monospace; text-align:center; user-select:text; }
+    #player-name:focus { border-color:#70e6ff; box-shadow:0 0 18px rgba(112,230,255,.14); }
+    #enter-dungeon { width:100%; margin-top:12px; padding:12px; border:1px solid rgba(112,230,255,.55);
+                     border-radius:8px; color:#061019; background:linear-gradient(135deg,#8af0ff,#5da8ff);
+                     font-weight:900; letter-spacing:.1em; cursor:pointer; }
     #hud { position:fixed; top:max(12px,env(safe-area-inset-top)); left:50%; transform:translateX(-50%);
            display:flex; align-items:center; gap:10px; min-height:38px; padding:7px 12px;
            font-size:12px; color:rgba(224,240,255,.78); text-align:center; z-index:40;
@@ -67,6 +83,15 @@
 </head>
 <body>
   <canvas id="game"></canvas>
+  <canvas id="world-overlay"></canvas>
+  <div id="entry-gate">
+    <form id="entry-card">
+      <h1>HACK//ARENA</h1>
+      <p>Choose the name that will follow you into the deep.</p>
+      <input id="player-name" maxlength="20" autocomplete="nickname" placeholder="Adventurer" aria-label="Player name" />
+      <button id="enter-dungeon" type="submit">ENTER THE DUNGEON</button>
+    </form>
+  </div>
   <div id="hud">
     <span class="brand">HACK//ARENA</span>
     <span class="hud-stat hp" id="hud-hp">♥ —</span>
@@ -130,6 +155,7 @@ import { createCameraSystem } from './src/display/camera/system.js';
 import { createGridCarver } from './src/rules/geometry/carve.js';
 import { ParticleFX } from './src/display/webgl/particles.js';
 import { createWebGLArenaRenderer } from './src/display/webgl/arenaRenderer.js';
+import { createDungeonDecorations } from './src/display/worldDecorations.js';
 import { createSnapshotInterpolator } from './src/display/snapshotInterpolator.js';
 import { createLocalPlayerPrediction } from './src/display/localPlayerPrediction.js';
 import { createProjectileFxController } from './src/display/passes/projectileFx.js';
@@ -140,6 +166,22 @@ import { SIM_MODE, SIM_TICK_HZ, createArenaSimulation } from './src/rules/sim/ar
 
 // ── Canvas + DOM ────────────────────────────────────────────────
 const canvas = document.getElementById('game');
+const overlayCanvas = document.getElementById('world-overlay');
+
+const playerName = await new Promise((resolve) => {
+  const gate = document.getElementById('entry-gate');
+  const form = document.getElementById('entry-card');
+  const field = document.getElementById('player-name');
+  field.value = localStorage.getItem('hack-arena.player-name') || '';
+  requestAnimationFrame(() => field.focus());
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const name = field.value.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 20) || 'Adventurer';
+    localStorage.setItem('hack-arena.player-name', name);
+    gate.remove();
+    resolve(name);
+  }, { once: true });
+});
 
 // -- Ultra-basic multiplayer location sync ----------------------
 const pageParams = new URLSearchParams(location.search);
@@ -147,15 +189,17 @@ const roomId = pageParams.get('room') || 'lobby';
 const forceOffline = pageParams.has('offline');
 const netClient = createNetClient({
   roomId,
+  playerName,
 });
 const netWelcome = forceOffline ? null : await netClient.connect();
 const isNetworked = Boolean(netWelcome);
 
 // ── Seed + cave ─────────────────────────────────────────────────
 const SEED = netWelcome?.seed ?? resolveSeed().seed;
-const caveData = generateCave({ seed: SEED, width: 2000, height: 2000, profile: CaveProfile.CAVERNS, spawnCount: 4 });
-const { grid, bounds, spawns } = caveData;
+const caveData = generateCave({ seed: SEED, width: 4000, height: 4000, profile: CaveProfile.CAVERNS, spawnCount: 8, spawnSpacing: 650 });
+const { grid, bounds, spawns, routes } = caveData;
 const spawn = spawns[0];
+const decorations = createDungeonDecorations({ grid, routes, spawns, seed: SEED });
 
 const carve = createGridCarver(grid);
 
@@ -217,8 +261,8 @@ sim.world.on('terrain.carved', (event) => {
 });
 if (isNetworked && netWelcome.snapshot) sim.applySnapshot(netWelcome.snapshot);
 const playerId = isNetworked
-  ? (sim.getPlayerEntity(netWelcome.peerId) ?? sim.addPlayer(netWelcome.peerId, 0))
-  : sim.addPlayer('local', 0);
+  ? (sim.getPlayerEntity(netWelcome.peerId) ?? sim.addPlayer(netWelcome.peerId, 0, null, playerName))
+  : sim.addPlayer('local', 0, null, playerName);
 const world = sim.world;
 const interpolation = isNetworked
   ? createSnapshotInterpolator({ sim, intervalMs: 1000 / (netWelcome.snapshotHz || 10) })
@@ -281,7 +325,7 @@ const projectileFx = createProjectileFxController({ world, fx, runtimeEvents });
 
 // ── Renderer ────────────────────────────────────────────────────
 renderer = createWebGLArenaRenderer({
-  canvas, cam, grid, fx, world, SEED, runtimeEvents,
+  canvas, overlayCanvas, cam, grid, bounds, decorations, fx, world, SEED, runtimeEvents,
   net: netClient, playerId,
   presentation,
   hud: {

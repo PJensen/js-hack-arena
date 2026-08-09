@@ -14,6 +14,14 @@ export const MESSAGE = Object.freeze({
 
 export const DEFAULT_ROOM_ID = 'lobby';
 
+export function normalizePlayerName(raw = 'Adventurer') {
+  return String(raw)
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 20) || 'Adventurer';
+}
+
 export function normalizeRoomId(raw = DEFAULT_ROOM_ID) {
   return String(raw)
     .trim()

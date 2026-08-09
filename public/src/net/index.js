@@ -13,6 +13,7 @@ export {
   makeInputFrame,
   makeRoomSeed,
   normalizeRoomId,
+  normalizePlayerName,
   normalizeSeed,
   seedFromString,
 } from '../shared/net/protocol.js';

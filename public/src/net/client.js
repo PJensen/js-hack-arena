@@ -6,11 +6,13 @@ import {
   makeInputFrame,
   normalizeSeed,
   normalizeRoomId,
+  normalizePlayerName,
 } from './index.js';
 import { normalizeSnapshot } from '../rules/sim/arenaSim.js';
 
 export function createNetClient({
   roomId = DEFAULT_ROOM_ID,
+  playerName = 'Adventurer',
   sendHz = 20,
 } = {}) {
   const peers = new Map();
@@ -43,7 +45,9 @@ export function createNetClient({
       const response = await fetch(url);
       if (!response.ok) throw new Error(`room lookup failed: ${response.status}`);
       const info = await response.json();
-      socket = new WebSocket(info.ws);
+      const socketUrl = new URL(info.ws);
+      socketUrl.searchParams.set('name', normalizePlayerName(playerName));
+      socket = new WebSocket(socketUrl);
       connectPromise = new Promise((resolve) => {
         resolveConnect = resolve;
       });
@@ -149,6 +153,7 @@ export function createNetClient({
         id: peer.id,
         joinedAt: peer.joinedAt,
         lastSeenAt: peer.lastSeenAt,
+        name: normalizePlayerName(peer.name),
       });
     }
     for (const id of peers.keys()) {

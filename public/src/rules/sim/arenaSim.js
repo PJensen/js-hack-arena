@@ -54,7 +54,7 @@ import { createProjectileSystem } from '../systems/projectileSystem.js';
 
 export const SIM_TICK_HZ = 20;
 export const SIM_DT = 1 / SIM_TICK_HZ;
-export const SIM_SNAPSHOT_VERSION = 5;
+export const SIM_SNAPSHOT_VERSION = 6;
 export const SIM_MODE = Object.freeze({
   AUTHORITY: 'authority',
   REPLICA: 'replica',
@@ -109,13 +109,13 @@ export function createArenaSimulation({
     installLootRules(world);
   }
 
-  function addPlayer(peerId, spawnIndex = 0, networkId = null) {
+  function addPlayer(peerId, spawnIndex = 0, networkId = null, playerName = 'Adventurer') {
     const owner = normalizePeerId(peerId);
     if (playerByPeer.has(owner)) return playerByPeer.get(owner);
 
     const spawn = spawns[positiveModulo(spawnIndex, Math.max(1, spawns.length))]
       || { x: 1000, y: 1000 };
-    const entityId = spawnPlayer(world, spawn.x, spawn.y);
+    const entityId = spawnPlayer(world, spawn.x, spawn.y, normalizeActorName(playerName));
     world.add(entityId, PlayerTag);
     playerByPeer.set(owner, entityId);
     lastInputSeqByPeer.set(owner, -1);
@@ -262,6 +262,7 @@ export function createArenaSimulation({
     const book = world.get(entityId, Spellbook);
     const powerups = world.get(entityId, Powerups);
     const weapon = world.get(entityId, MeleeWeapon);
+    const actor = world.get(entityId, Actor);
     return {
       id: ensureNetworkId(entityId, 'player'),
       kind: 'player',
@@ -269,6 +270,7 @@ export function createArenaSimulation({
       inputSeq: lastInputSeqByPeer.get(peerId) ?? -1,
       state: {
         x: position.x, y: position.y,
+        name: actor.name,
         vx: velocity.vx, vy: velocity.vy,
         facing: facing.angle,
         radius: collider.radius,
@@ -306,7 +308,7 @@ export function createArenaSimulation({
         radius: collider.radius,
         hp: health.hp, maxHp: health.maxHp, dead: health.dead,
         mana: mana.mana, maxMana: mana.maxMana, manaRegen: mana.regenPerSecond,
-        name: actor.name, glyph: actor.glyph, theme: actor.theme,
+        name: actor.name, glyph: actor.glyph, theme: actor.theme, rare: actor.rare,
       },
     };
   }
@@ -358,7 +360,7 @@ export function createArenaSimulation({
     if (entityByNetworkId.has(record.id)) return entityByNetworkId.get(record.id);
     let entityId;
     if (record.kind === 'player') {
-      entityId = addPlayer(record.owner, 0, record.id);
+      entityId = addPlayer(record.owner, 0, record.id, record.state.name);
     } else {
       entityId = world.create();
       bindNetworkId(entityId, record.id);
@@ -376,7 +378,7 @@ export function createArenaSimulation({
       world.add(entityId, Collider, { radius: state.radius });
       world.add(entityId, Health, { hp: state.hp, maxHp: state.maxHp, dead: state.dead });
       world.add(entityId, Mana, { mana: state.mana, maxMana: state.maxMana, regenPerSecond: state.manaRegen });
-      world.add(entityId, Actor, { kind: ActorKind.MOB, name: state.name, glyph: state.glyph, theme: state.theme });
+      world.add(entityId, Actor, { kind: ActorKind.MOB, name: state.name, glyph: state.glyph, theme: state.theme, rare: state.rare });
       world.add(entityId, AI, { target: null });
       world.add(entityId, PointLight, lightForTheme(state.theme));
     } else if (record.kind === 'projectile') {
@@ -420,6 +422,7 @@ export function createArenaSimulation({
     }
 
     if (record.kind === 'player') {
+      world.get(entityId, Actor).name = state.name;
       lastInputSeqByPeer.set(record.owner, record.inputSeq);
       const book = world.get(entityId, Spellbook);
       const powerups = world.get(entityId, Powerups);
@@ -446,6 +449,7 @@ export function createArenaSimulation({
       actor.name = state.name;
       actor.glyph = state.glyph;
       actor.theme = state.theme;
+      actor.rare = state.rare;
     } else if (record.kind === 'projectile') {
       const projectile = world.get(entityId, Projectile);
       Object.assign(projectile, recordToProjectile(state));
@@ -656,6 +660,7 @@ function normalizePlayerState(id, state) {
   if (!weapon || typeof weapon !== 'object') throw new Error(`simulation ${id}.weapon must be an object`);
   return {
     ...normalizeBodyState(id, state),
+    name: normalizeActorName(state.name),
     spells: [...state.spells],
     activeSpell: nonNegativeInteger(state.activeSpell, `${id}.activeSpell`),
     cooldown: finiteNumber(state.cooldown, `${id}.cooldown`),
@@ -680,7 +685,11 @@ function normalizePlayerState(id, state) {
 }
 
 function normalizeMobState(id, state) {
-  return { ...normalizeBodyState(id, state), name: String(state.name), glyph: String(state.glyph), theme: String(state.theme || 'shadow') };
+  return { ...normalizeBodyState(id, state), name: normalizeActorName(state.name), glyph: String(state.glyph), theme: String(state.theme || 'shadow'), rare: Boolean(state.rare) };
+}
+
+function normalizeActorName(value) {
+  return String(value ?? 'Adventurer').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 20) || 'Adventurer';
 }
 
 function normalizeBodyState(id, state) {

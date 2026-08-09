@@ -180,6 +180,55 @@ function findSpawns(grid, width, height, count, minSpacing) {
   return spawns;
 }
 
+// Join every remote spawn to the central chamber with a broad, gently curved
+// route. Noise still authors the rooms; these routes guarantee the expanded
+// dungeon remains traversable and give torch chains a dependable backbone.
+function connectSpawns(grid, spawns, seed) {
+  if (spawns.length < 2) return [];
+  const routes = [];
+  const hub = spawns[0];
+  for (let index = 1; index < spawns.length; index++) {
+    const destination = spawns[index];
+    const dx = destination.x - hub.x;
+    const dy = destination.y - hub.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const nx = -dy / length;
+    const ny = dx / length;
+    const bend = Math.sin((seed + index * 8191) * 0.013) * Math.min(150, length * 0.12);
+    const points = [];
+    const steps = Math.max(2, Math.ceil(length / (grid.cellSize * 0.75)));
+    for (let step = 0; step <= steps; step++) {
+      const t = step / steps;
+      const curve = Math.sin(t * Math.PI) * bend;
+      const x = hub.x + dx * t + nx * curve;
+      const y = hub.y + dy * t + ny * curve;
+      if (step % Math.max(1, Math.round(180 / grid.cellSize)) === 0 || step === steps) points.push({ x, y });
+      carveOpenCell(grid, x, y, 30);
+    }
+    routes.push({ from: { ...hub }, to: { ...destination }, points });
+  }
+  return routes;
+}
+
+function carveOpenCell(grid, x, y, radius) {
+  const gx = Math.round(x / grid.cellSize);
+  const gy = Math.round(y / grid.cellSize);
+  const cells = Math.ceil(radius / grid.cellSize);
+  for (let oy = -cells; oy <= cells; oy++) {
+    for (let ox = -cells; ox <= cells; ox++) {
+      const distance = Math.hypot(ox, oy) * grid.cellSize;
+      if (distance > radius) continue;
+      const sx = gx + ox;
+      const sy = gy + oy;
+      if (sx <= 1 || sy <= 1 || sx >= grid.cols - 2 || sy >= grid.rows - 2) continue;
+      const offset = sy * grid.cols + sx;
+      const clearance = 25 + (radius - distance) * 0.35;
+      grid.moveGrid[offset] = Math.max(grid.moveGrid[offset], clearance);
+      grid.densityGrid[offset] = Math.max(grid.densityGrid[offset], clearance / 200);
+    }
+  }
+}
+
 // ── Main entry ─────────────────────────────────────────────────
 
 /**
@@ -193,7 +242,7 @@ function findSpawns(grid, width, height, count, minSpacing) {
  * @param {number}  [opts.cellSize=4]
  * @param {number}  [opts.spawnCount=4]
  * @param {number}  [opts.spawnSpacing=400]
- * @returns {{ grid, bounds, spawns }}
+ * @returns {{ grid, bounds, spawns, routes }}
  */
 export function generateCave(opts) {
   const {
@@ -208,10 +257,12 @@ export function generateCave(opts) {
 
   const grid = bakeGrid(seed, width, height, profile, cellSize);
   const spawns = findSpawns(grid, width, height, spawnCount, spawnSpacing);
+  const routes = connectSpawns(grid, spawns, seed);
 
   return {
     grid,
     bounds: { w: width, h: height },
     spawns,
+    routes,
   };
 }

@@ -5,6 +5,7 @@ import {
   encodeMessage,
   makeInputFrame,
   makeRoomSeed,
+  normalizePlayerName,
   normalizeRoomId,
 } from '../public/src/shared/net/protocol.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
@@ -86,7 +87,7 @@ export class GameRoom {
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-    this.accept(server);
+    this.accept(server, normalizePlayerName(url.searchParams.get('name')));
 
     return new Response(null, {
       status: 101,
@@ -94,7 +95,7 @@ export class GameRoom {
     });
   }
 
-  accept(socket) {
+  accept(socket, playerName) {
     socket.accept();
 
     const peerId = crypto.randomUUID();
@@ -104,9 +105,10 @@ export class GameRoom {
       joinedAt: Date.now(),
       lastSeenAt: Date.now(),
       input: makeInputFrame(),
+      name: playerName,
     };
 
-    this.ensureSim().addPlayer(peerId, this.sessions.size);
+    this.ensureSim().addPlayer(peerId, this.sessions.size, null, playerName);
     this.sessions.set(socket, session);
     this.startTicking();
     this.send(socket, MESSAGE.WELCOME, {
@@ -201,6 +203,7 @@ export class GameRoom {
       id: session.id,
       joinedAt: session.joinedAt,
       lastSeenAt: session.lastSeenAt,
+      name: session.name,
     }));
   }
 
@@ -222,10 +225,11 @@ export class GameRoom {
     if (!this.caveData) {
       this.caveData = generateCave({
         seed: this.seed,
-        width: 2000,
-        height: 2000,
+        width: 4000,
+        height: 4000,
         profile: CaveProfile.CAVERNS,
-        spawnCount: 4,
+        spawnCount: 8,
+        spawnSpacing: 650,
       });
     }
     return this.caveData;

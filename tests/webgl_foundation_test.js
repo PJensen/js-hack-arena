@@ -12,6 +12,14 @@ Deno.test('webgl foundation: cave generation retains signed visual density', () 
   assert(cave.grid.densityGrid.some((value) => value < 0));
 });
 
+Deno.test('webgl foundation: expanded cave routes remain open and navigable', () => {
+  const cave = generateCave({ seed: 73, width: 1200, height: 1200, spawnCount: 4, spawnSpacing: 240 });
+  assert(cave.routes.length > 0);
+  for (const route of cave.routes) {
+    for (const point of route.points) assert(cave.grid.distanceMove(point.x, point.y) >= 20);
+  }
+});
+
 Deno.test('webgl foundation: terrain mesh retains open floor and raises solid density', () => {
   const grid = {
     cols: 3,

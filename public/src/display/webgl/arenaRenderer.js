@@ -197,6 +197,34 @@ void main() {
   out_color = vec4(color + rim * 0.16, alpha * u_alpha);
 }`;
 
+const CUBE_FRAGMENT = `#version 300 es
+precision highp float;
+uniform float u_time;
+uniform float u_alpha;
+in vec2 v_uv;
+out vec4 out_color;
+float bubble(vec2 p, vec2 center, float radius) {
+  return 1.0 - smoothstep(radius - 0.025, radius + 0.025, length(p - center));
+}
+void main() {
+  vec2 p = (v_uv - 0.5) * 2.0;
+  p.x += sin(p.y * 5.0 + u_time * 1.8) * 0.035;
+  p.y += cos(p.x * 4.0 - u_time * 1.5) * 0.028;
+  vec2 q = abs(p) - vec2(0.72, 0.74);
+  float box = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - 0.22;
+  float aa = fwidth(box);
+  float shape = 1.0 - smoothstep(-aa, aa, box);
+  if (shape <= 0.0) discard;
+  float surface = 0.5 + 0.5 * sin(p.y * 11.0 + p.x * 5.0 + u_time * 2.2);
+  float bubbles = bubble(p, vec2(-0.28, 0.18 + sin(u_time) * 0.08), 0.12)
+                + bubble(p, vec2(0.31, -0.24 + cos(u_time * 1.3) * 0.08), 0.09)
+                + bubble(p, vec2(0.12, 0.42 + sin(u_time * 0.7) * 0.06), 0.065);
+  float rim = smoothstep(-0.22, 0.02, box);
+  vec3 color = mix(vec3(0.025, 0.34, 0.3), vec3(0.22, 1.0, 0.76), surface * 0.34 + rim * 0.55);
+  color += bubbles * vec3(0.24, 0.52, 0.42);
+  out_color = vec4(color, shape * u_alpha * (0.72 + rim * 0.25));
+}`;
+
 const QUAD = new Float32Array([
   -0.5, -0.5, 0.5, -0.5, -0.5, 0.5,
   -0.5, 0.5, 0.5, -0.5, 0.5, 0.5,
@@ -234,9 +262,10 @@ function worldProgram(device, fragment) {
 }
 
 export function createWebGLArenaRenderer(deps) {
-  const { canvas, cam, grid, world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents } = deps;
+  const { canvas, overlayCanvas, cam, grid, bounds, decorations, world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents } = deps;
   const device = createWebGLDevice(canvas);
   const { gl } = device;
+  const overlay = overlayCanvas?.getContext('2d') || null;
 
   const caveProgram = device.program(CAVE_VERTEX, CAVE_FRAGMENT);
   const caveLocations = {
@@ -262,6 +291,9 @@ export function createWebGLArenaRenderer(deps) {
   element.theme = uniform(gl, element.program, 'u_theme');
   element.time = uniform(gl, element.program, 'u_time');
   element.alpha = uniform(gl, element.program, 'u_alpha');
+  const cube = worldProgram(device, CUBE_FRAGMENT);
+  cube.time = uniform(gl, cube.program, 'u_time');
+  cube.alpha = uniform(gl, cube.program, 'u_alpha');
 
   const lineProgram = device.program(LINE_VERTEX, SOLID_FRAGMENT);
   const lineLocations = {
@@ -406,6 +438,15 @@ export function createWebGLArenaRenderer(deps) {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
+  function drawCube(x, y, radius, time, alpha = 1) {
+    gl.useProgram(cube.program);
+    gl.bindVertexArray(quadVao);
+    setWorld(cube, x, y, radius * 2.25, radius * 2.25);
+    gl.uniform1f(cube.time, time);
+    gl.uniform1f(cube.alpha, alpha);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
   function drawLines(points, color, width = 1) {
     gl.useProgram(lineProgram);
     gl.bindVertexArray(lineVao);
@@ -479,6 +520,21 @@ export function createWebGLArenaRenderer(deps) {
         r: source.r / 255, g: source.g / 255, b: source.b / 255,
         distance,
       });
+    }
+    for (const torch of decorations?.torches || []) {
+      const distance = Math.hypot(torch.x - shownPlayer.x, torch.y - shownPlayer.y);
+      if (distance > 520 + Math.max(view[2], view[3]) * 0.75) continue;
+      candidates.push({
+        x: torch.x, y: torch.y - 8, radius: 285,
+        intensity: 1.08 + 0.16 * Math.sin(now * 9 + torch.phase),
+        r: 1, g: 0.42, b: 0.11, distance,
+      });
+    }
+    for (const mushroom of decorations?.mushrooms || []) {
+      const distance = Math.hypot(mushroom.x - shownPlayer.x, mushroom.y - shownPlayer.y);
+      if (distance > 300 + Math.max(view[2], view[3]) * 0.75) continue;
+      const color = mushroom.theme === 'shadow' ? [0.58, 0.12, 0.95] : mushroom.theme === 'electric' ? [0.12, 0.52, 1] : [0.12, 0.82, 0.72];
+      candidates.push({ x: mushroom.x, y: mushroom.y, radius: 72, intensity: 0.38, r: color[0], g: color[1], b: color[2], distance });
     }
     for (const bolt of bolts) {
       const alpha = Math.max(0, 1 - bolt.age / bolt.duration);
@@ -595,6 +651,90 @@ export function createWebGLArenaRenderer(deps) {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
+  function inView(x, y, margin = 80) {
+    return Math.abs(x - view[0]) <= view[2] * 0.5 + margin && Math.abs(y - view[1]) <= view[3] * 0.5 + margin;
+  }
+
+  function drawDungeonDecorations(now) {
+    for (const mushroom of decorations?.mushrooms || []) {
+      if (!inView(mushroom.x, mushroom.y, 25)) continue;
+      const sway = Math.sin(now * 1.8 + mushroom.phase) * 1.2;
+      drawLines(new Float32Array([mushroom.x, mushroom.y + 2, mushroom.x + sway, mushroom.y - mushroom.size]), [0.38, 0.7, 0.58, 0.75], 2);
+      drawElementOrb(mushroom.theme, mushroom.x + sway, mushroom.y - mushroom.size, mushroom.size, now + mushroom.phase, 0.7);
+      drawGlyph('♠', mushroom.x + sway, mushroom.y - mushroom.size, mushroom.size * 1.45, [0.78, 1, 0.88, 0.74]);
+    }
+    for (const torch of decorations?.torches || []) {
+      if (!inView(torch.x, torch.y, 45)) continue;
+      const flicker = 0.5 + 0.5 * Math.sin(now * 11 + torch.phase);
+      drawLines(new Float32Array([torch.x, torch.y + 8, torch.x, torch.y - 8]), [0.34, 0.19, 0.08, 1], 3);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+      drawElementOrb('fire', torch.x, torch.y - 11, 6 + flicker * 2, now + torch.phase, 0.95);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    }
+  }
+
+  function drawChargeAnimation(book, position, collider, now) {
+    if (!book?.charging) return;
+    const spellId = book.spells[book.chargeSpellIndex] || 'frost_bolt';
+    const duration = spellId === 'lightning' ? 1.25 : spellId === 'arrow' ? 0.7 : 1;
+    const charge = Math.min(1, book.charge / duration);
+    const theme = spellId === 'lightning' ? 'electric' : spellId === 'arrow' ? 'fire' : 'frost';
+    const orbit = collider.radius + 8 + charge * 10;
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    drawElementOrb(theme, position.x, position.y, collider.radius + 5 + charge * 7, now, 0.12 + charge * 0.2);
+    const points = [];
+    for (let index = 0; index < 4; index++) {
+      const angle = now * (2.4 + charge * 3) + index * Math.PI * 0.5;
+      const x = position.x + Math.cos(angle) * orbit;
+      const y = position.y + Math.sin(angle) * orbit;
+      drawDisc(x, y, 1.8 + charge * 1.4, [0.72, 0.96, 1, 0.8], [1, 1, 1, 0.9]);
+      points.push(x, y, position.x + Math.cos(angle) * collider.radius, position.y + Math.sin(angle) * collider.radius);
+    }
+    drawLines(new Float32Array(points), [0.4, 0.9, 1, 0.2 + charge * 0.35], 2);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  }
+
+  function drawOverlay(width, height, ratio, shownPlayer) {
+    if (!overlay || !overlayCanvas) return;
+    if (overlayCanvas.width !== width || overlayCanvas.height !== height) {
+      overlayCanvas.width = width; overlayCanvas.height = height;
+    }
+    overlay.clearRect(0, 0, width, height);
+    overlay.textAlign = 'center';
+    overlay.textBaseline = 'top';
+    overlay.font = `700 ${Math.round(11 * ratio)}px ui-monospace, monospace`;
+    for (const [id, position, collider, actor] of world.query(Position, Collider, Actor)) {
+      const shown = displayPosition(id, position);
+      if (!inView(shown.x, shown.y, 30)) continue;
+      const sx = ((shown.x - view[0]) / view[2] + 0.5) * width;
+      const sy = ((shown.y - view[1]) / view[3] + 0.5) * height;
+      const labelY = sy + collider.radius * cam.scale * ratio + 9 * ratio;
+      const label = actor.rare ? `★ ${actor.name}` : actor.name;
+      overlay.lineWidth = 3 * ratio;
+      overlay.strokeStyle = 'rgba(2,5,9,.9)';
+      overlay.strokeText(label, sx, labelY);
+      overlay.fillStyle = actor.rare ? '#ffd65a' : actor.kind === ActorKind.PLAYER ? '#dff8ff' : '#d6c9e8';
+      overlay.fillText(label, sx, labelY);
+    }
+
+    const size = Math.round(128 * ratio);
+    const pad = Math.round(15 * ratio);
+    const left = width - size - pad;
+    const top = pad + Math.round(46 * ratio);
+    overlay.fillStyle = 'rgba(3,8,14,.76)'; overlay.fillRect(left, top, size, size);
+    overlay.strokeStyle = 'rgba(112,230,255,.34)'; overlay.lineWidth = ratio; overlay.strokeRect(left, top, size, size);
+    const mapPoint = (x, y) => [left + 7 * ratio + x / bounds.w * (size - 14 * ratio), top + 7 * ratio + y / bounds.h * (size - 14 * ratio)];
+    overlay.fillStyle = 'rgba(255,151,48,.75)';
+    for (const torch of decorations?.torches || []) { const [x, y] = mapPoint(torch.x, torch.y); overlay.fillRect(x - ratio, y - ratio, ratio * 2, ratio * 2); }
+    for (const [id, position, actor] of world.query(Position, Actor)) {
+      const [x, y] = mapPoint(position.x, position.y);
+      overlay.beginPath(); overlay.arc(x, y, (id === playerId ? 3.2 : 2) * ratio, 0, Math.PI * 2);
+      overlay.fillStyle = id === playerId ? '#7df4ff' : actor.kind === ActorKind.PLAYER ? '#ffffff' : actor.rare ? '#ffd65a' : '#d25b79'; overlay.fill();
+    }
+    overlay.textAlign = 'left'; overlay.textBaseline = 'bottom'; overlay.font = `800 ${Math.round(9 * ratio)}px ui-monospace,monospace`;
+    overlay.fillStyle = 'rgba(210,240,255,.68)'; overlay.fillText('THE DEEP', left + 7 * ratio, top - 4 * ratio);
+  }
+
   function renderFrame() {
     if (disposed) return;
     const playerPosition = world.get(playerId, Position);
@@ -634,6 +774,8 @@ export function createWebGLArenaRenderer(deps) {
     const renderDt = Math.min(0.05, Math.max(0, now - lastFrameTime));
     lastFrameTime = now;
 
+    drawDungeonDecorations(now);
+
     for (let i = bloodDecals.length - 1; i >= 0; i--) {
       const decal = bloodDecals[i];
       decal.age += renderDt;
@@ -660,9 +802,23 @@ export function createWebGLArenaRenderer(deps) {
     for (const [id, position, collider, actor] of world.query(Position, Collider, Actor)) {
       if (actor.kind !== ActorKind.MOB) continue;
       const shown = displayPosition(id, position);
-      drawElementOrb(actor.theme, shown.x, shown.y, collider.radius, now + id * 0.17, actor.theme === 'shadow' ? 0.9 : 0.82);
+      const velocity = world.get(id, Velocity);
+      const speed = Math.hypot(velocity?.vx || 0, velocity?.vy || 0);
+      const moving = Math.min(1, speed / 70);
+      const stride = Math.sin(now * (4.2 + moving * 6) + id * 1.71);
+      let bob = stride * (actor.name === 'Wraith' ? 3.5 : 1.6) * (0.4 + moving * 0.6);
+      let lean = velocity ? Math.max(-2.5, Math.min(2.5, velocity.vx * 0.018)) : 0;
+      if (actor.name === 'Wraith') bob += Math.sin(now * 2.1 + id) * 2.4;
+      if (actor.name === 'Gelatinous Cube') {
+        bob = Math.abs(stride) * -1.4;
+        lean *= 0.25;
+        drawCube(shown.x + lean, shown.y + bob, collider.radius * (1 + stride * 0.035), now + id * 0.17, 0.94);
+      } else {
+        drawElementOrb(actor.theme, shown.x + lean, shown.y + bob, collider.radius * (1 + stride * moving * 0.025), now + id * 0.17, actor.theme === 'shadow' ? 0.9 : 0.82);
+      }
       const glyphColor = actor.theme === 'fire' ? [1, 0.84, 0.5, 1] : actor.theme === 'frost' ? [0.72, 1, 0.9, 1] : [0.85, 0.68, 1, 1];
-      drawGlyph(actor.glyph, shown.x, shown.y + 1, collider.radius * 1.5, glyphColor);
+      drawGlyph(actor.glyph, shown.x + lean, shown.y + bob + 1, collider.radius * (actor.name === 'Gelatinous Cube' ? 0.8 : 1.5), actor.name === 'Gelatinous Cube' ? [0.88, 1, 0.84, 0.58] : glyphColor);
+      if (actor.rare) drawGlyph('★', shown.x + collider.radius * 0.72, shown.y + bob - collider.radius * 0.78, 10, [1, 0.78, 0.18, 1]);
       const facing = world.get(id, Facing)?.angle ?? 0;
       drawDisc(shown.x + Math.cos(facing) * collider.radius, shown.y + Math.sin(facing) * collider.radius, 2, [1, 0.57, 0.8, 1], [1, 0.57, 0.8, 1]);
     }
@@ -702,6 +858,7 @@ export function createWebGLArenaRenderer(deps) {
 
     const activePowerups = world.get(playerId, Powerups);
     drawActivePowerups(activePowerups, shownPlayer, playerCollider, now);
+    drawChargeAnimation(world.get(playerId, Spellbook), shownPlayer, playerCollider, now);
 
     // World-space status bars for every living actor.
     for (const [id, position, collider, health] of world.query(Position, Collider, Health)) {
@@ -791,11 +948,12 @@ export function createWebGLArenaRenderer(deps) {
     hud.zoomReadout.textContent = `zoom: ${cam.scale.toFixed(2)}x  particles:${fx.pool.count}`;
     hud.readL.textContent = router.left.active ? `L x:${playerInput.moveX.toFixed(2)} y:${playerInput.moveY.toFixed(2)}` : (Math.abs(keyboard.mx) + Math.abs(keyboard.my) ? `KB ${keyboard.mx},${keyboard.my}` : 'L stick idle');
     hud.readR.textContent = router.right.active ? `R x:${playerInput.aimX.toFixed(2)} y:${playerInput.aimY.toFixed(2)}` : 'R stick idle';
+    drawOverlay(width, height, ratio, shownPlayer);
   }
 
   return Object.freeze({
     renderFrame,
     terrainChanged() { fieldDirty = true; },
-    dispose() { if (!disposed) { disposed = true; device.dispose(); } },
+    dispose() { if (!disposed) { disposed = true; overlay?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height); device.dispose(); } },
   });
 }

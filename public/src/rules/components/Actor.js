@@ -12,4 +12,5 @@ export const Actor = defineComponent('Actor', {
   name: '',
   glyph: '@',
   theme: 'neutral',
+  rare: false,
 });
