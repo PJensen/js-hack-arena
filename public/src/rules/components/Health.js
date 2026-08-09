@@ -6,4 +6,5 @@ export const Health = defineComponent('Health', {
   maxHp: 100,
   shield: 0,
   maxShield: 0,
+  dead: false,
 });

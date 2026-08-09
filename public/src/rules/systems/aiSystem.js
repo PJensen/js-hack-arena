@@ -1,5 +1,5 @@
 // rules/systems/aiSystem.js — AI pathing, LOS, tactical behaviour, projectile spawning
-import { Position, Velocity, Speed, Facing, AI, Collider, Projectile, Lifetime, Mana } from '../components/index.js';
+import { Position, Velocity, Speed, Facing, AI, AIBehavior, Collider, Health, Projectile, Lifetime, Mana } from '../components/index.js';
 import { moveWithSlide } from '../geometry/sweep.js';
 import { astar } from '../ai/pathfind.js';
 
@@ -25,6 +25,8 @@ export function createAISystem(ctx) {
     for (const [id, pos, vel, spd, fac, ai, col] of world.query(Position, Velocity, Speed, Facing, AI, Collider)) {
       if (ai.target === null) continue;
       if (!world.alive.has(ai.target)) { ai.target = null; continue; }
+      const targetHealth = world.get(ai.target, Health);
+      if (targetHealth?.dead || targetHealth?.hp <= 0) { ai.target = null; vel.vx = 0; vel.vy = 0; continue; }
 
       const tpos = world.get(ai.target, Position);
       const dx = tpos.x - pos.x, dy = tpos.y - pos.y;
@@ -37,15 +39,16 @@ export function createAISystem(ctx) {
         // ── Has LOS — tactical behaviour ──
         aiPaths.delete(id);  // drop path, we can see them
 
-        const tooClose = dist < ai.preferredDist * 0.7;
+        const melee = ai.behavior === AIBehavior.MELEE;
+        const tooClose = !melee && dist < ai.preferredDist * 0.7;
         const tooFar = dist > ai.preferredDist * 1.3;
 
         if (tooClose) {
           vel.vx = -(dx / dist) * spd.max;
           vel.vy = -(dy / dist) * spd.max;
-        } else if (tooFar) {
-          vel.vx = (dx / dist) * spd.max * 0.6;
-          vel.vy = (dy / dist) * spd.max * 0.6;
+        } else if (tooFar || melee) {
+          vel.vx = (dx / dist) * spd.max * (melee ? 1 : 0.6);
+          vel.vy = (dy / dist) * spd.max * (melee ? 1 : 0.6);
         } else {
           vel.vx = -(dy / dist) * spd.max * 0.4;
           vel.vy =  (dx / dist) * spd.max * 0.4;
@@ -57,7 +60,7 @@ export function createAISystem(ctx) {
         ai.castCooldown -= dt;
         const mana = world.get(id, Mana);
         const manaCost = 10;
-        if (ai.castCooldown <= 0 && (!mana || mana.mana >= manaCost)) {
+        if (!melee && ai.castCooldown <= 0 && (!mana || mana.mana >= manaCost)) {
           ai.castCooldown = ai.castRate;
           if (mana) mana.mana -= manaCost;
           const angle = Math.atan2(dy, dx);
@@ -72,6 +75,7 @@ export function createAISystem(ctx) {
             piercing: false,
             trailColor: '#b060ff',
             burstColor: '#d0a0ff',
+            style: 'shadow',
           });
           world.add(boltId, Lifetime,   { ttl: 2.5 });
           world.add(boltId, Collider,   { radius: 5 });

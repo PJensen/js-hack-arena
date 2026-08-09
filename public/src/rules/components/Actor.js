@@ -11,4 +11,5 @@ export const Actor = defineComponent('Actor', {
   kind: ActorKind.PLAYER,
   name: '',
   glyph: '@',
+  theme: 'neutral',
 });

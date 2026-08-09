@@ -10,4 +10,5 @@ export const Projectile = defineComponent('Projectile', {
   trailColor: '#8cd8ff',
   burstColor: '#b0e0ff',
   power: 1,           // normalized cast investment, used by damage and VFX
+  style: 'frost',     // authored rendering/impact vocabulary
 });

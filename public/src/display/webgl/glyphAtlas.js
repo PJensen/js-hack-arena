@@ -1,4 +1,4 @@
-const DEFAULT_GLYPHS = ['?', '@', 'W', '!', ')', '/', '}', '↑', '⌂', '⚔', '†', '✊', '🐾', '❄', '→', '⚡', '✦'];
+const DEFAULT_GLYPHS = ['?', '@', 'W', 'g', '■', '!', ')', '/', '}', '↑', '⌂', '⚔', '◇', '»', '†', '✊', '🐾', '❄', '→', '⚡', '✦', '☠'];
 
 /** Rasterize authored glyphs once; frames are subsequently rendered by WebGL. */
 export function createGlyphAtlas(device, { glyphs = DEFAULT_GLYPHS, cellSize = 64, columns = 4 } = {}) {

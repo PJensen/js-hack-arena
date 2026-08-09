@@ -50,26 +50,56 @@ export function spawnPlayer(world, x, y) {
  * Spawn a caster mob targeting the given entity.
  */
 export function spawnCaster(world, grid, nearX, nearY, targetId) {
+  return spawnMob(world, grid, nearX, nearY, targetId, {
+    name: 'Wraith', glyph: 'W', theme: 'shadow', radius: 12,
+    speed: 80, hp: 60, mana: 50, manaRegen: 6,
+    light: { radius: 105, r: 145, g: 70, b: 220 },
+    behavior: AIBehavior.CASTER, preferredDist: 140, castRate: 1.5,
+    projSpeed: 220, meleeDamage: 10, weapon: 'Claws', aggroRange: 300,
+  });
+}
+
+export function spawnMelee(world, grid, nearX, nearY, targetId) {
+  return spawnMob(world, grid, nearX, nearY, targetId, {
+    name: 'Goblin Raider', glyph: 'g', theme: 'fire', radius: 11,
+    speed: 125, hp: 45, mana: 0, manaRegen: 0,
+    light: { radius: 70, r: 255, g: 105, b: 35 },
+    behavior: AIBehavior.MELEE, preferredDist: 10, castRate: 99,
+    projSpeed: 0, meleeDamage: 14, weapon: 'Jagged Blade', aggroRange: 340,
+  });
+}
+
+export function spawnTank(world, grid, nearX, nearY, targetId) {
+  return spawnMob(world, grid, nearX, nearY, targetId, {
+    name: 'Gelatinous Cube', glyph: '■', theme: 'frost', radius: 18,
+    speed: 48, hp: 180, mana: 0, manaRegen: 0,
+    light: { radius: 125, r: 40, g: 225, b: 190 },
+    behavior: AIBehavior.MELEE, preferredDist: 14, castRate: 99,
+    projSpeed: 0, meleeDamage: 18, weapon: 'Engulf', aggroRange: 260,
+  });
+}
+
+function spawnMob(world, grid, nearX, nearY, targetId, config) {
   const pos = findOpenNear(grid, nearX, nearY, 400);
   const id = world.create();
   world.add(id, Position, { x: pos.x, y: pos.y });
   world.add(id, Velocity, { vx: 0, vy: 0 });
   world.add(id, Facing,   { angle: 0 });
-  world.add(id, Collider, { radius: 12 });
-  world.add(id, Speed,    { max: 80 });
-  world.add(id, Actor,    { kind: ActorKind.MOB, name: 'Wraith', glyph: 'W' });
-  world.add(id, Health,   { hp: 60, maxHp: 60 });
-  world.add(id, Mana,     { mana: 50, maxMana: 50, regenPerSecond: 6 });
-  world.add(id, PointLight, { radius: 105, r: 145, g: 70, b: 220 });
+  world.add(id, Collider, { radius: config.radius });
+  world.add(id, Speed,    { max: config.speed });
+  world.add(id, Actor,    { kind: ActorKind.MOB, name: config.name, glyph: config.glyph, theme: config.theme });
+  world.add(id, Health,   { hp: config.hp, maxHp: config.hp });
+  world.add(id, Mana,     { mana: config.mana, maxMana: config.mana, regenPerSecond: config.manaRegen });
+  world.add(id, PointLight, config.light);
   world.add(id, AI, {
-    behavior: AIBehavior.CASTER,
+    behavior: config.behavior,
     target: targetId,
-    preferredDist: 140,
-    castRate: 1.5,
-    projSpeed: 220,
-    aggroRange: 300,
+    preferredDist: config.preferredDist,
+    castRate: config.castRate,
+    projSpeed: config.projSpeed,
+    aggroRange: config.aggroRange,
   });
-  world.add(id, MeleeWeapon, { damage: 10, name: 'Claws', glyph: '\uD83D\uDC3E' });
+  world.add(id, MeleeWeapon, { damage: config.meleeDamage, name: config.weapon, glyph: config.glyph });
   return id;
 }
 
@@ -108,13 +138,41 @@ export function spawnPotion(world, x, y, potency = 30) {
 
 /** Spawn a temporary mana-regeneration powerup. */
 export function spawnManaSurge(world, x, y, duration = 8) {
+  return spawnPowerup(world, x, y, {
+    name: 'Arcane Surge', glyph: '✦', effect: 'mana_regen', duration,
+    light: { radius: 95, r: 65, g: 145, b: 255 },
+  });
+}
+
+export function spawnHasteRune(world, x, y, duration = 7) {
+  return spawnPowerup(world, x, y, {
+    name: 'Haste Rune', glyph: '»', effect: 'haste', duration,
+    light: { radius: 90, r: 55, g: 245, b: 190 },
+  });
+}
+
+export function spawnFuryRune(world, x, y, duration = 7) {
+  return spawnPowerup(world, x, y, {
+    name: 'Fury Rune', glyph: '⚔', effect: 'fury', duration,
+    light: { radius: 100, r: 255, g: 80, b: 35 },
+  });
+}
+
+export function spawnWardRune(world, x, y, duration = 9) {
+  return spawnPowerup(world, x, y, {
+    name: 'Ward Rune', glyph: '◇', effect: 'ward', duration,
+    light: { radius: 105, r: 195, g: 95, b: 255 },
+  });
+}
+
+function spawnPowerup(world, x, y, { name, glyph, effect, duration, light }) {
   const id = world.create();
   world.add(id, Position, { x, y });
-  world.add(id, ItemInfo, { name: 'Arcane Surge', glyph: '*', slot: 'none', count: 1 });
-  world.add(id, Consumable, { effect: 'mana_regen', potency: duration });
+  world.add(id, ItemInfo, { name, glyph, slot: 'none', count: 1 });
+  world.add(id, Consumable, { effect, potency: duration });
   world.add(id, GroundItem);
   world.add(id, Collider, { radius: 10 });
-  world.add(id, PointLight, { radius: 95, r: 65, g: 145, b: 255 });
+  world.add(id, PointLight, light);
   return id;
 }
 

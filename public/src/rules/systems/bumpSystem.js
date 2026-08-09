@@ -1,6 +1,6 @@
 // Body separation and contact melee. Mutable cooldown state is scoped to one
 // simulation instance, never shared between rooms.
-import { AI, Collider, GroundItem, Health, MeleeWeapon, PlayerTag, Position, Projectile } from '../components/index.js';
+import { AI, Collider, GroundItem, Health, MeleeWeapon, PlayerTag, Position, Powerups, Projectile } from '../components/index.js';
 
 const BUMP_COOLDOWN = 0.4;
 const BASE_DAMAGE = 5;
@@ -17,6 +17,8 @@ export function createBumpSystem() {
     const bodies = [];
     for (const [id, position, collider] of world.query(Position, Collider)) {
       if (world.has(id, Projectile) || world.has(id, GroundItem)) continue;
+      const health = world.get(id, Health);
+      if (health?.dead || health?.hp <= 0) continue;
       bodies.push({ id, position, collider });
     }
 
@@ -62,9 +64,12 @@ function resolvePair(world, a, b, cooldowns, time) {
 function dealDamage(world, sourceId, targetId, position) {
   const health = world.get(targetId, Health);
   if (!health) return;
-  const damage = world.has(sourceId, MeleeWeapon)
+  let damage = world.has(sourceId, MeleeWeapon)
     ? world.get(sourceId, MeleeWeapon).damage
     : BASE_DAMAGE;
+  damage = Math.max(1, Math.round(damage
+    * (world.get(sourceId, Powerups)?.furyMultiplier || 1)
+    * (world.get(targetId, Powerups)?.wardMultiplier || 1)));
   health.hp = Math.max(0, health.hp - damage);
   world.emit('damage.dealt', {
     target: targetId,

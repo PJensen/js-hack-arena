@@ -39,6 +39,9 @@ export const mobDropTable = [
   { weight: 7,  type: 'sword',        tier: 2, rarity: Rarity.RARE },
   { weight: 8,  type: 'arrows',       count: 5 },
   { weight: 7,  type: 'mana_surge',   rarity: Rarity.RARE },
+  { weight: 6,  type: 'haste_rune',   rarity: Rarity.UNCOMMON },
+  { weight: 5,  type: 'fury_rune',    rarity: Rarity.RARE },
+  { weight: 5,  type: 'ward_rune',    rarity: Rarity.RARE },
   { weight: 8,  type: 'epic_chest',   rarity: Rarity.EPIC },
   { weight: 5,  type: 'epic_sword',   rarity: Rarity.EPIC },
   { weight: 4,  type: 'epic_bow',     rarity: Rarity.EPIC },
@@ -57,6 +60,8 @@ export const epicChestTable = [
   { weight: 20, type: 'sword',           tier: 2, rarity: Rarity.RARE },
   { weight: 15, type: 'arrows',          count: 10 },
   { weight: 10, type: 'potion',          potency: 50 },
+  { weight: 8,  type: 'fury_rune',       rarity: Rarity.RARE },
+  { weight: 8,  type: 'ward_rune',       rarity: Rarity.RARE },
   { weight: 5,  type: 'legendary_sword', rarity: Rarity.LEGENDARY },
   { weight: 5,  type: 'legendary_bow',   rarity: Rarity.LEGENDARY },
 ];

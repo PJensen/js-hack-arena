@@ -6,6 +6,7 @@
 export const spells = {
   frost_bolt: {
     type: 'projectile',
+    element: 'frost',
     name: 'Frost Bolt',
     glyph: '\u2744',  // ❄
     cooldown: 0.25,
@@ -21,6 +22,7 @@ export const spells = {
   },
   arrow: {
     type: 'projectile',
+    element: 'arrow',
     name: 'Arrow',
     glyph: '\u2192',  // →
     cooldown: 0.18,
@@ -36,6 +38,7 @@ export const spells = {
   },
   lightning: {
     type: 'bolt',
+    element: 'electric',
     name: 'Lightning',
     glyph: '\u26A1',  // ⚡
     cooldown: 0.6,

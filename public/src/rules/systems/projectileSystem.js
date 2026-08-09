@@ -1,11 +1,12 @@
 // Authoritative projectile motion, collision, damage, and lifetime. Rendering
 // and particles observe the emitted facts on the client.
-import { AI, Collider, Health, Lifetime, PlayerTag, Position, Projectile, Velocity } from '../components/index.js';
+import { AI, Collider, Health, Lifetime, PlayerTag, Position, Powerups, Projectile, Velocity } from '../components/index.js';
 
 export function createProjectileSystem({ grid, carve = null }) {
   return function projectileSystem(world, dt) {
     const targets = [];
     for (const [id, position, collider, health] of world.query(Position, Collider, Health)) {
+      if (health.dead) continue;
       targets.push({ id, position, collider, health, team: teamOf(world, id) });
     }
 
@@ -28,11 +29,12 @@ export function createProjectileSystem({ grid, carve = null }) {
         const radius = collider.radius + target.collider.radius;
         if (dx * dx + dy * dy >= radius * radius) continue;
 
-        target.health.hp = Math.max(0, target.health.hp - projectile.damage);
+        const damage = Math.max(1, Math.round(projectile.damage * (world.get(target.id, Powerups)?.wardMultiplier || 1)));
+        target.health.hp = Math.max(0, target.health.hp - damage);
         world.emit('damage.dealt', {
           target: target.id,
           source: projectile.owner,
-          amount: projectile.damage,
+          amount: damage,
           x: position.x,
           y: position.y,
         });
@@ -44,6 +46,7 @@ export function createProjectileSystem({ grid, carve = null }) {
           vx: velocity.vx,
           vy: velocity.vy,
           color: projectile.burstColor,
+          style: projectile.style,
         });
         if (!projectile.piercing) destroy.add(id);
         break;
@@ -51,8 +54,8 @@ export function createProjectileSystem({ grid, carve = null }) {
       if (destroy.has(id)) continue;
 
       if (grid.distanceMove(position.x, position.y) < collider.radius) {
-        const radius = projectile.damage * 0.5;
-        if (carve) carve(position.x, position.y, radius);
+        const radius = projectile.style === 'arrow' ? 0 : projectile.damage * 0.5;
+        if (carve && radius > 0) carve(position.x, position.y, radius);
         world.emit('projectile.wall', {
           projectile: id,
           x: position.x,
@@ -61,8 +64,9 @@ export function createProjectileSystem({ grid, carve = null }) {
           vy: velocity.vy,
           radius,
           color: projectile.burstColor,
+          style: projectile.style,
         });
-        if (carve) world.emit('terrain.carved', { x: position.x, y: position.y, radius });
+        if (carve && radius > 0) world.emit('terrain.carved', { x: position.x, y: position.y, radius });
         destroy.add(id);
         continue;
       }

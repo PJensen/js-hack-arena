@@ -4,6 +4,7 @@ import { Position, Collider, Health, Input, GroundItem, Consumable, ItemInfo, Sp
 export function pickupSystem(world, dt) {
   const players = [];
   for (const [id, pos, col, hp] of world.query(Position, Collider, Health, Input)) {
+    if (hp.dead || hp.hp <= 0) continue;
     players.push({ id, pos, col, hp });
   }
 
@@ -39,6 +40,16 @@ export function pickupSystem(world, dt) {
             powerups.manaRegenMultiplier = 2.5;
             powerups.manaRegenSeconds = Math.max(powerups.manaRegenSeconds, c.potency);
             world.emit('item.pickup', { entity: p.id, item: info?.name, powerup: 'mana_regen', duration: c.potency });
+          } else if (['haste', 'fury', 'ward'].includes(c.effect) && world.has(p.id, Powerups)) {
+            const powerups = world.get(p.id, Powerups);
+            const config = {
+              haste: ['hasteMultiplier', 'hasteSeconds', 1.45],
+              fury: ['furyMultiplier', 'furySeconds', 1.6],
+              ward: ['wardMultiplier', 'wardSeconds', 0.5],
+            }[c.effect];
+            powerups[config[0]] = config[2];
+            powerups[config[1]] = Math.max(powerups[config[1]], c.potency);
+            world.emit('item.pickup', { entity: p.id, item: info?.name, powerup: c.effect, duration: c.potency });
           } else if (c.effect === 'melee_upgrade' && world.has(p.id, MeleeWeapon)) {
             const mw = world.get(p.id, MeleeWeapon);
             if (c.potency > mw.damage) {

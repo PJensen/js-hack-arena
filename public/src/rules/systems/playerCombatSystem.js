@@ -6,6 +6,7 @@ import {
   Mana,
   PlayerTag,
   Position,
+  Powerups,
   Projectile,
   Lifetime,
   Spellbook,
@@ -21,6 +22,12 @@ export function createPlayerCombatSystem({ grid }) {
       Spellbook,
       Position,
     )) {
+      const health = world.get(playerId, Health);
+      if (health?.dead || health?.hp <= 0) {
+        book.charging = false;
+        book.charge = 0;
+        continue;
+      }
       book.cooldown = Math.max(0, book.cooldown - dt);
       const aiming = Math.abs(input.aimX) > 0.1 || Math.abs(input.aimY) > 0.1;
 
@@ -45,6 +52,7 @@ export function createPlayerCombatSystem({ grid }) {
       if (!spell) continue;
 
       const charge = Math.max(0.25, Math.min(1, heldCharge / (spell.chargeTime || 1)));
+      const fury = world.get(playerId, Powerups)?.furyMultiplier || 1;
       const mana = world.get(playerId, Mana);
       const manaCost = Math.round((spell.manaCost || 0) * (0.55 + charge * 0.45));
       if (mana && mana.mana < manaCost) {
@@ -54,9 +62,9 @@ export function createPlayerCombatSystem({ grid }) {
 
       const angle = Math.atan2(book.chargeAimY, book.chargeAimX);
       if (spell.type === 'bolt') {
-        if (!castChainBolt(world, grid, playerId, position, spell, charge)) continue;
+        if (!castChainBolt(world, grid, playerId, position, spell, charge, fury)) continue;
       } else {
-        spawnSpellProjectile(world, playerId, position, angle, spell, charge);
+        spawnSpellProjectile(world, playerId, position, angle, spell, charge, fury);
       }
       if (mana) mana.mana = Math.max(0, mana.mana - manaCost);
       book.cooldown = spell.cooldown;
@@ -65,7 +73,7 @@ export function createPlayerCombatSystem({ grid }) {
   };
 }
 
-function castChainBolt(world, grid, playerId, position, spell, charge) {
+function castChainBolt(world, grid, playerId, position, spell, charge, fury) {
   const candidates = [];
   for (const [id, targetPosition, health] of world.query(Position, Health, AI)) {
     const distance = Math.hypot(targetPosition.x - position.x, targetPosition.y - position.y);
@@ -93,7 +101,7 @@ function castChainBolt(world, grid, playerId, position, spell, charge) {
     if (!best) break;
 
     hit.add(best.id);
-    const damage = Math.round(spell.damage * (0.65 + charge * 0.7) * Math.pow(0.7, chain));
+    const damage = Math.round(spell.damage * (0.65 + charge * 0.7) * fury * Math.pow(0.7, chain));
     best.health.hp = Math.max(0, best.health.hp - damage);
     world.emit('spell.bolt', {
       source: playerId,
@@ -117,7 +125,7 @@ function castChainBolt(world, grid, playerId, position, spell, charge) {
   return hit.size > 0;
 }
 
-function spawnSpellProjectile(world, playerId, position, angle, spell, charge) {
+function spawnSpellProjectile(world, playerId, position, angle, spell, charge, fury) {
   const projectileId = world.create();
   world.add(projectileId, Position, {
     x: position.x + Math.cos(angle) * 20,
@@ -128,7 +136,7 @@ function spawnSpellProjectile(world, playerId, position, angle, spell, charge) {
     vy: Math.sin(angle) * spell.speed * (0.8 + charge * 0.35),
   });
   world.add(projectileId, Projectile, {
-    damage: Math.round(spell.damage * (0.65 + charge * 0.7)),
+    damage: Math.round(spell.damage * (0.65 + charge * 0.7) * fury),
     owner: playerId,
     team: 'players',
     speed: spell.speed,
@@ -136,6 +144,7 @@ function spawnSpellProjectile(world, playerId, position, angle, spell, charge) {
     trailColor: spell.trailColor,
     burstColor: spell.burstColor,
     power: charge,
+    style: spell.element || spell.type,
   });
   world.add(projectileId, Lifetime, { ttl: spell.ttl });
   world.add(projectileId, Collider, { radius: spell.radius * (0.65 + charge * 1.6) });

@@ -32,10 +32,15 @@ import {
   spawnEpicSword,
   spawnLegendaryBow,
   spawnLegendarySword,
+  spawnFuryRune,
+  spawnHasteRune,
   spawnManaSurge,
+  spawnMelee,
   spawnPlayer,
   spawnPotion,
   spawnSword,
+  spawnTank,
+  spawnWardRune,
 } from '../spawner.js';
 import { createAISystem } from '../systems/aiSystem.js';
 import { createBumpSystem } from '../systems/bumpSystem.js';
@@ -43,12 +48,13 @@ import { deathSystem } from '../systems/deathSystem.js';
 import { createMovementSystem } from '../systems/movementSystem.js';
 import { manaSystem } from '../systems/manaSystem.js';
 import { pickupSystem } from '../systems/pickupSystem.js';
+import { powerupSystem } from '../systems/powerupSystem.js';
 import { createPlayerCombatSystem } from '../systems/playerCombatSystem.js';
 import { createProjectileSystem } from '../systems/projectileSystem.js';
 
 export const SIM_TICK_HZ = 20;
 export const SIM_DT = 1 / SIM_TICK_HZ;
-export const SIM_SNAPSHOT_VERSION = 4;
+export const SIM_SNAPSHOT_VERSION = 5;
 export const SIM_MODE = Object.freeze({
   AUTHORITY: 'authority',
   REPLICA: 'replica',
@@ -120,12 +126,13 @@ export function createArenaSimulation({
       populationStarted = true;
       for (let i = 0; i < enemyCount; i++) {
         const angle = (i / Math.max(1, enemyCount)) * Math.PI * 2;
-        const mobId = spawnCaster(
+        const mobId = spawnEnemy(
           world,
           grid,
           spawn.x + Math.cos(angle) * (180 + i * 30),
           spawn.y + Math.sin(angle) * (180 + i * 30),
           entityId,
+          i,
         );
         ensureNetworkId(mobId, 'mob');
       }
@@ -150,6 +157,8 @@ export function createArenaSimulation({
     const owner = normalizePeerId(peerId);
     const entityId = playerByPeer.get(owner);
     if (entityId == null || !world.has(entityId, Input)) return false;
+    const health = world.get(entityId, Health);
+    if (health?.dead || health?.hp <= 0) return false;
 
     const seq = normalizeOptionalSequence(command.seq);
     if (seq != null && seq <= (lastInputSeqByPeer.get(owner) ?? -1)) return false;
@@ -263,10 +272,13 @@ export function createArenaSimulation({
         vx: velocity.vx, vy: velocity.vy,
         facing: facing.angle,
         radius: collider.radius,
-        hp: health.hp, maxHp: health.maxHp,
+        hp: health.hp, maxHp: health.maxHp, dead: health.dead,
         mana: mana.mana, maxMana: mana.maxMana, manaRegen: mana.regenPerSecond,
         manaRegenMultiplier: powerups.manaRegenMultiplier,
         manaRegenSeconds: powerups.manaRegenSeconds,
+        hasteMultiplier: powerups.hasteMultiplier, hasteSeconds: powerups.hasteSeconds,
+        furyMultiplier: powerups.furyMultiplier, furySeconds: powerups.furySeconds,
+        wardMultiplier: powerups.wardMultiplier, wardSeconds: powerups.wardSeconds,
         spells: [...book.spells], activeSpell: book.activeIndex, cooldown: book.cooldown,
         charge: book.charge, charging: book.charging,
         chargeAimX: book.chargeAimX, chargeAimY: book.chargeAimY,
@@ -292,9 +304,9 @@ export function createArenaSimulation({
         vx: velocity.vx, vy: velocity.vy,
         facing: facing.angle,
         radius: collider.radius,
-        hp: health.hp, maxHp: health.maxHp,
+        hp: health.hp, maxHp: health.maxHp, dead: health.dead,
         mana: mana.mana, maxMana: mana.maxMana, manaRegen: mana.regenPerSecond,
-        name: actor.name, glyph: actor.glyph,
+        name: actor.name, glyph: actor.glyph, theme: actor.theme,
       },
     };
   }
@@ -318,6 +330,7 @@ export function createArenaSimulation({
         trailColor: projectile.trailColor,
         burstColor: projectile.burstColor,
         power: projectile.power,
+        style: projectile.style,
         ttl: lifetime.ttl,
         owner: ensureNetworkId(projectile.owner, world.has(projectile.owner, AI) ? 'mob' : 'player'),
       },
@@ -361,11 +374,11 @@ export function createArenaSimulation({
       world.add(entityId, Velocity, { vx: state.vx, vy: state.vy });
       world.add(entityId, Facing, { angle: state.facing });
       world.add(entityId, Collider, { radius: state.radius });
-      world.add(entityId, Health, { hp: state.hp, maxHp: state.maxHp });
+      world.add(entityId, Health, { hp: state.hp, maxHp: state.maxHp, dead: state.dead });
       world.add(entityId, Mana, { mana: state.mana, maxMana: state.maxMana, regenPerSecond: state.manaRegen });
-      world.add(entityId, Actor, { kind: ActorKind.MOB, name: state.name, glyph: state.glyph });
+      world.add(entityId, Actor, { kind: ActorKind.MOB, name: state.name, glyph: state.glyph, theme: state.theme });
       world.add(entityId, AI, { target: null });
-      world.add(entityId, PointLight, { radius: 105, r: 145, g: 70, b: 220 });
+      world.add(entityId, PointLight, lightForTheme(state.theme));
     } else if (record.kind === 'projectile') {
       world.add(entityId, Velocity, { vx: state.vx, vy: state.vy });
       world.add(entityId, Collider, { radius: state.radius });
@@ -397,6 +410,7 @@ export function createArenaSimulation({
       const health = world.get(entityId, Health);
       health.hp = state.hp;
       health.maxHp = state.maxHp;
+      health.dead = state.dead;
     }
     if (world.has(entityId, Mana)) {
       const mana = world.get(entityId, Mana);
@@ -419,12 +433,19 @@ export function createArenaSimulation({
       book.chargeSpellIndex = state.chargeSpellIndex;
       powerups.manaRegenMultiplier = state.manaRegenMultiplier;
       powerups.manaRegenSeconds = state.manaRegenSeconds;
+      powerups.hasteMultiplier = state.hasteMultiplier;
+      powerups.hasteSeconds = state.hasteSeconds;
+      powerups.furyMultiplier = state.furyMultiplier;
+      powerups.furySeconds = state.furySeconds;
+      powerups.wardMultiplier = state.wardMultiplier;
+      powerups.wardSeconds = state.wardSeconds;
       const weapon = world.get(entityId, MeleeWeapon);
       Object.assign(weapon, state.weapon);
     } else if (record.kind === 'mob') {
       const actor = world.get(entityId, Actor);
       actor.name = state.name;
       actor.glyph = state.glyph;
+      actor.theme = state.theme;
     } else if (record.kind === 'projectile') {
       const projectile = world.get(entityId, Projectile);
       Object.assign(projectile, recordToProjectile(state));
@@ -479,12 +500,17 @@ export function createArenaSimulation({
   }
 
   function retargetEnemies() {
-    const target = playerByPeer.values().next().value ?? null;
+    let target = null;
+    for (const candidate of playerByPeer.values()) {
+      const health = world.get(candidate, Health);
+      if (world.alive.has(candidate) && health && !health.dead && health.hp > 0) { target = candidate; break; }
+    }
     for (const [, ai] of world.query(AI)) ai.target = target;
   }
 
   function installLootRules(targetWorld) {
     targetWorld.on('entity.died', (event) => {
+      if (event.kind === ActorKind.PLAYER) { retargetEnemies(); return; }
       if (event.kind !== ActorKind.MOB) return;
       spawnPotion(targetWorld, event.x, event.y, 25);
       const drop = rollTable(mobDropTable, mobDropTotalWeight, targetWorld.rand);
@@ -496,12 +522,13 @@ export function createArenaSimulation({
         if (targetPosition) {
           const angle = targetWorld.rand() * Math.PI * 2;
           const distance = 280 + targetWorld.rand() * 160;
-          const mobId = spawnCaster(
+          const mobId = spawnEnemy(
             targetWorld,
             grid,
             targetPosition.x + Math.cos(angle) * distance,
             targetPosition.y + Math.sin(angle) * distance,
             target,
+            Math.floor(targetWorld.rand() * 3),
           );
           ensureNetworkId(mobId, 'mob');
         }
@@ -554,6 +581,7 @@ function installAuthoritativeRules(world, grid) {
   const systems = [
     createMovementSystem({ grid }),
     manaSystem,
+    powerupSystem,
     createAISystem({ grid }),
     createPlayerCombatSystem({ grid }),
     createBumpSystem(),
@@ -583,12 +611,20 @@ function spawnDrop(world, drop, x, y) {
   if (drop.type === 'sword') return spawnSword(world, x, y, drop.tier);
   if (drop.type === 'arrows') return spawnArrows(world, x, y, drop.count);
   if (drop.type === 'mana_surge') return spawnManaSurge(world, x, y);
+  if (drop.type === 'haste_rune') return spawnHasteRune(world, x, y);
+  if (drop.type === 'fury_rune') return spawnFuryRune(world, x, y);
+  if (drop.type === 'ward_rune') return spawnWardRune(world, x, y);
   if (drop.type === 'epic_chest') return spawnEpicChest(world, x, y);
   if (drop.type === 'epic_sword') return spawnEpicSword(world, x, y);
   if (drop.type === 'epic_bow') return spawnEpicBow(world, x, y);
   if (drop.type === 'legendary_sword') return spawnLegendarySword(world, x, y);
   if (drop.type === 'legendary_bow') return spawnLegendaryBow(world, x, y);
   return null;
+}
+
+function spawnEnemy(world, grid, x, y, target, archetype) {
+  const spawners = [spawnCaster, spawnMelee, spawnTank];
+  return spawners[positiveModulo(archetype, spawners.length)](world, grid, x, y, target);
 }
 
 function normalizeEntityRecord(entity) {
@@ -630,6 +666,12 @@ function normalizePlayerState(id, state) {
     chargeSpellIndex: nonNegativeInteger(state.chargeSpellIndex, `${id}.chargeSpellIndex`),
     manaRegenMultiplier: finiteNumber(state.manaRegenMultiplier, `${id}.manaRegenMultiplier`),
     manaRegenSeconds: finiteNumber(state.manaRegenSeconds, `${id}.manaRegenSeconds`),
+    hasteMultiplier: finiteNumber(state.hasteMultiplier, `${id}.hasteMultiplier`),
+    hasteSeconds: finiteNumber(state.hasteSeconds, `${id}.hasteSeconds`),
+    furyMultiplier: finiteNumber(state.furyMultiplier, `${id}.furyMultiplier`),
+    furySeconds: finiteNumber(state.furySeconds, `${id}.furySeconds`),
+    wardMultiplier: finiteNumber(state.wardMultiplier, `${id}.wardMultiplier`),
+    wardSeconds: finiteNumber(state.wardSeconds, `${id}.wardSeconds`),
     weapon: {
       name: String(weapon.name), glyph: String(weapon.glyph),
       damage: finiteNumber(weapon.damage, `${id}.weapon.damage`),
@@ -638,7 +680,7 @@ function normalizePlayerState(id, state) {
 }
 
 function normalizeMobState(id, state) {
-  return { ...normalizeBodyState(id, state), name: String(state.name), glyph: String(state.glyph) };
+  return { ...normalizeBodyState(id, state), name: String(state.name), glyph: String(state.glyph), theme: String(state.theme || 'shadow') };
 }
 
 function normalizeBodyState(id, state) {
@@ -648,6 +690,7 @@ function normalizeBodyState(id, state) {
     facing: finiteNumber(state.facing, `${id}.facing`),
     radius: finiteNumber(state.radius, `${id}.radius`),
     hp: finiteNumber(state.hp, `${id}.hp`), maxHp: finiteNumber(state.maxHp, `${id}.maxHp`),
+    dead: Boolean(state.dead),
     mana: finiteNumber(state.mana, `${id}.mana`), maxMana: finiteNumber(state.maxMana, `${id}.maxMana`),
     manaRegen: finiteNumber(state.manaRegen, `${id}.manaRegen`),
   };
@@ -663,6 +706,7 @@ function normalizeProjectileState(id, state) {
     piercing: Boolean(state.piercing),
     trailColor: String(state.trailColor || ''), burstColor: String(state.burstColor || ''),
     power: finiteNumber(state.power, `${id}.power`),
+    style: String(state.style || 'frost'),
     ttl: finiteNumber(state.ttl, `${id}.ttl`), owner: normalizeNetworkId(state.owner),
   };
 }
@@ -699,14 +743,24 @@ function recordToProjectile(state) {
     trailColor: state.trailColor,
     burstColor: state.burstColor,
     power: state.power,
+    style: state.style,
   };
 }
 
 function replicaItemLight(effect) {
   if (effect === 'heal') return { radius: 60, r: 255, g: 50, b: 80 };
   if (effect === 'mana_regen') return { radius: 95, r: 65, g: 145, b: 255 };
+  if (effect === 'haste') return { radius: 90, r: 55, g: 245, b: 190 };
+  if (effect === 'fury') return { radius: 100, r: 255, g: 80, b: 35 };
+  if (effect === 'ward') return { radius: 105, r: 195, g: 95, b: 255 };
   if (effect === 'epic_chest') return { radius: 100, r: 200, g: 80, b: 255 };
   return { radius: 55, r: 210, g: 180, b: 110 };
+}
+
+function lightForTheme(theme) {
+  if (theme === 'fire') return { radius: 70, r: 255, g: 105, b: 35 };
+  if (theme === 'frost') return { radius: 125, r: 40, g: 225, b: 190 };
+  return { radius: 105, r: 145, g: 70, b: 220 };
 }
 
 function cloneEvent(event) {

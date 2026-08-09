@@ -1,6 +1,6 @@
 import {
-  Actor, ActorKind, Collider, Facing, GroundItem, Health, Input, ItemInfo, Mana,
-  PlayerTag, PointLight, Position, Powerups, Projectile, Spellbook,
+  Actor, ActorKind, Collider, Consumable, Facing, GroundItem, Health, Input, ItemInfo, Mana,
+  PlayerTag, PointLight, Position, Powerups, Projectile, Spellbook, Velocity,
 } from '../../rules/components/index.js';
 import { AI } from '../../rules/components/AI.js';
 import { createWebGLDevice } from './device.js';
@@ -163,6 +163,40 @@ void main() {
   out_color = vec4(clamp(illumination, 0.0, 1.25), 1.0);
 }`;
 
+const ELEMENT_FRAGMENT = `#version 300 es
+precision highp float;
+uniform int u_theme;
+uniform float u_time;
+uniform float u_alpha;
+in vec2 v_uv;
+out vec4 out_color;
+void main() {
+  vec2 p = (v_uv - 0.5) * 2.0;
+  float radius = length(p);
+  float angle = atan(p.y, p.x);
+  float edge = 1.0;
+  vec3 color;
+  if (u_theme == 0) {
+    edge = 0.86 + 0.10 * sin(angle * 5.0 + u_time * 7.0) * (0.4 + radius * 0.6);
+    color = mix(vec3(1.0, 0.18, 0.03), vec3(1.0, 0.86, 0.22), 1.0 - radius);
+  } else if (u_theme == 1) {
+    float swirl = 0.5 + 0.5 * sin(angle * 3.0 - u_time * 2.4 + radius * 9.0);
+    color = mix(vec3(0.025, 0.008, 0.06), vec3(0.62, 0.16, 0.95), swirl * radius);
+  } else if (u_theme == 2) {
+    edge = 0.84 + 0.11 * cos(angle * 6.0);
+    float crystal = 0.5 + 0.5 * cos(angle * 6.0 + radius * 10.0);
+    color = mix(vec3(0.08, 0.48, 0.72), vec3(0.78, 1.0, 1.0), crystal * (1.0 - radius * 0.45));
+  } else {
+    float arc = pow(abs(sin(angle * 7.0 + u_time * 13.0 + radius * 8.0)), 14.0);
+    color = mix(vec3(0.08, 0.32, 1.0), vec3(0.92, 1.0, 1.0), arc + (1.0 - radius) * 0.4);
+  }
+  float aa = fwidth(radius);
+  float alpha = 1.0 - smoothstep(edge - aa, edge + aa, radius);
+  if (alpha <= 0.0) discard;
+  float rim = smoothstep(0.58, edge, radius);
+  out_color = vec4(color + rim * 0.16, alpha * u_alpha);
+}`;
+
 const QUAD = new Float32Array([
   -0.5, -0.5, 0.5, -0.5, -0.5, 0.5,
   -0.5, 0.5, 0.5, -0.5, 0.5, 0.5,
@@ -172,6 +206,20 @@ function uniform(gl, program, name) {
   const found = gl.getUniformLocation(program, name);
   if (found === null) throw new Error(`WebGL program is missing ${name}`);
   return found;
+}
+
+function themeIndex(theme) {
+  if (theme === 'fire' || theme === 'fury') return 0;
+  if (theme === 'shadow' || theme === 'ward') return 1;
+  if (theme === 'frost' || theme === 'haste') return 2;
+  return 3;
+}
+
+function themeForPowerup(effect) {
+  if (effect === 'fury') return 'fire';
+  if (effect === 'ward') return 'shadow';
+  if (effect === 'haste') return 'frost';
+  return 'electric';
 }
 
 function worldProgram(device, fragment) {
@@ -210,6 +258,10 @@ export function createWebGLArenaRenderer(deps) {
   lighting.count = uniform(gl, lighting.program, 'u_light_count');
   lighting.lights = uniform(gl, lighting.program, 'u_lights[0]');
   lighting.colors = uniform(gl, lighting.program, 'u_light_colors[0]');
+  const element = worldProgram(device, ELEMENT_FRAGMENT);
+  element.theme = uniform(gl, element.program, 'u_theme');
+  element.time = uniform(gl, element.program, 'u_time');
+  element.alpha = uniform(gl, element.program, 'u_alpha');
 
   const lineProgram = device.program(LINE_VERTEX, SOLID_FRAGMENT);
   const lineLocations = {
@@ -281,6 +333,7 @@ export function createWebGLArenaRenderer(deps) {
   let disposed = false;
   const bolts = [];
   const meleeSwings = [];
+  const bloodDecals = [];
   let lastFrameTime = performance.now() * 0.001;
 
   world.on('spell.bolt', (event) => {
@@ -288,6 +341,20 @@ export function createWebGLArenaRenderer(deps) {
   });
   world.on('melee.hit', (event) => {
     meleeSwings.push({ ...event, age: 0, duration: 0.22 });
+    for (let i = 0; i < 7; i++) {
+      const seed = Math.sin((event.sequence || 1) * 31.7 + i * 91.3) * 43758.5453;
+      const unit = seed - Math.floor(seed);
+      const angle = unit * Math.PI * 2;
+      const distance = 2 + ((unit * 7.13) % 1) * 13;
+      bloodDecals.push({
+        x: event.x + Math.cos(angle) * distance,
+        y: event.y + Math.sin(angle) * distance,
+        radius: 1.5 + ((unit * 13.7) % 1) * 3.2,
+        age: 0,
+        duration: 24,
+      });
+    }
+    if (bloodDecals.length > 160) bloodDecals.splice(0, bloodDecals.length - 160);
   });
 
   function displayPosition(id, position) {
@@ -329,6 +396,16 @@ export function createWebGLArenaRenderer(deps) {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
+  function drawElementOrb(theme, x, y, radius, time, alpha = 1) {
+    gl.useProgram(element.program);
+    gl.bindVertexArray(quadVao);
+    setWorld(element, x, y, radius * 2, radius * 2);
+    gl.uniform1i(element.theme, themeIndex(theme));
+    gl.uniform1f(element.time, time);
+    gl.uniform1f(element.alpha, alpha);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
   function drawLines(points, color, width = 1) {
     gl.useProgram(lineProgram);
     gl.bindVertexArray(lineVao);
@@ -338,6 +415,23 @@ export function createWebGLArenaRenderer(deps) {
     gl.uniform4fv(lineLocations.color, color);
     gl.lineWidth(width);
     gl.drawArrays(gl.LINES, 0, points.length / 2);
+  }
+
+  function drawArrow(x, y, vx, vy, power) {
+    const angle = Math.atan2(vy, vx);
+    const length = 14 + power * 8;
+    const head = 5 + power * 2;
+    const tipX = x + Math.cos(angle) * length * 0.5;
+    const tipY = y + Math.sin(angle) * length * 0.5;
+    const tailX = x - Math.cos(angle) * length * 0.5;
+    const tailY = y - Math.sin(angle) * length * 0.5;
+    drawLines(new Float32Array([
+      tailX, tailY, tipX, tipY,
+      tipX, tipY, tipX - Math.cos(angle - 0.62) * head, tipY - Math.sin(angle - 0.62) * head,
+      tipX, tipY, tipX - Math.cos(angle + 0.62) * head, tipY - Math.sin(angle + 0.62) * head,
+      tailX, tailY, tailX + Math.cos(angle + 2.45) * 4, tailY + Math.sin(angle + 2.45) * 4,
+      tailX, tailY, tailX + Math.cos(angle - 2.45) * 4, tailY + Math.sin(angle - 2.45) * 4,
+    ]), [0.95, 0.78, 0.36, 1], 2);
   }
 
   function jaggedBolt(bolt) {
@@ -370,7 +464,9 @@ export function createWebGLArenaRenderer(deps) {
       if (distance > source.radius + Math.max(view[2], view[3]) * 0.75) continue;
       let intensity = 0.82;
       if (world.has(id, PlayerTag)) {
-        intensity = 0.92 + 0.07 * Math.sin(now * 4.7 + id) + 0.035 * Math.sin(now * 11.3);
+        intensity = world.get(id, Health)?.dead
+          ? 0.08
+          : 0.92 + 0.07 * Math.sin(now * 4.7 + id) + 0.035 * Math.sin(now * 11.3);
       } else if (world.has(id, Projectile)) {
         intensity = 1.12 + 0.12 * Math.sin(now * 19 + id * 2.3);
       } else if (world.has(id, GroundItem)) {
@@ -431,6 +527,48 @@ export function createWebGLArenaRenderer(deps) {
     gl.blendFunc(gl.DST_COLOR, gl.ZERO);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  }
+
+  function drawActivePowerups(powerups, position, collider, now) {
+    if (!powerups) return;
+    const pulse = 0.5 + 0.5 * Math.sin(now * 5.5);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    if (powerups.manaRegenSeconds > 0) {
+      drawElementOrb('electric', position.x, position.y, collider.radius + 8 + pulse * 3, now, 0.2);
+    }
+    if (powerups.furySeconds > 0) {
+      drawElementOrb('fire', position.x, position.y, collider.radius + 6 + pulse * 5, now, 0.28);
+    }
+    if (powerups.wardSeconds > 0) {
+      drawDisc(position.x, position.y, collider.radius + 8 + pulse * 2, [0.08, 0.02, 0.18, 0.08], [0.76, 0.38, 1, 0.65]);
+      drawDisc(position.x, position.y, collider.radius + 14 - pulse * 2, [0, 0, 0, 0], [0.44, 0.68, 1, 0.32]);
+    }
+    if (powerups.hasteSeconds > 0) {
+      const facing = world.get(playerId, Facing)?.angle || 0;
+      const points = [];
+      for (let lane = -1; lane <= 1; lane++) {
+        const sideX = Math.cos(facing + Math.PI * 0.5) * lane * 7;
+        const sideY = Math.sin(facing + Math.PI * 0.5) * lane * 7;
+        points.push(
+          position.x + sideX - Math.cos(facing) * (12 + pulse * 5),
+          position.y + sideY - Math.sin(facing) * (12 + pulse * 5),
+          position.x + sideX - Math.cos(facing) * (25 + pulse * 8),
+          position.y + sideY - Math.sin(facing) * (25 + pulse * 8),
+        );
+      }
+      drawLines(new Float32Array(points), [0.32, 1, 0.75, 0.62], 2);
+    }
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  }
+
+  function activePowerupLabels(powerups) {
+    if (!powerups) return [];
+    const labels = [];
+    if (powerups.manaRegenSeconds > 0) labels.push(`SURGE ${Math.ceil(powerups.manaRegenSeconds)}s`);
+    if (powerups.hasteSeconds > 0) labels.push(`HASTE ${Math.ceil(powerups.hasteSeconds)}s`);
+    if (powerups.furySeconds > 0) labels.push(`FURY ${Math.ceil(powerups.furySeconds)}s`);
+    if (powerups.wardSeconds > 0) labels.push(`WARD ${Math.ceil(powerups.wardSeconds)}s`);
+    return labels;
   }
 
   function drawParticles(pixelScale) {
@@ -496,29 +634,47 @@ export function createWebGLArenaRenderer(deps) {
     const renderDt = Math.min(0.05, Math.max(0, now - lastFrameTime));
     lastFrameTime = now;
 
-    for (const [_id, position, _item, info] of world.query(Position, GroundItem, ItemInfo)) {
+    for (let i = bloodDecals.length - 1; i >= 0; i--) {
+      const decal = bloodDecals[i];
+      decal.age += renderDt;
+      if (decal.age >= decal.duration) { bloodDecals.splice(i, 1); continue; }
+      const alpha = Math.min(0.78, (1 - decal.age / decal.duration) * 0.9);
+      drawDisc(decal.x, decal.y, decal.radius, [0.24, 0.008, 0.018, alpha], [0.38, 0.015, 0.025, alpha]);
+    }
+
+    for (const [id, position, _item, info] of world.query(Position, GroundItem, ItemInfo)) {
+      const consumable = world.get(id, Consumable);
+      const isPowerup = ['mana_regen', 'haste', 'fury', 'ward'].includes(consumable?.effect);
+      if (isPowerup) continue;
       drawGlyph(info.glyph, position.x, position.y, 20, [1, 0.32, 0.5, 1]);
     }
     for (const [id, _playerTag, position, collider] of world.query(PlayerTag, Position, Collider)) {
       const shown = displayPosition(id, position);
       const local = id === playerId;
       drawDisc(shown.x, shown.y, collider.radius, local ? [0.10, 0.20, 0.28, 1] : [0.12, 0.31, 0.47, 0.82], local ? [0.4, 1, 0.86, 1] : [0.51, 0.86, 1, 1]);
-      drawGlyph('@', shown.x, shown.y + 1, collider.radius * 1.55, local ? [0.81, 0.91, 1, 1] : [0.84, 0.96, 1, 1]);
+      const dead = world.get(id, Health)?.dead;
+      drawGlyph(dead ? '☠' : '@', shown.x, shown.y + 1, collider.radius * 1.55, dead ? [0.8, 0.18, 0.18, 1] : (local ? [0.81, 0.91, 1, 1] : [0.84, 0.96, 1, 1]));
       const facing = world.get(id, Facing)?.angle ?? 0;
       drawDisc(shown.x + Math.cos(facing) * collider.radius, shown.y + Math.sin(facing) * collider.radius, 2.2, [0.95, 1, 0.72, 1], [0.95, 1, 0.72, 1]);
     }
     for (const [id, position, collider, actor] of world.query(Position, Collider, Actor)) {
       if (actor.kind !== ActorKind.MOB) continue;
       const shown = displayPosition(id, position);
-      drawDisc(shown.x, shown.y, collider.radius, [0.16, 0.08, 0.25, 1], [0.63, 0.31, 1, 1]);
-      drawGlyph(actor.glyph, shown.x, shown.y + 1, collider.radius * 1.5, [0.82, 0.63, 1, 1]);
+      drawElementOrb(actor.theme, shown.x, shown.y, collider.radius, now + id * 0.17, actor.theme === 'shadow' ? 0.9 : 0.82);
+      const glyphColor = actor.theme === 'fire' ? [1, 0.84, 0.5, 1] : actor.theme === 'frost' ? [0.72, 1, 0.9, 1] : [0.85, 0.68, 1, 1];
+      drawGlyph(actor.glyph, shown.x, shown.y + 1, collider.radius * 1.5, glyphColor);
       const facing = world.get(id, Facing)?.angle ?? 0;
       drawDisc(shown.x + Math.cos(facing) * collider.radius, shown.y + Math.sin(facing) * collider.radius, 2, [1, 0.57, 0.8, 1], [1, 0.57, 0.8, 1]);
     }
     for (const [id, position, collider, projectile] of world.query(Position, Collider, Projectile)) {
       const shown = displayPosition(id, position);
       const enemy = projectile.team === 'enemies' || world.has(projectile.owner, AI);
-      drawDisc(shown.x, shown.y, Math.max(3, collider.radius), enemy ? [0.7, 0.3, 1, 0.9] : [0.55, 0.82, 1, 0.9], enemy ? [0.88, 0.69, 1, 1] : [0.88, 0.96, 1, 1]);
+      if (projectile.style === 'arrow') {
+        const velocity = world.get(id, Velocity);
+        drawArrow(shown.x, shown.y, velocity?.vx || 1, velocity?.vy || 0, projectile.power || 1);
+        continue;
+      }
+      drawElementOrb(projectile.style || (enemy ? 'shadow' : 'frost'), shown.x, shown.y, Math.max(4, collider.radius), now + id, 0.95);
       const projectileSize = projectile.trailColor === '#8cd8ff'
         ? Math.max(11, collider.radius * 2.7)
         : 11;
@@ -529,13 +685,23 @@ export function createWebGLArenaRenderer(deps) {
     // intentionally luminous VFX and HUD participates in darkness and color.
     drawLighting(collectLights(now, shownPlayer));
 
-    const activePowerups = world.get(playerId, Powerups);
-    if (activePowerups?.manaRegenSeconds > 0) {
-      const pulse = 0.5 + 0.5 * Math.sin(now * 5.5);
+    // Powerups are emissive story objects: their silhouette remains legible
+    // after darkness composition, while their PointLight still colors terrain.
+    for (const [id, position, _item, info] of world.query(Position, GroundItem, ItemInfo)) {
+      const effect = world.get(id, Consumable)?.effect;
+      if (!['mana_regen', 'haste', 'fury', 'ward'].includes(effect)) continue;
+      const bob = Math.sin(now * 3 + id) * 2.5;
+      const pulse = 0.5 + 0.5 * Math.sin(now * 4.5 + id);
+      const theme = themeForPowerup(effect);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-      drawDisc(shownPlayer.x, shownPlayer.y, playerCollider.radius + 7 + pulse * 4, [0.08, 0.28, 0.72, 0.08], [0.3, 0.72, 1, 0.45 + pulse * 0.35]);
+      drawElementOrb(theme, position.x, position.y + bob, 13 + pulse * 3, now + id, 0.72);
+      drawDisc(position.x, position.y + bob, 17 + pulse * 5, [0, 0, 0, 0], [0.52, 0.92, 1, 0.18 + pulse * 0.25]);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      drawGlyph(info.glyph, position.x, position.y + bob, 18, [0.96, 1, 1, 1]);
     }
+
+    const activePowerups = world.get(playerId, Powerups);
+    drawActivePowerups(activePowerups, shownPlayer, playerCollider, now);
 
     // World-space status bars for every living actor.
     for (const [id, position, collider, health] of world.query(Position, Collider, Health)) {
@@ -555,7 +721,7 @@ export function createWebGLArenaRenderer(deps) {
 
     // Aim distance follows stick displacement; heading remains the rim dot.
     const aimMagnitude = Math.min(1, Math.hypot(playerInput.aimX, playerInput.aimY));
-    if (aimMagnitude > 0.05) {
+    if (aimMagnitude > 0.05 && !world.get(playerId, Health)?.dead) {
       const aimAngle = Math.atan2(playerInput.aimY, playerInput.aimX);
       const aimDistance = playerCollider.radius + 12 + aimMagnitude * 72;
       const aimX = shownPlayer.x + Math.cos(aimAngle) * aimDistance;
@@ -583,18 +749,31 @@ export function createWebGLArenaRenderer(deps) {
       swing.age += renderDt;
       if (swing.age >= swing.duration) { meleeSwings.splice(i, 1); continue; }
       const angle = Math.atan2(swing.y - swing.fromY, swing.x - swing.fromX);
-      const reach = 18;
-      const sweep = -0.9 + (swing.age / swing.duration) * 1.8;
-      drawLines(new Float32Array([
-        swing.fromX, swing.fromY,
-        swing.fromX + Math.cos(angle + sweep) * reach,
-        swing.fromY + Math.sin(angle + sweep) * reach,
-      ]), [1, 0.8, 0.55, 1 - swing.age / swing.duration], 3);
+      const progress = swing.age / swing.duration;
+      const reach = 18 + Math.min(10, swing.amount * 0.25);
+      const sweep = -1.05 + progress * 2.1;
+      const fade = 1 - progress;
+      const slash = [];
+      for (let trail = 0; trail < 3; trail++) {
+        const trailAngle = angle + sweep - trail * 0.16;
+        slash.push(
+          swing.fromX + Math.cos(trailAngle) * 5,
+          swing.fromY + Math.sin(trailAngle) * 5,
+          swing.fromX + Math.cos(trailAngle) * reach,
+          swing.fromY + Math.sin(trailAngle) * reach,
+        );
+      }
+      drawLines(new Float32Array(slash), [1, 0.72, 0.32, fade * 0.9], 4);
+      drawDisc(swing.x, swing.y, 3 + progress * 10, [0.6, 0.02, 0.03, fade * 0.28], [1, 0.46, 0.25, fade * 0.7]);
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     drawParticles(cam.scale * ratio);
 
     const hp = world.get(playerId, Health);
+    if (hp?.dead) {
+      drawRect(view[0], view[1], view[2], view[3], [0.22, 0.005, 0.012, 0.52]);
+      drawGlyph('☠', shownPlayer.x, shownPlayer.y - 8, 44, [1, 0.18, 0.2, 0.92]);
+    }
     const keyboard = input.keyboardInput();
     const router = input.leftStick.getOutput();
     const mana = world.get(playerId, Mana);
@@ -604,7 +783,11 @@ export function createWebGLArenaRenderer(deps) {
       ? `◆ ${Math.floor(mana?.mana ?? 0)}/${mana?.maxMana ?? 0} · SURGE ${Math.ceil(activePowerups.manaRegenSeconds)}s`
       : `◆ ${Math.floor(mana?.mana ?? 0)}/${mana?.maxMana ?? 0}`;
     hud.mana.classList.toggle('boosted', boosted);
-    hud.meta.textContent = `casts ${runtimeEvents.casts}${net ? ` · ${net.getStatusText()}` : ''}`;
+    const activeLabels = activePowerupLabels(activePowerups);
+    hud.meta.textContent = hp?.dead
+      ? 'YOU DIED · refresh to re-enter'
+      : `${activeLabels.length ? activeLabels.join(' · ') + ' · ' : ''}casts ${runtimeEvents.casts}${net ? ` · ${net.getStatusText()}` : ''}`;
+    document.body.classList.toggle('player-dead', Boolean(hp?.dead));
     hud.zoomReadout.textContent = `zoom: ${cam.scale.toFixed(2)}x  particles:${fx.pool.count}`;
     hud.readL.textContent = router.left.active ? `L x:${playerInput.moveX.toFixed(2)} y:${playerInput.moveY.toFixed(2)}` : (Math.abs(keyboard.mx) + Math.abs(keyboard.my) ? `KB ${keyboard.mx},${keyboard.my}` : 'L stick idle');
     hud.readR.textContent = router.right.active ? `R x:${playerInput.aimX.toFixed(2)} y:${playerInput.aimY.toFixed(2)}` : 'R stick idle';

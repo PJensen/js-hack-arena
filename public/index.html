@@ -56,6 +56,7 @@
                             color:rgba(255,255,255,0.4); margin-top:-8px; }
     #zoom-readout { opacity:.45; transition:opacity .2s; }
     #zoom-readout:hover { opacity:1; }
+    .player-dead .joystick, .player-dead #spell-bar { opacity:.2; filter:grayscale(1); pointer-events:none; }
     @media (max-width:620px) {
       #hud { max-width:calc(100vw - 20px); gap:6px; padding:6px 8px; }
       .hud-meta { display:none; }
@@ -207,7 +208,7 @@ const sim = createArenaSimulation({
   grid,
   spawns,
   mode: isNetworked ? SIM_MODE.REPLICA : SIM_MODE.AUTHORITY,
-  enemyCount: 2,
+  enemyCount: 3,
 });
 let renderer = null;
 sim.world.on('terrain.carved', (event) => {
