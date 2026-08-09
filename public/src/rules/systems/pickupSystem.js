@@ -19,11 +19,14 @@ export function pickupSystem(world, dt) {
           const info = world.has(itemId, ItemInfo) ? world.get(itemId, ItemInfo) : null;
 
           if (c.effect === 'heal') {
-            p.hp.hp = Math.min(p.hp.maxHp, p.hp.hp + c.potency);
+            if (p.hp.hp >= p.hp.maxHp) continue;
+            const healed = Math.min(c.potency, p.hp.maxHp - p.hp.hp);
+            p.hp.hp += healed;
             world.emit('damage.dealt', {
-              target: p.id, source: itemId, amount: -c.potency,
+              target: p.id, source: itemId, amount: -healed,
               x: p.pos.x, y: p.pos.y,
             });
+            world.emit('item.pickup', { entity: p.id, item: info?.name, healed });
           } else if (c.effect === 'add_spell' && world.has(p.id, Spellbook)) {
             const book = world.get(p.id, Spellbook);
             const spellId = (info && (info.name === 'Short Bow' || info.name === 'Shadow Longbow' || info.name === 'Sunfire Longbow')) ? 'arrow' : null;

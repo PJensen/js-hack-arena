@@ -12,6 +12,7 @@ import {
   ItemInfo,
   Lifetime,
   MeleeWeapon,
+  Mana,
   PlayerTag,
   Position,
   Projectile,
@@ -37,13 +38,14 @@ import { createAISystem } from '../systems/aiSystem.js';
 import { createBumpSystem } from '../systems/bumpSystem.js';
 import { deathSystem } from '../systems/deathSystem.js';
 import { createMovementSystem } from '../systems/movementSystem.js';
+import { manaSystem } from '../systems/manaSystem.js';
 import { pickupSystem } from '../systems/pickupSystem.js';
 import { createPlayerCombatSystem } from '../systems/playerCombatSystem.js';
 import { createProjectileSystem } from '../systems/projectileSystem.js';
 
 export const SIM_TICK_HZ = 20;
 export const SIM_DT = 1 / SIM_TICK_HZ;
-export const SIM_SNAPSHOT_VERSION = 2;
+export const SIM_SNAPSHOT_VERSION = 3;
 export const SIM_MODE = Object.freeze({
   AUTHORITY: 'authority',
   REPLICA: 'replica',
@@ -53,11 +55,13 @@ const PRESENTATION_EVENTS = Object.freeze([
   'damage.dealt',
   'entity.died',
   'item.pickup',
+  'melee.hit',
   'projectile.expired',
   'projectile.hit',
   'projectile.wall',
   'spell.bolt',
   'spell.cast',
+  'spell.denied',
   'terrain.carved',
 ]);
 const EVENT_HISTORY_LIMIT = 96;
@@ -242,6 +246,7 @@ export function createArenaSimulation({
     const facing = world.get(entityId, Facing);
     const collider = world.get(entityId, Collider);
     const health = world.get(entityId, Health);
+    const mana = world.get(entityId, Mana);
     const book = world.get(entityId, Spellbook);
     const weapon = world.get(entityId, MeleeWeapon);
     return {
@@ -255,7 +260,11 @@ export function createArenaSimulation({
         facing: facing.angle,
         radius: collider.radius,
         hp: health.hp, maxHp: health.maxHp,
+        mana: mana.mana, maxMana: mana.maxMana, manaRegen: mana.regenPerSecond,
         spells: [...book.spells], activeSpell: book.activeIndex, cooldown: book.cooldown,
+        charge: book.charge, charging: book.charging,
+        chargeAimX: book.chargeAimX, chargeAimY: book.chargeAimY,
+        chargeSpellIndex: book.chargeSpellIndex,
         weapon: { name: weapon.name, glyph: weapon.glyph, damage: weapon.damage },
       },
     };
@@ -267,6 +276,7 @@ export function createArenaSimulation({
     const facing = world.get(entityId, Facing);
     const collider = world.get(entityId, Collider);
     const health = world.get(entityId, Health);
+    const mana = world.get(entityId, Mana);
     const actor = world.get(entityId, Actor);
     return {
       id: ensureNetworkId(entityId, 'mob'),
@@ -277,6 +287,7 @@ export function createArenaSimulation({
         facing: facing.angle,
         radius: collider.radius,
         hp: health.hp, maxHp: health.maxHp,
+        mana: mana.mana, maxMana: mana.maxMana, manaRegen: mana.regenPerSecond,
         name: actor.name, glyph: actor.glyph,
       },
     };
@@ -344,6 +355,7 @@ export function createArenaSimulation({
       world.add(entityId, Facing, { angle: state.facing });
       world.add(entityId, Collider, { radius: state.radius });
       world.add(entityId, Health, { hp: state.hp, maxHp: state.maxHp });
+      world.add(entityId, Mana, { mana: state.mana, maxMana: state.maxMana, regenPerSecond: state.manaRegen });
       world.add(entityId, Actor, { kind: ActorKind.MOB, name: state.name, glyph: state.glyph });
       world.add(entityId, AI, { target: null });
     } else if (record.kind === 'projectile') {
@@ -377,6 +389,12 @@ export function createArenaSimulation({
       health.hp = state.hp;
       health.maxHp = state.maxHp;
     }
+    if (world.has(entityId, Mana)) {
+      const mana = world.get(entityId, Mana);
+      mana.mana = state.mana;
+      mana.maxMana = state.maxMana;
+      mana.regenPerSecond = state.manaRegen;
+    }
 
     if (record.kind === 'player') {
       lastInputSeqByPeer.set(record.owner, record.inputSeq);
@@ -384,6 +402,11 @@ export function createArenaSimulation({
       book.spells = [...state.spells];
       book.activeIndex = state.activeSpell;
       book.cooldown = state.cooldown;
+      book.charge = state.charge;
+      book.charging = state.charging;
+      book.chargeAimX = state.chargeAimX;
+      book.chargeAimY = state.chargeAimY;
+      book.chargeSpellIndex = state.chargeSpellIndex;
       const weapon = world.get(entityId, MeleeWeapon);
       Object.assign(weapon, state.weapon);
     } else if (record.kind === 'mob') {
@@ -518,6 +541,7 @@ export function normalizeSnapshot(snapshot) {
 function installAuthoritativeRules(world, grid) {
   const systems = [
     createMovementSystem({ grid }),
+    manaSystem,
     createAISystem({ grid }),
     createPlayerCombatSystem({ grid }),
     createBumpSystem(),
@@ -586,6 +610,11 @@ function normalizePlayerState(id, state) {
     spells: [...state.spells],
     activeSpell: nonNegativeInteger(state.activeSpell, `${id}.activeSpell`),
     cooldown: finiteNumber(state.cooldown, `${id}.cooldown`),
+    charge: finiteNumber(state.charge, `${id}.charge`),
+    charging: Boolean(state.charging),
+    chargeAimX: finiteNumber(state.chargeAimX, `${id}.chargeAimX`),
+    chargeAimY: finiteNumber(state.chargeAimY, `${id}.chargeAimY`),
+    chargeSpellIndex: nonNegativeInteger(state.chargeSpellIndex, `${id}.chargeSpellIndex`),
     weapon: {
       name: String(weapon.name), glyph: String(weapon.glyph),
       damage: finiteNumber(weapon.damage, `${id}.weapon.damage`),
@@ -604,6 +633,8 @@ function normalizeBodyState(id, state) {
     facing: finiteNumber(state.facing, `${id}.facing`),
     radius: finiteNumber(state.radius, `${id}.radius`),
     hp: finiteNumber(state.hp, `${id}.hp`), maxHp: finiteNumber(state.maxHp, `${id}.maxHp`),
+    mana: finiteNumber(state.mana, `${id}.mana`), maxMana: finiteNumber(state.maxMana, `${id}.maxMana`),
+    manaRegen: finiteNumber(state.manaRegen, `${id}.manaRegen`),
   };
 }
 

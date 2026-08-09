@@ -73,6 +73,15 @@ function dealDamage(world, sourceId, targetId, position) {
     x: position.x,
     y: position.y,
   });
+  world.emit('melee.hit', {
+    target: targetId,
+    source: sourceId,
+    amount: damage,
+    x: position.x,
+    y: position.y,
+    fromX: world.get(sourceId, Position)?.x ?? position.x,
+    fromY: world.get(sourceId, Position)?.y ?? position.y,
+  });
 }
 
 function positionOf(body) {

@@ -1,6 +1,6 @@
 import {
-  Actor, ActorKind, Collider, GroundItem, Health, Input, ItemInfo, PlayerTag,
-  Position, Projectile,
+  Actor, ActorKind, Collider, Facing, GroundItem, Health, Input, ItemInfo, Mana,
+  PlayerTag, Position, Projectile, Spellbook,
 } from '../../rules/components/index.js';
 import { AI } from '../../rules/components/AI.js';
 import { createWebGLDevice } from './device.js';
@@ -122,6 +122,20 @@ void main() {
   out_color = vec4(v_color.rgb, v_color.a * alpha);
 }`;
 
+const LINE_VERTEX = `#version 300 es
+layout(location=0) in vec2 a_position;
+uniform vec4 u_view;
+void main() {
+  vec2 clip = (a_position - u_view.xy) * 2.0 / u_view.zw;
+  gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+}`;
+
+const SOLID_FRAGMENT = `#version 300 es
+precision highp float;
+uniform vec4 u_color;
+out vec4 out_color;
+void main() { out_color = u_color; }`;
+
 const QUAD = new Float32Array([
   -0.5, -0.5, 0.5, -0.5, -0.5, 0.5,
   -0.5, 0.5, 0.5, -0.5, 0.5, 0.5,
@@ -163,6 +177,14 @@ export function createWebGLArenaRenderer(deps) {
   glyph.atlas = uniform(gl, glyph.program, 'u_atlas');
   glyph.frame = uniform(gl, glyph.program, 'u_frame');
   glyph.color = uniform(gl, glyph.program, 'u_color');
+  const solid = worldProgram(device, SOLID_FRAGMENT);
+  solid.color = uniform(gl, solid.program, 'u_color');
+
+  const lineProgram = device.program(LINE_VERTEX, SOLID_FRAGMENT);
+  const lineLocations = {
+    view: uniform(gl, lineProgram, 'u_view'),
+    color: uniform(gl, lineProgram, 'u_color'),
+  };
 
   const particleProgram = device.program(PARTICLE_VERTEX, PARTICLE_FRAGMENT);
   const particleLocations = {
@@ -213,9 +235,27 @@ export function createWebGLArenaRenderer(deps) {
   gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 28, 12);
   gl.bindVertexArray(null);
 
+  const lineVao = device.vertexArray();
+  const lineBuffer = device.buffer(gl.ARRAY_BUFFER, new Float32Array(512), gl.DYNAMIC_DRAW);
+  gl.bindVertexArray(lineVao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, lineBuffer);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+
   const view = new Float32Array(4);
   let fieldDirty = false;
   let disposed = false;
+  const bolts = [];
+  const meleeSwings = [];
+  let lastFrameTime = performance.now() * 0.001;
+
+  world.on('spell.bolt', (event) => {
+    bolts.push({ ...event, age: 0, duration: 0.18 });
+  });
+  world.on('melee.hit', (event) => {
+    meleeSwings.push({ ...event, age: 0, duration: 0.22 });
+  });
 
   function displayPosition(id, position) {
     return presentation?.position(id, position) ?? position;
@@ -246,6 +286,46 @@ export function createWebGLArenaRenderer(deps) {
     gl.uniform4fv(glyph.frame, atlas.frame(character));
     gl.uniform4fv(glyph.color, color);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  function drawRect(x, y, width, height, color) {
+    gl.useProgram(solid.program);
+    gl.bindVertexArray(quadVao);
+    setWorld(solid, x, y, width, height);
+    gl.uniform4fv(solid.color, color);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  function drawLines(points, color, width = 1) {
+    gl.useProgram(lineProgram);
+    gl.bindVertexArray(lineVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, lineBuffer);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, points);
+    gl.uniform4fv(lineLocations.view, view);
+    gl.uniform4fv(lineLocations.color, color);
+    gl.lineWidth(width);
+    gl.drawArrays(gl.LINES, 0, points.length / 2);
+  }
+
+  function jaggedBolt(bolt) {
+    const points = [];
+    const dx = bolt.toX - bolt.fromX;
+    const dy = bolt.toY - bolt.fromY;
+    const length = Math.hypot(dx, dy) || 1;
+    const nx = -dy / length;
+    const ny = dx / length;
+    let px = bolt.fromX;
+    let py = bolt.fromY;
+    for (let i = 1; i <= 12; i++) {
+      const t = i / 12;
+      const seed = Math.sin((i + 1) * 91.7 + (bolt.sequence || 0) * 17.3) * 43758.5453;
+      const jitter = i === 12 ? 0 : ((seed - Math.floor(seed)) * 2 - 1) * 5;
+      const x = bolt.fromX + dx * t + nx * jitter;
+      const y = bolt.fromY + dy * t + ny * jitter;
+      points.push(px, py, x, y);
+      px = x; py = y;
+    }
+    return new Float32Array(points);
   }
 
   function drawParticles(pixelScale) {
@@ -307,6 +387,10 @@ export function createWebGLArenaRenderer(deps) {
     gl.uniform2f(caveLocations.light, shownPlayer.x, shownPlayer.y);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 
+    const now = performance.now() * 0.001;
+    const renderDt = Math.min(0.05, Math.max(0, now - lastFrameTime));
+    lastFrameTime = now;
+
     for (const [_id, position, _item, info] of world.query(Position, GroundItem, ItemInfo)) {
       drawGlyph(info.glyph, position.x, position.y, 20, [1, 0.32, 0.5, 1]);
     }
@@ -315,12 +399,16 @@ export function createWebGLArenaRenderer(deps) {
       const local = id === playerId;
       drawDisc(shown.x, shown.y, collider.radius, local ? [0.10, 0.20, 0.28, 1] : [0.12, 0.31, 0.47, 0.82], local ? [0.4, 1, 0.86, 1] : [0.51, 0.86, 1, 1]);
       drawGlyph('@', shown.x, shown.y + 1, collider.radius * 1.55, local ? [0.81, 0.91, 1, 1] : [0.84, 0.96, 1, 1]);
+      const facing = world.get(id, Facing)?.angle ?? 0;
+      drawDisc(shown.x + Math.cos(facing) * collider.radius, shown.y + Math.sin(facing) * collider.radius, 2.2, [0.95, 1, 0.72, 1], [0.95, 1, 0.72, 1]);
     }
     for (const [id, position, collider, actor] of world.query(Position, Collider, Actor)) {
       if (actor.kind !== ActorKind.MOB) continue;
       const shown = displayPosition(id, position);
       drawDisc(shown.x, shown.y, collider.radius, [0.16, 0.08, 0.25, 1], [0.63, 0.31, 1, 1]);
       drawGlyph(actor.glyph, shown.x, shown.y + 1, collider.radius * 1.5, [0.82, 0.63, 1, 1]);
+      const facing = world.get(id, Facing)?.angle ?? 0;
+      drawDisc(shown.x + Math.cos(facing) * collider.radius, shown.y + Math.sin(facing) * collider.radius, 2, [1, 0.57, 0.8, 1], [1, 0.57, 0.8, 1]);
     }
     for (const [id, position, collider, projectile] of world.query(Position, Collider, Projectile)) {
       const shown = displayPosition(id, position);
@@ -328,12 +416,71 @@ export function createWebGLArenaRenderer(deps) {
       drawDisc(shown.x, shown.y, Math.max(3, collider.radius), enemy ? [0.7, 0.3, 1, 0.9] : [0.55, 0.82, 1, 0.9], enemy ? [0.88, 0.69, 1, 1] : [0.88, 0.96, 1, 1]);
       drawGlyph(projectile.trailColor === '#c8a050' ? '→' : (enemy ? '✦' : '❄'), shown.x, shown.y, 11, [1, 1, 1, 0.95]);
     }
+
+    // World-space status bars for every living actor.
+    for (const [id, position, collider, health] of world.query(Position, Collider, Health)) {
+      const shown = displayPosition(id, position);
+      const barWidth = Math.max(25, collider.radius * 2.35);
+      const y = shown.y - collider.radius - 9;
+      const healthRatio = Math.max(0, Math.min(1, health.hp / Math.max(1, health.maxHp)));
+      drawRect(shown.x, y, barWidth + 2, 5, [0.025, 0.035, 0.055, 0.92]);
+      if (healthRatio > 0) drawRect(shown.x - barWidth * (1 - healthRatio) * 0.5, y, barWidth * healthRatio, 3, [0.24, 0.91, 0.43, 1]);
+      const mana = world.get(id, Mana);
+      if (mana) {
+        const manaRatio = Math.max(0, Math.min(1, mana.mana / Math.max(1, mana.maxMana)));
+        drawRect(shown.x, y + 5, barWidth + 2, 4, [0.025, 0.035, 0.055, 0.92]);
+        if (manaRatio > 0) drawRect(shown.x - barWidth * (1 - manaRatio) * 0.5, y + 5, barWidth * manaRatio, 2, [0.21, 0.58, 1, 1]);
+      }
+    }
+
+    // Aim distance follows stick displacement; heading remains the rim dot.
+    const aimMagnitude = Math.min(1, Math.hypot(playerInput.aimX, playerInput.aimY));
+    if (aimMagnitude > 0.05) {
+      const aimAngle = Math.atan2(playerInput.aimY, playerInput.aimX);
+      const aimDistance = playerCollider.radius + 12 + aimMagnitude * 72;
+      const aimX = shownPlayer.x + Math.cos(aimAngle) * aimDistance;
+      const aimY = shownPlayer.y + Math.sin(aimAngle) * aimDistance;
+      drawLines(new Float32Array([shownPlayer.x, shownPlayer.y, aimX, aimY]), [0.35, 0.9, 1, 0.42]);
+      const book = world.get(playerId, Spellbook);
+      const charge = book?.charging ? Math.min(1, book.charge / 1.25) : 0;
+      drawDisc(aimX, aimY, 3 + charge * 4, [0.35, 0.9, 1, 0.25 + charge * 0.55], [0.72, 1, 1, 0.9]);
+    }
+
+    // Lightning and melee are short-lived GPU line effects.
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    for (let i = bolts.length - 1; i >= 0; i--) {
+      const bolt = bolts[i];
+      bolt.age += renderDt;
+      if (bolt.age >= bolt.duration) { bolts.splice(i, 1); continue; }
+      const alpha = (1 - bolt.age / bolt.duration) * Math.pow(0.72, bolt.chain || 0);
+      const points = jaggedBolt(bolt);
+      drawLines(points, [0.22, 0.66, 1, alpha * 0.35], 5);
+      drawLines(points, [0.85, 0.98, 1, alpha], 2);
+      drawDisc(bolt.toX, bolt.toY, 5 + alpha * 8, [0.45, 0.85, 1, alpha * 0.32], [0.8, 1, 1, alpha]);
+    }
+    for (let i = meleeSwings.length - 1; i >= 0; i--) {
+      const swing = meleeSwings[i];
+      swing.age += renderDt;
+      if (swing.age >= swing.duration) { meleeSwings.splice(i, 1); continue; }
+      const angle = Math.atan2(swing.y - swing.fromY, swing.x - swing.fromX);
+      const reach = 18;
+      const sweep = -0.9 + (swing.age / swing.duration) * 1.8;
+      drawLines(new Float32Array([
+        swing.fromX, swing.fromY,
+        swing.fromX + Math.cos(angle + sweep) * reach,
+        swing.fromY + Math.sin(angle + sweep) * reach,
+      ]), [1, 0.8, 0.55, 1 - swing.age / swing.duration], 3);
+    }
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     drawParticles(cam.scale * ratio);
 
     const hp = world.get(playerId, Health);
     const keyboard = input.keyboardInput();
     const router = input.leftStick.getOutput();
-    hud.hud.textContent = `Hack Arena  WEBGL  seed:${SEED.toString(16)}  HP:${hp?.hp ?? 0}/${hp?.maxHp ?? 0}  casts:${runtimeEvents.casts}${net ? `  ${net.getStatusText()}` : ''}`;
+    const mana = world.get(playerId, Mana);
+    hud.hp.textContent = `♥ ${Math.ceil(hp?.hp ?? 0)}/${hp?.maxHp ?? 0}`;
+    hud.mana.textContent = `◆ ${Math.floor(mana?.mana ?? 0)}/${mana?.maxMana ?? 0}`;
+    hud.meta.textContent = `casts ${runtimeEvents.casts}${net ? ` · ${net.getStatusText()}` : ''}`;
     hud.zoomReadout.textContent = `zoom: ${cam.scale.toFixed(2)}x  particles:${fx.pool.count}`;
     hud.readL.textContent = router.left.active ? `L x:${playerInput.moveX.toFixed(2)} y:${playerInput.moveY.toFixed(2)}` : (Math.abs(keyboard.mx) + Math.abs(keyboard.my) ? `KB ${keyboard.mx},${keyboard.my}` : 'L stick idle');
     hud.readR.textContent = router.right.active ? `R x:${playerInput.aimX.toFixed(2)} y:${playerInput.aimY.toFixed(2)}` : 'R stick idle';

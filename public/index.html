@@ -7,45 +7,69 @@
   <style>
     * { margin:0; padding:0; box-sizing:border-box; touch-action:none;
         -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
-    html,body { width:100%; height:100%; overflow:hidden; background:#0b0f12; color:#fff;
+    :root { --cyan:#70e6ff; --blue:#438cff; --ink:rgba(5,10,18,.78); --edge:rgba(112,230,255,.24); }
+    html,body { width:100%; height:100%; overflow:hidden; background:#080d14; color:#fff;
                 font-family:Inter,"Segoe UI",system-ui,-apple-system,sans-serif; }
     canvas { display:block; width:100%; height:100%; }
-    #hud { position:fixed; top:12px; left:50%; transform:translateX(-50%);
-           font-size:14px; color:rgba(255,255,255,0.7); text-align:center; z-index:40; }
+    #hud { position:fixed; top:max(12px,env(safe-area-inset-top)); left:50%; transform:translateX(-50%);
+           display:flex; align-items:center; gap:10px; min-height:38px; padding:7px 12px;
+           font-size:12px; color:rgba(224,240,255,.78); text-align:center; z-index:40;
+           background:linear-gradient(180deg,rgba(11,22,36,.88),rgba(5,10,18,.72));
+           border:1px solid var(--edge); border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.28); }
+    .brand { color:#e9fbff; font-weight:900; letter-spacing:.14em; text-shadow:0 0 12px rgba(112,230,255,.55); }
+    .hud-stat { padding:3px 7px; border-radius:5px; font-weight:700; font-variant-numeric:tabular-nums; }
+    .hud-stat.hp { color:#70ef8d; background:rgba(40,190,83,.1); }
+    .hud-stat.mana { color:#72adff; background:rgba(67,140,255,.12); }
+    .hud-meta { color:rgba(203,220,235,.48); }
 
     /* ── Joysticks ── */
-    .joystick { position:fixed; bottom:40px; width:140px; height:140px; border-radius:50%;
-                background:rgba(255,255,255,0.08); border:2px solid rgba(255,255,255,0.15); z-index:20; }
-    .joystick-left  { left:40px; }
-    .joystick-right { right:40px; }
-    .joystick-knob  { position:absolute; width:56px; height:56px; border-radius:50%;
-                      background:rgba(255,255,255,0.25); border:2px solid rgba(255,255,255,0.4);
+    .joystick { position:fixed; bottom:max(22px,env(safe-area-inset-bottom)); width:112px; height:112px; border-radius:50%;
+                background:radial-gradient(circle,rgba(112,230,255,.08),rgba(5,10,18,.28));
+                border:1px solid rgba(112,230,255,.24); box-shadow:inset 0 0 24px rgba(30,110,170,.1); z-index:20; }
+    .joystick-left  { left:max(18px,env(safe-area-inset-left)); }
+    .joystick-right { right:max(18px,env(safe-area-inset-right)); }
+    .joystick-knob  { position:absolute; width:44px; height:44px; border-radius:50%;
+                      background:rgba(112,230,255,.18); border:1px solid rgba(160,240,255,.5);
+                      box-shadow:0 0 16px rgba(70,190,255,.18);
                       top:50%; left:50%; transform:translate(-50%,-50%); pointer-events:none; }
+    .joystick-right .joystick-knob { background:rgba(255,165,94,.16); border-color:rgba(255,188,120,.52); }
     .touch-dot { position:fixed; width:18px; height:18px; margin-left:-9px; margin-top:-9px;
                  border-radius:50%; pointer-events:none; display:none; z-index:30; }
     .touch-dot-left  { background:rgba(120,220,255,0.9); box-shadow:0 0 0 3px rgba(120,220,255,0.25); }
     .touch-dot-right { background:rgba(255,170,110,0.95); box-shadow:0 0 0 3px rgba(255,170,110,0.25); }
-    .stick-readout { position:fixed; bottom:190px; min-width:180px; padding:8px 10px; border-radius:8px;
-                     font-size:12px; line-height:1.35; background:rgba(0,0,0,0.5);
-                     border:1px solid rgba(255,255,255,0.15); z-index:40; }
+    .stick-readout { display:none; }
     #readout-left  { left:24px; }
     #readout-right { right:24px; text-align:right; }
 
     /* ── Spell bar ── */
-    #spell-bar { position:fixed; bottom:200px; left:50%; transform:translateX(-50%);
+    #spell-bar { position:fixed; bottom:max(22px,env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%);
                  display:flex; gap:8px; z-index:50; pointer-events:auto; }
-    .spell-btn { width:52px; height:52px; border-radius:12px;
-                 background:rgba(0,0,0,0.6); border:2px solid rgba(255,255,255,0.2);
-                 color:#fff; font-size:24px; line-height:52px; text-align:center;
-                 cursor:pointer; transition:border-color 0.15s, background 0.15s; }
-    .spell-btn.active { border-color:rgba(255,255,255,0.8); background:rgba(255,255,255,0.15); }
+    .spell-btn { width:48px; height:48px; border-radius:10px;
+                 background:var(--ink); border:1px solid rgba(255,255,255,.18);
+                 color:#fff; font-size:22px; line-height:48px; text-align:center;
+                 cursor:pointer; box-shadow:0 8px 20px rgba(0,0,0,.3); transition:border-color .15s,background .15s,transform .15s; }
+    .spell-btn.active { border-color:var(--cyan); background:rgba(52,133,180,.28); transform:translateY(-3px); box-shadow:0 0 18px rgba(80,210,255,.22); }
+    .spell-btn.charging { border-color:#d9fbff; background:conic-gradient(from -90deg,var(--cyan) calc(var(--charge,0) * 1turn),rgba(16,37,54,.88) 0); }
     .spell-btn .spell-key { display:block; font-size:10px; line-height:1;
                             color:rgba(255,255,255,0.4); margin-top:-8px; }
+    #zoom-readout { opacity:.45; transition:opacity .2s; }
+    #zoom-readout:hover { opacity:1; }
+    @media (max-width:620px) {
+      #hud { max-width:calc(100vw - 20px); gap:6px; padding:6px 8px; }
+      .hud-meta { display:none; }
+      .joystick { width:104px; height:104px; }
+      #zoom-readout { display:none; }
+    }
   </style>
 </head>
 <body>
   <canvas id="game"></canvas>
-  <div id="hud">Hack Arena</div>
+  <div id="hud">
+    <span class="brand">HACK//ARENA</span>
+    <span class="hud-stat hp" id="hud-hp">♥ —</span>
+    <span class="hud-stat mana" id="hud-mana">◆ —</span>
+    <span class="hud-meta" id="hud-meta">connecting</span>
+  </div>
   <div id="zoom-readout" style="position:fixed;bottom:12px;left:50%;transform:translateX(-50%);
     font:13px ui-monospace,monospace;color:rgba(255,255,255,0.5);z-index:40;
     background:rgba(0,0,0,0.4);padding:4px 12px;border-radius:6px;
@@ -229,6 +253,7 @@ function rebuildSpellBar() {
     const btn = document.createElement('div');
     btn.className = 'spell-btn' + (i === book.activeIndex ? ' active' : '');
     btn.dataset.slot = i;
+    btn.title = `${spell.name} · ${spell.manaCost || 0} mana · hold to charge`;
     btn.innerHTML = spell.glyph + '<span class="spell-key">' + (i + 1) + '</span>';
     bar.appendChild(btn);
   });
@@ -245,6 +270,7 @@ function rebuildSpellBar() {
   });
 }
 world.on('item.pickup', () => rebuildSpellBar());
+rebuildSpellBar();
 
 const projectileFx = createProjectileFxController({ world, fx, runtimeEvents });
 
@@ -255,6 +281,9 @@ renderer = createWebGLArenaRenderer({
   presentation,
   hud: {
     hud:         document.getElementById('hud'),
+    hp:          document.getElementById('hud-hp'),
+    mana:        document.getElementById('hud-mana'),
+    meta:        document.getElementById('hud-meta'),
     readL:       document.getElementById('readout-left'),
     readR:       document.getElementById('readout-right'),
     zoomReadout: document.getElementById('zoom-readout'),
@@ -298,7 +327,13 @@ const loop = createFixedTickLoop({
     // Sync spell bar UI with active spell
     if (world.has(playerId, Spellbook)) {
       const sb = world.get(playerId, Spellbook);
-      spellBar.querySelectorAll('.spell-btn').forEach((b, i) => b.classList.toggle('active', i === sb.activeIndex));
+      spellBar.querySelectorAll('.spell-btn').forEach((b, i) => {
+        b.classList.toggle('active', i === sb.activeIndex);
+        const charging = sb.charging && i === sb.chargeSpellIndex;
+        b.classList.toggle('charging', charging);
+        const spell = spellCatalog[sb.spells[i]];
+        b.style.setProperty('--charge', charging ? Math.min(1, sb.charge / (spell?.chargeTime || 1)) : 0);
+      });
     }
   },
 });

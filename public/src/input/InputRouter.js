@@ -261,7 +261,8 @@ export function createInputRouter({
     const rect = canvas.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
-    const n = normalizeVector(mouse.x - cx, mouse.y - cy);
+    const scale = Math.max(48, Math.min(rect.width, rect.height) * 0.24);
+    const n = normalizeVector((mouse.x - cx) / scale, (mouse.y - cy) / scale);
     return { x: n.x, y: n.y, mag: n.mag };
   }
 

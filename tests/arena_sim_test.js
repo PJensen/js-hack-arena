@@ -4,8 +4,9 @@ import {
   assertEquals,
   assertThrows,
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
-import { AI, Facing, Health, Input, Position } from '../public/src/rules/components/index.js';
+import { AI, Facing, Health, Input, Mana, Position, Spellbook } from '../public/src/rules/components/index.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
+import { spawnPotion } from '../public/src/rules/spawner.js';
 import {
   SIM_DT,
   SIM_MODE,
@@ -161,13 +162,15 @@ Deno.test("arena sim: combat, projectiles, deaths, and loot are authoritative", 
   const initialHp = sim.world.get(mobId, Health).hp;
 
   sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 1 });
+  for (let i = 0; i < 5; i++) sim.step();
+  sim.setPlayerInput('peer-a', { seq: 2, aimX: 0, fire: false, spellSlot: 1 });
   sim.step();
   assert(sim.world.get(mobId, Health).hp < initialHp);
   assert(sim.captureSnapshot().events.some((event) => event.type === 'spell.bolt'));
 
-  sim.setPlayerInput('peer-a', { seq: 2, aimX: 1, fire: true, spellSlot: 0 });
+  sim.setPlayerInput('peer-a', { seq: 3, aimX: 1, fire: true, spellSlot: 0 });
   for (let i = 0; i < 13; i++) sim.step();
-  sim.setPlayerInput('peer-a', { seq: 3, aimX: 1, fire: false, spellSlot: 0 });
+  sim.setPlayerInput('peer-a', { seq: 4, aimX: 0, fire: false, spellSlot: 0 });
   for (let i = 0; i < 20; i++) sim.step();
   assert(sim.captureSnapshot().events.some((event) => event.type === 'projectile.hit'));
 
@@ -188,6 +191,8 @@ Deno.test("arena sim: replica re-emits new presentation events once", () => {
   replica.world.on('spell.bolt', () => bolts++);
 
   authority.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 1 });
+  for (let i = 0; i < 5; i++) authority.step();
+  authority.setPlayerInput('peer-a', { seq: 2, fire: false, spellSlot: 1 });
   authority.step();
   const combat = authority.captureSnapshot();
   replica.applySnapshot(combat);
@@ -214,7 +219,9 @@ Deno.test("arena sim: enemy projectiles retain faction and owner identity after 
 Deno.test("arena sim: snapshot records are versioned and validated", () => {
   const state = {
     x: 0, y: 0, vx: 0, vy: 0, facing: 0, radius: 14, hp: 100, maxHp: 100,
+    mana: 100, maxMana: 100, manaRegen: 12,
     spells: ['frost_bolt'], activeSpell: 0, cooldown: 0,
+    charge: 0, charging: false, chargeAimX: 0, chargeAimY: 0, chargeSpellIndex: 0,
     weapon: { name: 'Fists', glyph: '!', damage: 5 },
   };
   assertThrows(() => normalizeSnapshot({ version: 999, tick: 0, entities: [] }));
@@ -235,4 +242,39 @@ Deno.test("arena sim: snapshot records are versioned and validated", () => {
     events: [],
     entities: [{ id: 'player:a', kind: 'player', owner: 'a', inputSeq: 0, state: { ...state, x: Infinity } }],
   }));
+});
+
+Deno.test("arena sim: charged spells spend mana and mana regenerates", () => {
+  const sim = makeOpenSim(900, { enemyCount: 0 });
+  const playerId = sim.addPlayer('peer-a');
+  const mana = sim.world.get(playerId, Mana);
+  const book = sim.world.get(playerId, Spellbook);
+
+  sim.setPlayerInput('peer-a', { seq: 1, aimX: 0.5, fire: true, spellSlot: 0 });
+  for (let i = 0; i < 6; i++) sim.step();
+  assert(book.charging);
+  assert(book.charge > 0);
+  sim.setPlayerInput('peer-a', { seq: 2, fire: false });
+  sim.step();
+  assertEquals(book.charging, false);
+  assert(mana.mana < mana.maxMana);
+
+  const afterCast = mana.mana;
+  for (let i = 0; i < 10; i++) sim.step();
+  assert(mana.mana > afterCast);
+});
+
+Deno.test("arena sim: health pickups heal injuries and wait when health is full", () => {
+  const sim = makeOpenSim(901, { enemyCount: 0 });
+  const playerId = sim.addPlayer('peer-a');
+  const position = sim.world.get(playerId, Position);
+  const health = sim.world.get(playerId, Health);
+  const potionId = spawnPotion(sim.world, position.x, position.y, 25);
+
+  sim.step();
+  assert(sim.world.alive.has(potionId));
+  health.hp = 60;
+  sim.step();
+  assertEquals(health.hp, 85);
+  assertEquals(sim.world.alive.has(potionId), false);
 });

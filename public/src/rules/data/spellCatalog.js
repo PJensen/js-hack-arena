@@ -9,6 +9,8 @@ export const spells = {
     name: 'Frost Bolt',
     glyph: '\u2744',  // ❄
     cooldown: 0.25,
+    manaCost: 12,
+    chargeTime: 1.0,
     damage: 15,
     speed: 320,
     radius: 5,
@@ -22,6 +24,8 @@ export const spells = {
     name: 'Arrow',
     glyph: '\u2192',  // →
     cooldown: 0.18,
+    manaCost: 0,
+    chargeTime: 0.7,
     damage: 10,
     speed: 450,
     radius: 3,
@@ -35,6 +39,8 @@ export const spells = {
     name: 'Lightning',
     glyph: '\u26A1',  // ⚡
     cooldown: 0.6,
+    manaCost: 28,
+    chargeTime: 1.25,
     damage: 25,
     range: 280,         // max range to first target
     chainRadius: 120,   // max hop distance between targets

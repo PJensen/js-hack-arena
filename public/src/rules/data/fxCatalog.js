@@ -85,3 +85,16 @@ export function deathBurst(color) {
     alpha0: 0.9, alpha1: 0.0,
   };
 }
+
+export function bloodSplatter() {
+  return {
+    continuous: false, burstCount: 12,
+    angle: 0, spread: Math.PI,
+    speed: 52, speedJitter: 0.8,
+    ax: 0, ay: 45,
+    life: 0.7, lifeJitter: 0.45,
+    size: 4, sizeEnd: 1.5,
+    color: '#b51f3d',
+    alpha0: 0.9, alpha1: 0.08,
+  };
+}

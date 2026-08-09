@@ -2,7 +2,7 @@
 // Entity creation helpers. Creates entities with the right component bundles.
 // No display logic. Pure ECS.
 
-import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, FOV, PointLight, AI, AIBehavior, Inventory, Projectile, Lifetime, Spellbook, SpellId, ItemInfo, Consumable, GroundItem, MeleeWeapon } from './components/index.js';
+import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, Mana, FOV, PointLight, AI, AIBehavior, Inventory, Projectile, Lifetime, Spellbook, SpellId, ItemInfo, Consumable, GroundItem, MeleeWeapon } from './components/index.js';
 
 /**
  * Find open ground near a point using the grid.
@@ -30,6 +30,7 @@ export function spawnPlayer(world, x, y) {
   world.add(id, Input);
   world.add(id, Actor,    { kind: ActorKind.PLAYER, name: 'Player', glyph: '@' });
   world.add(id, Health,   { hp: 100, maxHp: 100 });
+  world.add(id, Mana,     { mana: 100, maxMana: 100, regenPerSecond: 12 });
   world.add(id, FOV,      { distance: 220, angle: 1.4 });
   world.add(id, PointLight, { radius: 350, r: 255, g: 190, b: 120 });
   world.add(id, Inventory, { items: [], capacity: 10 });
@@ -38,6 +39,8 @@ export function spawnPlayer(world, x, y) {
     spells: [SpellId.FROST_BOLT, SpellId.LIGHTNING ],
     activeIndex: 0,
     cooldown: 0,
+    charge: 0,
+    charging: false,
   });
   return id;
 }
@@ -55,6 +58,7 @@ export function spawnCaster(world, grid, nearX, nearY, targetId) {
   world.add(id, Speed,    { max: 80 });
   world.add(id, Actor,    { kind: ActorKind.MOB, name: 'Wraith', glyph: 'W' });
   world.add(id, Health,   { hp: 60, maxHp: 60 });
+  world.add(id, Mana,     { mana: 50, maxMana: 50, regenPerSecond: 8 });
   world.add(id, AI, {
     behavior: AIBehavior.CASTER,
     target: targetId,

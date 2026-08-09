@@ -6,6 +6,7 @@ import {
   FROST_TRAIL,
   SHADOW_TRAIL,
   deathBurst,
+  bloodSplatter,
   impactBurst,
   spellTrail,
   wallBurst,
@@ -22,6 +23,7 @@ export function createProjectileFxController({ world, fx, runtimeEvents }) {
   world.on('spell.cast', () => {
     runtimeEvents.casts += 1;
   });
+  world.on('melee.hit', (event) => burst(event, bloodSplatter()));
 
   function burst(event, preset) {
     const key = `burst:${event.sequence ?? performance.now()}:${event.x}:${event.y}`;

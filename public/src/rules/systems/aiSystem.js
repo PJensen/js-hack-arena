@@ -1,5 +1,5 @@
 // rules/systems/aiSystem.js — AI pathing, LOS, tactical behaviour, projectile spawning
-import { Position, Velocity, Speed, Facing, AI, Collider, Projectile, Lifetime } from '../components/index.js';
+import { Position, Velocity, Speed, Facing, AI, Collider, Projectile, Lifetime, Mana } from '../components/index.js';
 import { moveWithSlide } from '../geometry/sweep.js';
 import { astar } from '../ai/pathfind.js';
 
@@ -55,8 +55,11 @@ export function createAISystem(ctx) {
 
         // Cast
         ai.castCooldown -= dt;
-        if (ai.castCooldown <= 0) {
+        const mana = world.get(id, Mana);
+        const manaCost = 10;
+        if (ai.castCooldown <= 0 && (!mana || mana.mana >= manaCost)) {
           ai.castCooldown = ai.castRate;
+          if (mana) mana.mana -= manaCost;
           const angle = Math.atan2(dy, dx);
           const boltId = world.create();
           world.add(boltId, Position,   { x: pos.x + Math.cos(angle) * 18, y: pos.y + Math.sin(angle) * 18 });

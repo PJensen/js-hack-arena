@@ -4,6 +4,7 @@ export { Velocity } from './Velocity.js';
 export { Facing } from './Facing.js';
 export { Collider } from './Collider.js';
 export { Health } from './Health.js';
+export { Mana } from './Mana.js';
 export { Speed } from './Speed.js';
 export { Input } from './Input.js';
 export { Actor, ActorKind } from './Actor.js';
