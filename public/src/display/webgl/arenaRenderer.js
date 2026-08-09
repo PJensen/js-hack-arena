@@ -659,9 +659,8 @@ export function createWebGLArenaRenderer(deps) {
     for (const mushroom of decorations?.mushrooms || []) {
       if (!inView(mushroom.x, mushroom.y, 25)) continue;
       const sway = Math.sin(now * 1.8 + mushroom.phase) * 1.2;
-      drawLines(new Float32Array([mushroom.x, mushroom.y + 2, mushroom.x + sway, mushroom.y - mushroom.size]), [0.38, 0.7, 0.58, 0.75], 2);
-      drawElementOrb(mushroom.theme, mushroom.x + sway, mushroom.y - mushroom.size, mushroom.size, now + mushroom.phase, 0.7);
-      drawGlyph('♠', mushroom.x + sway, mushroom.y - mushroom.size, mushroom.size * 1.45, [0.78, 1, 0.88, 0.74]);
+      const pulse = 0.94 + Math.sin(now * 2.2 + mushroom.phase) * 0.06;
+      drawGlyph('🍄', mushroom.x + sway, mushroom.y - mushroom.size * 0.45, mushroom.size * 2.35 * pulse, [1, 1, 1, 0.96]);
     }
     for (const torch of decorations?.torches || []) {
       if (!inView(torch.x, torch.y, 45)) continue;
