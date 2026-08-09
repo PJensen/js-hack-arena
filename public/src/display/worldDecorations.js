@@ -1,9 +1,8 @@
 // Deterministic, presentation-only dungeon dressing. Route torches are both
-// landmarks and breadcrumbs; mushrooms form small bioluminescent micro-biomes.
+// landmarks and breadcrumbs.
 export function createDungeonDecorations({ grid, routes = [], spawns = [], seed = 1 }) {
   const rng = mulberry32(seed ^ 0x51a7f00d);
   const torches = [];
-  const mushrooms = [];
   const torchKeys = new Set();
 
   const placeTorch = (x, y, routeIndex = -1) => {
@@ -23,22 +22,7 @@ export function createDungeonDecorations({ grid, routes = [], spawns = [], seed 
     route.points.forEach((point) => placeTorch(point.x, point.y, routeIndex));
   });
 
-  // Cluster mushrooms into broad zones instead of uniform visual noise.
-  const clusterCount = Math.max(10, Math.round((grid.width * grid.height) / 600000));
-  for (let cluster = 0; cluster < clusterCount; cluster++) {
-    const center = findOpen(grid, 120 + rng() * (grid.width - 240), 120 + rng() * (grid.height - 240), 180);
-    if (!center) continue;
-    const hue = ['frost', 'shadow', 'electric'][cluster % 3];
-    const count = 4 + Math.floor(rng() * 8);
-    for (let index = 0; index < count; index++) {
-      const angle = rng() * Math.PI * 2;
-      const distance = 8 + rng() * 62;
-      const open = findOpen(grid, center.x + Math.cos(angle) * distance, center.y + Math.sin(angle) * distance, 25);
-      if (!open) continue;
-      mushrooms.push({ ...open, theme: hue, size: 4 + rng() * 4, phase: rng() * Math.PI * 2 });
-    }
-  }
-  return Object.freeze({ torches: Object.freeze(torches), mushrooms: Object.freeze(mushrooms) });
+  return Object.freeze({ torches: Object.freeze(torches) });
 }
 
 function findOpen(grid, x, y, radius) {

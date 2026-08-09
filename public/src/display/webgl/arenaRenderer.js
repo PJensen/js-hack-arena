@@ -530,12 +530,6 @@ export function createWebGLArenaRenderer(deps) {
         r: 1, g: 0.42, b: 0.11, distance,
       });
     }
-    for (const mushroom of decorations?.mushrooms || []) {
-      const distance = Math.hypot(mushroom.x - shownPlayer.x, mushroom.y - shownPlayer.y);
-      if (distance > 300 + Math.max(view[2], view[3]) * 0.75) continue;
-      const color = mushroom.theme === 'shadow' ? [0.58, 0.12, 0.95] : mushroom.theme === 'electric' ? [0.12, 0.52, 1] : [0.12, 0.82, 0.72];
-      candidates.push({ x: mushroom.x, y: mushroom.y, radius: 72, intensity: 0.38, r: color[0], g: color[1], b: color[2], distance });
-    }
     for (const bolt of bolts) {
       const alpha = Math.max(0, 1 - bolt.age / bolt.duration);
       const dx = bolt.toX - bolt.fromX;
@@ -656,12 +650,6 @@ export function createWebGLArenaRenderer(deps) {
   }
 
   function drawDungeonDecorations(now) {
-    for (const mushroom of decorations?.mushrooms || []) {
-      if (!inView(mushroom.x, mushroom.y, 25)) continue;
-      const sway = Math.sin(now * 1.8 + mushroom.phase) * 1.2;
-      const pulse = 0.94 + Math.sin(now * 2.2 + mushroom.phase) * 0.06;
-      drawGlyph('🍄', mushroom.x + sway, mushroom.y - mushroom.size * 0.45, mushroom.size * 2.35 * pulse, [1, 1, 1, 0.96]);
-    }
     for (const torch of decorations?.torches || []) {
       if (!inView(torch.x, torch.y, 45)) continue;
       const flicker = 0.5 + 0.5 * Math.sin(now * 11 + torch.phase);
