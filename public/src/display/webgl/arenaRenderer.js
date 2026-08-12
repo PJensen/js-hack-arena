@@ -528,7 +528,7 @@ export function createWebGLArenaRenderer(deps) {
       if (distance > 520 + Math.max(view[2], view[3]) * 0.75) continue;
       candidates.push({
         x: torch.x, y: torch.y - 12, radius: 390,
-        intensity: 1.55 + 0.24 * Math.sin(now * 9 + torch.phase),
+        intensity: 1.48 + 0.34 * torchFlicker(now, torch.phase),
         r: 1, g: 0.48, b: 0.14, distance,
       });
     }
@@ -651,6 +651,14 @@ export function createWebGLArenaRenderer(deps) {
     return Math.abs(x - view[0]) <= view[2] * 0.5 + margin && Math.abs(y - view[1]) <= view[3] * 0.5 + margin;
   }
 
+  // Real flames drift, flare, and settle on overlapping time scales. Keeping
+  // these frequencies low avoids the electronic strobe of a single fast sine.
+  function torchFlicker(now, phase) {
+    return 0.52 * Math.sin(now * 0.72 + phase) +
+      0.30 * Math.sin(now * 1.31 + phase * 1.73) +
+      0.18 * Math.sin(now * 2.17 + phase * 0.61);
+  }
+
   function spawnTorchParticle(torch, now, hot) {
     const sequence = ++torchParticleSequence;
     const noise = Math.sin(sequence * 91.73 + torch.phase * 17.1) * 43758.5453;
@@ -659,7 +667,7 @@ export function createWebGLArenaRenderer(deps) {
     fx.pool.spawn({
       x: torch.x + (random * 2 - 1) * 2.8,
       y: torch.y - 13,
-      vx: (random * 2 - 1) * (hot ? 7 : 13) + Math.sin(now * 4 + torch.phase) * 3,
+      vx: (random * 2 - 1) * (hot ? 7 : 13) + Math.sin(now * 1.15 + torch.phase) * 3,
       vy: -(hot ? 20 : 30) - random * 18,
       ax: Math.sin(torch.phase + sequence) * 5,
       ay: -7,
@@ -680,7 +688,6 @@ export function createWebGLArenaRenderer(deps) {
     if (emitParticles) torchParticleAccumulator %= 0.055;
     for (const torch of decorations?.torches || []) {
       if (!inView(torch.x, torch.y, 45)) continue;
-      const flicker = 0.5 + 0.5 * Math.sin(now * 11 + torch.phase);
       drawLines(new Float32Array([torch.x, torch.y + 10, torch.x, torch.y - 7]), [0.34, 0.19, 0.08, 1], 4);
       if (emitParticles) {
         spawnTorchParticle(torch, now, true);
@@ -695,7 +702,7 @@ export function createWebGLArenaRenderer(deps) {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     for (const torch of decorations?.torches || []) {
       if (!inView(torch.x, torch.y, 90)) continue;
-      const flicker = 0.5 + 0.5 * Math.sin(now * 11 + torch.phase);
+      const flicker = 0.5 + 0.5 * torchFlicker(now, torch.phase);
       drawDisc(torch.x, torch.y - 12, 30 + flicker * 5, [1, 0.18, 0.015, 0.018], [1, 0.38, 0.035, 0.035]);
       drawDisc(torch.x, torch.y - 12, 10 + flicker * 2, [1, 0.2, 0.02, 0.16], [1, 0.58, 0.08, 0.36]);
       drawDisc(torch.x, torch.y - 13, 3.5 + flicker, [1, 0.88, 0.38, 0.98], [1, 1, 0.74, 1]);

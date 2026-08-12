@@ -1,8 +1,6 @@
 // rules/geometry/caveGen.js
-// Procedural cave generation — pure Perlin SDF baked to a grid.
-// The noise field IS the geometry. No carve primitives.
-
-// ── Perlin noise (2D, self-contained) ──────────────────────────
+// Natural cave generation: grow a connected, branching cave skeleton, then
+// erode its chambers and passages with coherent noise before baking clearance.
 
 export function mulberry32(seed) {
   let t = seed >>> 0;
@@ -20,30 +18,35 @@ function buildPermutation(rng) {
   for (let i = 0; i < 256; i++) base[i] = i;
   for (let i = 255; i > 0; i--) {
     const j = (rng() * (i + 1)) | 0;
-    const tmp = base[i]; base[i] = base[j]; base[j] = tmp;
+    [base[i], base[j]] = [base[j], base[i]];
   }
-  for (let i = 0; i < 256; i++) { p[i] = base[i]; p[i + 256] = base[i]; }
+  for (let i = 0; i < 256; i++) p[i] = p[i + 256] = base[i];
   return p;
 }
 
-const GRAD2 = [[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]];
+const GRAD2 = [[1, 1], [-1, 1], [1, -1], [-1, -1], [1, 0], [-1, 0], [0, 1], [
+  0,
+  -1,
+]];
 
 export function createPerlin2D(seed) {
-  const rng = mulberry32(seed);
-  const perm = buildPermutation(rng);
-  function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
-  function lerp(a, b, t) { return a + t * (b - a); }
+  const perm = buildPermutation(mulberry32(seed));
+  const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+  const lerp = (a, b, t) => a + t * (b - a);
   return function noise(x, y) {
     const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
     const xf = x - Math.floor(x), yf = y - Math.floor(y);
     const u = fade(xf), v = fade(yf);
+    const dot = (hash, fx, fy) => {
+      const g = GRAD2[hash & 7];
+      return g[0] * fx + g[1] * fy;
+    };
     const aa = perm[perm[X] + Y], ab = perm[perm[X] + Y + 1];
     const ba = perm[perm[X + 1] + Y], bb = perm[perm[X + 1] + Y + 1];
-    function dot(hash, fx, fy) { const g = GRAD2[hash & 7]; return g[0] * fx + g[1] * fy; }
     return lerp(
-      lerp(dot(aa, xf, yf),     dot(ba, xf - 1, yf),     u),
+      lerp(dot(aa, xf, yf), dot(ba, xf - 1, yf), u),
       lerp(dot(ab, xf, yf - 1), dot(bb, xf - 1, yf - 1), u),
-      v
+      v,
     );
   };
 }
@@ -59,212 +62,246 @@ export function fbm(noise, x, y, octaves = 4, lacunarity = 2, gain = 0.5) {
   return sum / max;
 }
 
-// ── Cave profiles ──────────────────────────────────────────────
-
+// Morphology, rather than arbitrary open-space thresholds. Passage widths are
+// intentionally substantial: walls should dominate the map without becoming
+// frustrating to navigate.
 export const CaveProfile = Object.freeze({
   CAVERNS: {
-    // Dual-layer: caverns (low freq) + tunnels (high freq)
-    cavern:  { threshold: -0.12, octaves: 3, scale: 0.005 },  // big open rooms
-    tunnel:  { threshold:  0.02, octaves: 5, scale: 0.018 },  // narrow winding paths
+    chamberRadius: [92, 180],
+    passageRadius: [34, 58],
+    branchiness: 0.42,
+    turn: 0.65,
   },
   TUNNELS: {
-    cavern:  { threshold: 0.05, octaves: 4, scale: 0.008 },
-    tunnel:  { threshold: 0.06, octaves: 6, scale: 0.025 },
+    chamberRadius: [64, 112],
+    passageRadius: [26, 42],
+    branchiness: 0.28,
+    turn: 0.82,
   },
   GROTTOS: {
-    cavern:  { threshold: -0.20, octaves: 3, scale: 0.004 },
-    tunnel:  { threshold: -0.05, octaves: 4, scale: 0.014 },
+    chamberRadius: [120, 220],
+    passageRadius: [38, 68],
+    branchiness: 0.34,
+    turn: 0.52,
   },
   WARRENS: {
-    cavern:  { threshold: 0.05, octaves: 4, scale: 0.012 },
-    tunnel:  { threshold: 0.10, octaves: 6, scale: 0.030 },
+    chamberRadius: [52, 92],
+    passageRadius: [23, 36],
+    branchiness: 0.62,
+    turn: 0.95,
   },
 });
 
-// ── Grid bake (inline to avoid circular deps with caveGrid.js) ─
+const mix = (a, b, t) => a + (b - a) * t;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-function bakeGrid(seed, width, height, profile, cellSize) {
-  // Two noise fields from different seeds for independence
-  const noiseCavern = createPerlin2D(seed);
-  const noiseTunnel = createPerlin2D(seed ^ 0x7F3A);
+function growTopology(seed, width, height, profile) {
+  const rng = mulberry32(seed ^ 0xC4A9E5);
+  const margin = Math.min(180, Math.min(width, height) * 0.14);
+  const root = {
+    x: width * (0.46 + rng() * 0.08),
+    y: height * (0.46 + rng() * 0.08),
+    depth: 0,
+  };
+  const chambers = [{
+    ...root,
+    r: mix(...profile.chamberRadius, rng()),
+    aspect: mix(0.72, 1.3, rng()),
+    angle: rng() * Math.PI,
+  }];
+  const routes = [];
+  const frontier = [{ node: root, angle: rng() * Math.PI * 2, depth: 0 }];
+  const target = clamp(Math.round(Math.min(width, height) / 270), 4, 15);
 
-  const cols = Math.ceil(width / cellSize) + 1;
-  const rows = Math.ceil(height / cellSize) + 1;
-  const total = cols * rows;
-  const moveGrid = new Float32Array(total);
-  const densityGrid = new Float32Array(total);
-
-  const cav = profile.cavern;
-  const tun = profile.tunnel;
-  const margin = 80;
-
-  for (let gy = 0; gy < rows; gy++) {
-    const wy = gy * cellSize;
-    const rowOff = gy * cols;
-    for (let gx = 0; gx < cols; gx++) {
-      const wx = gx * cellSize;
-
-      // Edge fade — force solid near world boundaries
-      const edgeDist = Math.min(wx - margin, width - margin - wx,
-                                wy - margin, height - margin - wy);
-      const edgeFade = Math.max(0, Math.min(1, edgeDist / (margin * 2)));
-
-      // Cavern layer: low freq, big open rooms
-      const nc = fbm(noiseCavern, wx * cav.scale, wy * cav.scale, cav.octaves);
-      const vc = nc * edgeFade - cav.threshold;
-
-      // Tunnel layer: high freq, narrow winding paths
-      const nt = fbm(noiseTunnel, wx * tun.scale, wy * tun.scale, tun.octaves);
-      const vt = nt * edgeFade - tun.threshold;
-
-      // Open if EITHER layer says so (max = union)
-      const val = Math.max(vc, vt);
-      densityGrid[rowOff + gx] = val;
-      moveGrid[rowOff + gx] = val > 0 ? val * 200 : 0;
+  while (frontier.length && chambers.length < target) {
+    const current = frontier.shift();
+    const children = current.depth === 0
+      ? 3
+      : (rng() < profile.branchiness ? 2 : 1);
+    for (let child = 0; child < children && chambers.length < target; child++) {
+      let angle = current.angle + (rng() - 0.5) * profile.turn +
+        (children > 1 ? (child - (children - 1) / 2) * 1.05 : 0);
+      const length = mix(250, 470, rng());
+      let x = current.node.x, y = current.node.y;
+      const points = [{ x, y }];
+      const steps = Math.max(4, Math.round(length / 55));
+      for (let step = 1; step <= steps; step++) {
+        angle += (rng() - 0.5) * profile.turn * 0.28;
+        const stride = length / steps;
+        x = clamp(x + Math.cos(angle) * stride, margin, width - margin);
+        y = clamp(y + Math.sin(angle) * stride, margin, height - margin);
+        points.push({ x, y });
+      }
+      // Reject branches that fold back into an existing chamber; this leaves
+      // readable wall masses between neighboring limbs.
+      if (
+        chambers.some((room, index) =>
+          index > 0 && Math.hypot(room.x - x, room.y - y) < room.r * 1.35
+        )
+      ) continue;
+      const node = { x, y, depth: current.depth + 1 };
+      const radius = mix(...profile.chamberRadius, rng()) *
+        (rng() < 0.22 ? 1.3 : 1);
+      chambers.push({
+        ...node,
+        r: radius,
+        aspect: mix(0.68, 1.35, rng()),
+        angle: angle + (rng() - 0.5),
+      });
+      routes.push({
+        from: { x: current.node.x, y: current.node.y },
+        to: { x, y },
+        points,
+        radius: mix(...profile.passageRadius, rng()),
+      });
+      frontier.push({ node, angle, depth: current.depth + 1 });
     }
   }
-
-  const invCell = 1 / cellSize;
-
-  function distanceMove(px, py) {
-    const fx = px * invCell;
-    const fy = py * invCell;
-    const gx = Math.floor(fx);
-    const gy = Math.floor(fy);
-    if (gx < 0 || gy < 0 || gx >= cols - 1 || gy >= rows - 1) return 0;
-
-    const tx = fx - gx;
-    const ty = fy - gy;
-    const i00 = gy * cols + gx;
-    const i10 = i00 + 1;
-    const i01 = i00 + cols;
-    const i11 = i01 + 1;
-
-    const top    = moveGrid[i00] * (1 - tx) + moveGrid[i10] * tx;
-    const bottom = moveGrid[i01] * (1 - tx) + moveGrid[i11] * tx;
-    return top * (1 - ty) + bottom * ty;
-  }
-
-  return { distanceMove, cellSize, cols, rows, width, height, moveGrid, densityGrid };
+  return { chambers, routes };
 }
 
-// ── Spawn finding ──────────────────────────────────────────────
+function distanceToSegment(px, py, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const t = clamp(
+    ((px - a.x) * dx + (py - a.y) * dy) / (dx * dx + dy * dy || 1),
+    0,
+    1,
+  );
+  return Math.hypot(px - a.x - dx * t, py - a.y - dy * t);
+}
 
-function findSpawns(grid, width, height, count, minSpacing) {
-  const spawns = [];
-  const cx = width / 2, cy = height / 2;
-  const candidates = [];
-  const step = grid.cellSize * 4;
+function bakeGrid(seed, width, height, topology, cellSize) {
+  const cols = Math.ceil(width / cellSize) + 1,
+    rows = Math.ceil(height / cellSize) + 1;
+  const densityGrid = new Float32Array(cols * rows);
+  const moveGrid = new Float32Array(cols * rows);
+  densityGrid.fill(-120);
+  const boundaryNoise = createPerlin2D(seed ^ 0x71F04D);
+  const detailNoise = createPerlin2D(seed ^ 0xB52AC1);
+  const segments = topology.routes.flatMap((route) =>
+    route.points.slice(1).map((point, i) => ({
+      a: route.points[i],
+      b: point,
+      radius: route.radius *
+        mix(0.86, 1.14, i / Math.max(1, route.points.length - 2)),
+    }))
+  );
 
-  for (let y = 100; y < height - 100; y += step) {
-    for (let x = 100; x < width - 100; x += step) {
-      const d = grid.distanceMove(x, y);
-      if (d >= 20) {
-        candidates.push({ x, y, clearance: d, dc: Math.hypot(x - cx, y - cy) });
+  function visitBounds(minX, minY, maxX, maxY, sample) {
+    const fromX = clamp(Math.floor(minX / cellSize), 0, cols - 1);
+    const toX = clamp(Math.ceil(maxX / cellSize), 0, cols - 1);
+    const fromY = clamp(Math.floor(minY / cellSize), 0, rows - 1);
+    const toY = clamp(Math.ceil(maxY / cellSize), 0, rows - 1);
+    for (let gy = fromY; gy <= toY; gy++) {
+      for (let gx = fromX; gx <= toX; gx++) {
+        const index = gy * cols + gx;
+        densityGrid[index] = Math.max(
+          densityGrid[index],
+          sample(gx * cellSize, gy * cellSize),
+        );
       }
     }
   }
 
-  candidates.sort((a, b) => b.clearance - a.clearance || a.dc - b.dc);
-
-  for (const c of candidates) {
-    if (spawns.length >= count) break;
-    let ok = true;
-    for (const s of spawns) {
-      if (Math.hypot(s.x - c.x, s.y - c.y) < minSpacing) { ok = false; break; }
-    }
-    if (ok) spawns.push({ x: c.x, y: c.y });
+  for (const room of topology.chambers) {
+    const reach = room.r * Math.max(room.aspect, 1 / room.aspect) + 36;
+    visitBounds(
+      room.x - reach,
+      room.y - reach,
+      room.x + reach,
+      room.y + reach,
+      (x, y) => {
+        const cs = Math.cos(room.angle), sn = Math.sin(room.angle);
+        const dx = x - room.x, dy = y - room.y;
+        const localX = (dx * cs + dy * sn) / room.aspect;
+        const localY = (-dx * sn + dy * cs) * room.aspect;
+        return room.r - Math.hypot(localX, localY);
+      },
+    );
+  }
+  for (const segment of segments) {
+    const reach = segment.radius + 36;
+    visitBounds(
+      Math.min(segment.a.x, segment.b.x) - reach,
+      Math.min(segment.a.y, segment.b.y) - reach,
+      Math.max(segment.a.x, segment.b.x) + reach,
+      Math.max(segment.a.y, segment.b.y) + reach,
+      (x, y) => segment.radius - distanceToSegment(x, y, segment.a, segment.b),
+    );
   }
 
-  if (spawns.length === 0) spawns.push({ x: cx, y: cy });
-  return spawns;
-}
-
-// Join every remote spawn to the central chamber with a broad, gently curved
-// route. Noise still authors the rooms; these routes guarantee the expanded
-// dungeon remains traversable and give torch chains a dependable backbone.
-function connectSpawns(grid, spawns, seed) {
-  if (spawns.length < 2) return [];
-  const routes = [];
-  const hub = spawns[0];
-  for (let index = 1; index < spawns.length; index++) {
-    const destination = spawns[index];
-    const dx = destination.x - hub.x;
-    const dy = destination.y - hub.y;
-    const length = Math.hypot(dx, dy) || 1;
-    const nx = -dy / length;
-    const ny = dx / length;
-    const bend = Math.sin((seed + index * 8191) * 0.013) * Math.min(150, length * 0.12);
-    const points = [];
-    const steps = Math.max(2, Math.ceil(length / (grid.cellSize * 0.75)));
-    const routeStep = length / steps;
-    const landmarkStride = Math.max(1, Math.round(360 / routeStep));
-    for (let step = 0; step <= steps; step++) {
-      const t = step / steps;
-      const curve = Math.sin(t * Math.PI) * bend;
-      const x = hub.x + dx * t + nx * curve;
-      const y = hub.y + dy * t + ny * curve;
-      if (step % landmarkStride === 0 || step === steps) points.push({ x, y });
-      carveOpenCell(grid, x, y, 30);
-    }
-    routes.push({ from: { ...hub }, to: { ...destination }, points });
-  }
-  return routes;
-}
-
-function carveOpenCell(grid, x, y, radius) {
-  const gx = Math.round(x / grid.cellSize);
-  const gy = Math.round(y / grid.cellSize);
-  const cells = Math.ceil(radius / grid.cellSize);
-  for (let oy = -cells; oy <= cells; oy++) {
-    for (let ox = -cells; ox <= cells; ox++) {
-      const distance = Math.hypot(ox, oy) * grid.cellSize;
-      if (distance > radius) continue;
-      const sx = gx + ox;
-      const sy = gy + oy;
-      if (sx <= 1 || sy <= 1 || sx >= grid.cols - 2 || sy >= grid.rows - 2) continue;
-      const offset = sy * grid.cols + sx;
-      const clearance = 25 + (radius - distance) * 0.35;
-      grid.moveGrid[offset] = Math.max(grid.moveGrid[offset], clearance);
-      grid.densityGrid[offset] = Math.max(grid.densityGrid[offset], clearance / 200);
+  for (let gy = 0; gy < rows; gy++) {
+    const y = gy * cellSize;
+    for (let gx = 0; gx < cols; gx++) {
+      const x = gx * cellSize;
+      let field = densityGrid[gy * cols + gx];
+      // Broad strata make walls swell and recede; fine erosion roughens edges.
+      const erosion = fbm(boundaryNoise, x * 0.006, y * 0.006, 3) * 25 +
+        detailNoise(x * 0.021, y * 0.021) * 7;
+      const edge = Math.min(x, y, width - x, height - y);
+      field = Math.min(field + erosion, edge - 70);
+      densityGrid[gy * cols + gx] = field / 90;
+      moveGrid[gy * cols + gx] = field > 0 ? field : 0;
     }
   }
+
+  const invCell = 1 / cellSize;
+  function distanceMove(px, py) {
+    const fx = px * invCell,
+      fy = py * invCell,
+      gx = Math.floor(fx),
+      gy = Math.floor(fy);
+    if (gx < 0 || gy < 0 || gx >= cols - 1 || gy >= rows - 1) return 0;
+    const tx = fx - gx, ty = fy - gy, i = gy * cols + gx;
+    const top = mix(moveGrid[i], moveGrid[i + 1], tx);
+    const bottom = mix(moveGrid[i + cols], moveGrid[i + cols + 1], tx);
+    return mix(top, bottom, ty);
+  }
+  return {
+    distanceMove,
+    cellSize,
+    cols,
+    rows,
+    width,
+    height,
+    moveGrid,
+    densityGrid,
+  };
 }
 
-// ── Main entry ─────────────────────────────────────────────────
-
-/**
- * Generate a cave — pure Perlin noise baked to a grid.
- *
- * @param {object}  opts
- * @param {number}  opts.seed
- * @param {number}  [opts.width=4000]
- * @param {number}  [opts.height=4000]
- * @param {object}  [opts.profile=CaveProfile.CAVERNS]
- * @param {number}  [opts.cellSize=4]
- * @param {number}  [opts.spawnCount=4]
- * @param {number}  [opts.spawnSpacing=400]
- * @returns {{ grid, bounds, spawns, routes }}
- */
-export function generateCave(opts) {
+export function generateCave(opts = {}) {
   const {
-    seed         = 42,
-    width        = 4000,
-    height       = 4000,
-    profile      = CaveProfile.CAVERNS,
-    cellSize     = 4,
-    spawnCount   = 4,
+    seed = 42,
+    width = 4000,
+    height = 4000,
+    profile = CaveProfile.CAVERNS,
+    cellSize = 4,
+    spawnCount = 4,
     spawnSpacing = 400,
   } = opts;
-
-  const grid = bakeGrid(seed, width, height, profile, cellSize);
-  const spawns = findSpawns(grid, width, height, spawnCount, spawnSpacing);
-  const routes = connectSpawns(grid, spawns, seed);
-
-  return {
-    grid,
-    bounds: { w: width, h: height },
-    spawns,
-    routes,
-  };
+  const topology = growTopology(seed, width, height, profile);
+  const grid = bakeGrid(seed, width, height, topology, cellSize);
+  const candidates = [...topology.chambers].sort((a, b) => b.r - a.r);
+  const spawns = [];
+  for (const room of candidates) {
+    if (spawns.length >= spawnCount) break;
+    if (grid.distanceMove(room.x, room.y) < 20) continue;
+    if (
+      spawns.every((spawn) =>
+        Math.hypot(spawn.x - room.x, spawn.y - room.y) >= spawnSpacing
+      )
+    ) spawns.push({ x: room.x, y: room.y });
+  }
+  if (!spawns.length) {
+    spawns.push({ x: topology.chambers[0].x, y: topology.chambers[0].y });
+  }
+  // Decoration landmarks are sparse samples; the complete curved route remains
+  // encoded by the floor itself.
+  const routes = topology.routes.map((route) => ({
+    ...route,
+    points: route.points.filter((_, i) =>
+      i === 0 || i === route.points.length - 1 || i % 6 === 0
+    ),
+  }));
+  return { grid, bounds: { w: width, h: height }, spawns, routes };
 }
