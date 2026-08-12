@@ -682,15 +682,25 @@ export function createWebGLArenaRenderer(deps) {
       if (!inView(torch.x, torch.y, 45)) continue;
       const flicker = 0.5 + 0.5 * Math.sin(now * 11 + torch.phase);
       drawLines(new Float32Array([torch.x, torch.y + 10, torch.x, torch.y - 7]), [0.34, 0.19, 0.08, 1], 4);
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-      drawDisc(torch.x, torch.y - 12, 8 + flicker * 1.8, [1, 0.18, 0.02, 0.14], [1, 0.55, 0.08, 0.28]);
-      drawDisc(torch.x, torch.y - 13, 3.2 + flicker, [1, 0.86, 0.35, 0.92], [1, 0.98, 0.7, 1]);
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       if (emitParticles) {
         spawnTorchParticle(torch, now, true);
         spawnTorchParticle(torch, now, false);
       }
     }
+  }
+
+  // Draw after darkness composition so flames remain emissive. The broad,
+  // low-alpha halo visually joins the flame to its actual dynamic light pool.
+  function drawTorchEmission(now) {
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    for (const torch of decorations?.torches || []) {
+      if (!inView(torch.x, torch.y, 90)) continue;
+      const flicker = 0.5 + 0.5 * Math.sin(now * 11 + torch.phase);
+      drawDisc(torch.x, torch.y - 12, 30 + flicker * 5, [1, 0.18, 0.015, 0.018], [1, 0.38, 0.035, 0.035]);
+      drawDisc(torch.x, torch.y - 12, 10 + flicker * 2, [1, 0.2, 0.02, 0.16], [1, 0.58, 0.08, 0.36]);
+      drawDisc(torch.x, torch.y - 13, 3.5 + flicker, [1, 0.88, 0.38, 0.98], [1, 1, 0.74, 1]);
+    }
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
   function drawChargeAnimation(book, position, collider, now) {
@@ -858,6 +868,7 @@ export function createWebGLArenaRenderer(deps) {
     // Lighting is a full-world GPU composition pass. Everything except the
     // intentionally luminous VFX and HUD participates in darkness and color.
     drawLighting(collectLights(now, shownPlayer));
+    drawTorchEmission(now);
 
     // Ground powerups use clean rings rather than the elemental status shader.
     // The animated shader remains reserved for meaningful active effects.
