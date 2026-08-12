@@ -2,7 +2,7 @@
 // Entity creation helpers. Creates entities with the right component bundles.
 // No display logic. Pure ECS.
 
-import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, Mana, Powerups, FOV, PointLight, AI, AIBehavior, Inventory, Projectile, Lifetime, Spellbook, SpellId, ItemInfo, Consumable, GroundItem, MeleeWeapon } from './components/index.js';
+import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, Mana, Powerups, FOV, PointLight, AI, AIBehavior, Inventory, Projectile, Lifetime, Spellbook, SpellId, ItemInfo, Consumable, GroundItem, MeleeWeapon, Auras } from './components/index.js';
 
 /**
  * Find open ground near a point using the grid.
@@ -32,12 +32,13 @@ export function spawnPlayer(world, x, y, name = 'Player') {
   world.add(id, Health,   { hp: 100, maxHp: 100 });
   world.add(id, Mana,     { mana: 100, maxMana: 100, regenPerSecond: 5 });
   world.add(id, Powerups);
+  world.add(id, Auras);
   world.add(id, FOV,      { distance: 220, angle: 1.4 });
   world.add(id, PointLight, { radius: 350, r: 255, g: 190, b: 120 });
   world.add(id, Inventory, { items: [], capacity: 10 });
   world.add(id, MeleeWeapon, { damage: 5, name: 'Fists', glyph: '\u270A' });
   world.add(id, Spellbook, {
-    spells: [SpellId.FROST_BOLT, SpellId.LIGHTNING ],
+    spells: [SpellId.FROST_BOLT, SpellId.LIGHTNING],
     activeIndex: 0,
     cooldown: 0,
     charge: 0,
@@ -93,6 +94,7 @@ function spawnMob(world, grid, nearX, nearY, targetId, config) {
   world.add(id, Actor,    { kind: ActorKind.MOB, name: config.name, glyph: config.glyph, theme: config.theme, rare });
   world.add(id, Health,   { hp: Math.round(config.hp * healthScale), maxHp: Math.round(config.hp * healthScale) });
   world.add(id, Mana,     { mana: config.mana, maxMana: config.mana, regenPerSecond: config.manaRegen });
+  world.add(id, Auras);
   world.add(id, PointLight, config.light);
   world.add(id, AI, {
     behavior: config.behavior,
@@ -187,7 +189,7 @@ export function spawnBow(world, x, y) {
   const id = world.create();
   world.add(id, Position, { x, y });
   world.add(id, ItemInfo, { name: 'Short Bow', glyph: ')', slot: 'hand', count: 1 });
-  world.add(id, Consumable, { effect: 'add_spell', potency: 0 });
+  world.add(id, Consumable, { effect: 'add_spell', potency: 0, spellId: SpellId.ARROW });
   world.add(id, GroundItem);
   world.add(id, Collider, { radius: 10 });
   world.add(id, PointLight, { radius: 50, r: 200, g: 180, b: 100 });
@@ -215,6 +217,25 @@ export function spawnSword(world, x, y, tier = 1) {
   return id;
 }
 
+/** Spawn a '?' spellbook that permanently teaches a mana-powered ability. */
+export function spawnSpellbook(world, x, y, spellId = SpellId.POISON_ORB) {
+  const spellbooks = {
+    [SpellId.LIGHTNING]: { name: 'Tome of Storms', r: 95, g: 165, b: 255 },
+    [SpellId.FROST_BOLT]: { name: 'Rime Grimoire', r: 135, g: 225, b: 255 },
+    [SpellId.POISON_ORB]: { name: 'Venom Codex', r: 75, g: 235, b: 105 },
+  };
+  const book = spellbooks[spellId];
+  if (!book) throw new Error(`unknown spellbook ability: ${spellId}`);
+  const id = world.create();
+  world.add(id, Position, { x, y });
+  world.add(id, ItemInfo, { name: book.name, glyph: '?', slot: 'offhand', count: 1 });
+  world.add(id, Consumable, { effect: 'add_spell', potency: 0, spellId });
+  world.add(id, GroundItem);
+  world.add(id, Collider, { radius: 10 });
+  world.add(id, PointLight, { radius: 85, r: book.r, g: book.g, b: book.b });
+  return id;
+}
+
 /**
  * Spawn an epic sword — high damage, purple glow.
  */
@@ -236,7 +257,7 @@ export function spawnEpicBow(world, x, y) {
   const id = world.create();
   world.add(id, Position, { x, y });
   world.add(id, ItemInfo, { name: 'Shadow Longbow', glyph: '}', slot: 'hand', count: 1 });
-  world.add(id, Consumable, { effect: 'add_spell', potency: 0 });
+  world.add(id, Consumable, { effect: 'add_spell', potency: 0, spellId: SpellId.ARROW });
   world.add(id, GroundItem);
   world.add(id, Collider, { radius: 10 });
   world.add(id, PointLight, { radius: 70, r: 160, g: 60, b: 255 });
@@ -293,7 +314,7 @@ export function spawnLegendaryBow(world, x, y) {
   const id = world.create();
   world.add(id, Position, { x, y });
   world.add(id, ItemInfo, { name: 'Sunfire Longbow', glyph: '}', slot: 'hand', count: 1 });
-  world.add(id, Consumable, { effect: 'add_spell', potency: 0 });
+  world.add(id, Consumable, { effect: 'add_spell', potency: 0, spellId: SpellId.ARROW });
   world.add(id, GroundItem);
   world.add(id, Collider, { radius: 10 });
   world.add(id, PointLight, { radius: 110, r: 255, g: 200, b: 50 });

@@ -13,6 +13,7 @@ import {
   Velocity,
 } from '../components/index.js';
 import { spells as spellCatalog } from '../data/spellCatalog.js';
+import { applyAura, isActionLocked } from '../effects.js';
 
 export function createPlayerCombatSystem({ grid }) {
   return function playerCombatSystem(world, dt) {
@@ -24,6 +25,11 @@ export function createPlayerCombatSystem({ grid }) {
     )) {
       const health = world.get(playerId, Health);
       if (health?.dead || health?.hp <= 0) {
+        book.charging = false;
+        book.charge = 0;
+        continue;
+      }
+      if (isActionLocked(world, playerId, 'cast')) {
         book.charging = false;
         book.charge = 0;
         continue;
@@ -103,6 +109,9 @@ function castChainBolt(world, grid, playerId, position, spell, charge, fury) {
     hit.add(best.id);
     const damage = Math.round(spell.damage * (0.65 + charge * 0.7) * fury * Math.pow(0.7, chain));
     best.health.hp = Math.max(0, best.health.hp - damage);
+    if (spell.aura) {
+      applyAura(world, best.id, spell.aura.id, playerId, scaledAuraDuration(spell.aura.duration, charge));
+    }
     world.emit('spell.bolt', {
       source: playerId,
       target: best.id,
@@ -145,9 +154,15 @@ function spawnSpellProjectile(world, playerId, position, angle, spell, charge, f
     burstColor: spell.burstColor,
     power: charge,
     style: spell.element || spell.type,
+    auraId: spell.aura?.id || null,
+    auraDuration: spell.aura ? scaledAuraDuration(spell.aura.duration, charge) : 0,
   });
   world.add(projectileId, Lifetime, { ttl: spell.ttl });
   world.add(projectileId, Collider, { radius: spell.radius * (0.65 + charge * 1.6) });
+}
+
+function scaledAuraDuration(duration, charge) {
+  return duration * (0.6 + charge * 0.4);
 }
 
 function hasLineOfSight(grid, ax, ay, bx, by) {

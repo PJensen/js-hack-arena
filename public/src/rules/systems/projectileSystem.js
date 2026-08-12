@@ -1,6 +1,7 @@
 // Authoritative projectile motion, collision, damage, and lifetime. Rendering
 // and particles observe the emitted facts on the client.
 import { AI, Collider, Health, Lifetime, PlayerTag, Position, Powerups, Projectile, Velocity } from '../components/index.js';
+import { applyAura } from '../effects.js';
 
 export function createProjectileSystem({ grid, carve = null }) {
   return function projectileSystem(world, dt) {
@@ -31,6 +32,9 @@ export function createProjectileSystem({ grid, carve = null }) {
 
         const damage = Math.max(1, Math.round(projectile.damage * (world.get(target.id, Powerups)?.wardMultiplier || 1)));
         target.health.hp = Math.max(0, target.health.hp - damage);
+        if (projectile.auraId) {
+          applyAura(world, target.id, projectile.auraId, projectile.owner, projectile.auraDuration);
+        }
         world.emit('damage.dealt', {
           target: target.id,
           source: projectile.owner,

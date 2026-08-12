@@ -1,6 +1,7 @@
 import { World } from '../../lib/ecs-js/index.js';
 import {
   AI,
+  Auras,
   Actor,
   ActorKind,
   Collider,
@@ -22,6 +23,7 @@ import {
   Velocity,
 } from '../components/index.js';
 import { mobDropTable, mobDropTotalWeight, rollTable } from '../data/lootTable.js';
+import { auraSystem, projectAuras } from '../effects.js';
 import { createGridCarver } from '../geometry/carve.js';
 import {
   spawnArrows,
@@ -39,6 +41,7 @@ import {
   spawnPlayer,
   spawnPotion,
   spawnSword,
+  spawnSpellbook,
   spawnTank,
   spawnWardRune,
 } from '../spawner.js';
@@ -54,7 +57,7 @@ import { createProjectileSystem } from '../systems/projectileSystem.js';
 
 export const SIM_TICK_HZ = 20;
 export const SIM_DT = 1 / SIM_TICK_HZ;
-export const SIM_SNAPSHOT_VERSION = 6;
+export const SIM_SNAPSHOT_VERSION = 7;
 export const SIM_MODE = Object.freeze({
   AUTHORITY: 'authority',
   REPLICA: 'replica',
@@ -286,6 +289,7 @@ export function createArenaSimulation({
         chargeAimX: book.chargeAimX, chargeAimY: book.chargeAimY,
         chargeSpellIndex: book.chargeSpellIndex,
         weapon: { name: weapon.name, glyph: weapon.glyph, damage: weapon.damage },
+        auras: projectAuras(world, entityId),
       },
     };
   }
@@ -309,6 +313,7 @@ export function createArenaSimulation({
         hp: health.hp, maxHp: health.maxHp, dead: health.dead,
         mana: mana.mana, maxMana: mana.maxMana, manaRegen: mana.regenPerSecond,
         name: actor.name, glyph: actor.glyph, theme: actor.theme, rare: actor.rare,
+        auras: projectAuras(world, entityId),
       },
     };
   }
@@ -333,6 +338,8 @@ export function createArenaSimulation({
         burstColor: projectile.burstColor,
         power: projectile.power,
         style: projectile.style,
+        auraId: projectile.auraId,
+        auraDuration: projectile.auraDuration,
         ttl: lifetime.ttl,
         owner: ensureNetworkId(projectile.owner, world.has(projectile.owner, AI) ? 'mob' : 'player'),
       },
@@ -352,6 +359,7 @@ export function createArenaSimulation({
         radius: collider.radius,
         name: info?.name ?? 'Item', glyph: info?.glyph ?? '?',
         effect: consumable?.effect ?? null, potency: consumable?.potency ?? 0,
+        spellId: consumable?.spellId ?? null,
       },
     };
   }
@@ -380,6 +388,7 @@ export function createArenaSimulation({
       world.add(entityId, Mana, { mana: state.mana, maxMana: state.maxMana, regenPerSecond: state.manaRegen });
       world.add(entityId, Actor, { kind: ActorKind.MOB, name: state.name, glyph: state.glyph, theme: state.theme, rare: state.rare });
       world.add(entityId, AI, { target: null });
+      world.add(entityId, Auras, { active: state.auras.map(replicaAura) });
       world.add(entityId, PointLight, lightForTheme(state.theme));
     } else if (record.kind === 'projectile') {
       world.add(entityId, Velocity, { vx: state.vx, vy: state.vy });
@@ -390,7 +399,7 @@ export function createArenaSimulation({
       world.add(entityId, Collider, { radius: state.radius });
       world.add(entityId, GroundItem);
       world.add(entityId, ItemInfo, { name: state.name, glyph: state.glyph });
-      if (state.effect) world.add(entityId, Consumable, { effect: state.effect, potency: state.potency });
+      if (state.effect) world.add(entityId, Consumable, { effect: state.effect, potency: state.potency, spellId: state.spellId });
       world.add(entityId, PointLight, replicaItemLight(state.effect));
     }
   }
@@ -444,12 +453,14 @@ export function createArenaSimulation({
       powerups.wardSeconds = state.wardSeconds;
       const weapon = world.get(entityId, MeleeWeapon);
       Object.assign(weapon, state.weapon);
+      world.get(entityId, Auras).active = state.auras.map(replicaAura);
     } else if (record.kind === 'mob') {
       const actor = world.get(entityId, Actor);
       actor.name = state.name;
       actor.glyph = state.glyph;
       actor.theme = state.theme;
       actor.rare = state.rare;
+      world.get(entityId, Auras).active = state.auras.map(replicaAura);
     } else if (record.kind === 'projectile') {
       const projectile = world.get(entityId, Projectile);
       Object.assign(projectile, recordToProjectile(state));
@@ -583,6 +594,7 @@ export function normalizeSnapshot(snapshot) {
 
 function installAuthoritativeRules(world, grid) {
   const systems = [
+    auraSystem,
     createMovementSystem({ grid }),
     manaSystem,
     powerupSystem,
@@ -618,6 +630,7 @@ function spawnDrop(world, drop, x, y) {
   if (drop.type === 'haste_rune') return spawnHasteRune(world, x, y);
   if (drop.type === 'fury_rune') return spawnFuryRune(world, x, y);
   if (drop.type === 'ward_rune') return spawnWardRune(world, x, y);
+  if (drop.type === 'spellbook') return spawnSpellbook(world, x, y, drop.spellId);
   if (drop.type === 'epic_chest') return spawnEpicChest(world, x, y);
   if (drop.type === 'epic_sword') return spawnEpicSword(world, x, y);
   if (drop.type === 'epic_bow') return spawnEpicBow(world, x, y);
@@ -661,6 +674,7 @@ function normalizePlayerState(id, state) {
   return {
     ...normalizeBodyState(id, state),
     name: normalizeActorName(state.name),
+    auras: normalizeAuras(id, state.auras),
     spells: [...state.spells],
     activeSpell: nonNegativeInteger(state.activeSpell, `${id}.activeSpell`),
     cooldown: finiteNumber(state.cooldown, `${id}.cooldown`),
@@ -685,7 +699,7 @@ function normalizePlayerState(id, state) {
 }
 
 function normalizeMobState(id, state) {
-  return { ...normalizeBodyState(id, state), name: normalizeActorName(state.name), glyph: String(state.glyph), theme: String(state.theme || 'shadow'), rare: Boolean(state.rare) };
+  return { ...normalizeBodyState(id, state), name: normalizeActorName(state.name), glyph: String(state.glyph), theme: String(state.theme || 'shadow'), rare: Boolean(state.rare), auras: normalizeAuras(id, state.auras) };
 }
 
 function normalizeActorName(value) {
@@ -716,6 +730,8 @@ function normalizeProjectileState(id, state) {
     trailColor: String(state.trailColor || ''), burstColor: String(state.burstColor || ''),
     power: finiteNumber(state.power, `${id}.power`),
     style: String(state.style || 'frost'),
+    auraId: state.auraId == null ? null : String(state.auraId),
+    auraDuration: finiteNumber(state.auraDuration ?? 0, `${id}.auraDuration`),
     ttl: finiteNumber(state.ttl, `${id}.ttl`), owner: normalizeNetworkId(state.owner),
   };
 }
@@ -727,6 +743,7 @@ function normalizeItemState(id, state) {
     name: String(state.name), glyph: String(state.glyph),
     effect: state.effect == null ? null : String(state.effect),
     potency: finiteNumber(state.potency, `${id}.potency`),
+    spellId: state.spellId == null ? null : String(state.spellId),
   };
 }
 
@@ -753,7 +770,30 @@ function recordToProjectile(state) {
     burstColor: state.burstColor,
     power: state.power,
     style: state.style,
+    auraId: state.auraId,
+    auraDuration: state.auraDuration,
   };
+}
+
+function normalizeAuras(id, value) {
+  if (value == null) return [];
+  if (!Array.isArray(value)) throw new Error(`simulation ${id}.auras must be an array`);
+  return value.map((aura, index) => {
+    if (!aura || typeof aura !== 'object') throw new Error(`simulation ${id}.auras[${index}] must be an object`);
+    return {
+      id: String(aura.id),
+      name: String(aura.name),
+      glyph: String(aura.glyph),
+      visual: String(aura.visual || 'generic'),
+      remaining: finiteNumber(aura.remaining, `${id}.auras[${index}].remaining`),
+      duration: finiteNumber(aura.duration, `${id}.auras[${index}].duration`),
+      stacks: nonNegativeInteger(aura.stacks ?? 1, `${id}.auras[${index}].stacks`),
+    };
+  });
+}
+
+function replicaAura(aura) {
+  return { ...aura, source: null, effects: [] };
 }
 
 function replicaItemLight(effect) {

@@ -39,6 +39,7 @@ export const mobDropTable = [
   { weight: 7,  type: 'sword',        tier: 2, rarity: Rarity.RARE },
   { weight: 8,  type: 'arrows',       count: 5 },
   { weight: 7,  type: 'mana_surge',   rarity: Rarity.RARE },
+  { weight: 6,  type: 'spellbook',    spellId: 'poison_orb', rarity: Rarity.RARE },
   { weight: 6,  type: 'haste_rune',   rarity: Rarity.UNCOMMON },
   { weight: 5,  type: 'fury_rune',    rarity: Rarity.RARE },
   { weight: 5,  type: 'ward_rune',    rarity: Rarity.RARE },

@@ -30,7 +30,7 @@ export function pickupSystem(world, dt) {
             world.emit('item.pickup', { entity: p.id, item: info?.name, healed });
           } else if (c.effect === 'add_spell' && world.has(p.id, Spellbook)) {
             const book = world.get(p.id, Spellbook);
-            const spellId = (info && (info.name === 'Short Bow' || info.name === 'Shadow Longbow' || info.name === 'Sunfire Longbow')) ? 'arrow' : null;
+            const spellId = c.spellId;
             if (spellId && !book.spells.includes(spellId)) {
               book.spells.push(spellId);
             }

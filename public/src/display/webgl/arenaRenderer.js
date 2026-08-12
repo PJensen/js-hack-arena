@@ -1,5 +1,5 @@
 import {
-  Actor, ActorKind, Collider, Consumable, Facing, GroundItem, Health, Input, ItemInfo, Mana,
+  Actor, ActorKind, Auras, Collider, Consumable, Facing, GroundItem, Health, Input, ItemInfo, Mana,
   PlayerTag, PointLight, Position, Powerups, Projectile, Spellbook, Velocity,
 } from '../../rules/components/index.js';
 import { AI } from '../../rules/components/AI.js';
@@ -623,6 +623,39 @@ export function createWebGLArenaRenderer(deps) {
     return labels;
   }
 
+  function drawActiveAuras(auraState, position, collider, now, entityId) {
+    if (!auraState?.active?.length) return;
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    for (let auraIndex = 0; auraIndex < auraState.active.length; auraIndex++) {
+      const aura = auraState.active[auraIndex];
+      const pulse = 0.5 + 0.5 * Math.sin(now * 6 + entityId * 0.73 + auraIndex);
+      if (aura.visual === 'frozen') {
+        drawDisc(position.x, position.y, collider.radius + 3 + pulse * 2, [0.18, 0.58, 1, 0.18], [0.58, 0.92, 1, 0.72]);
+        drawGlyph('❄', position.x, position.y - collider.radius - 10, 11 + pulse * 2, [0.78, 0.96, 1, 0.95]);
+      } else if (aura.visual === 'stunned') {
+        for (let star = 0; star < 3; star++) {
+          const angle = now * 5 + star * Math.PI * 2 / 3;
+          drawGlyph('★', position.x + Math.cos(angle) * (collider.radius + 5), position.y - collider.radius - 8 + Math.sin(angle) * 4, 8, [1, 0.9, 0.24, 1]);
+        }
+      } else if (aura.visual === 'poisoned') {
+        drawDisc(position.x, position.y, collider.radius + 2 + pulse * 2, [0.12, 0.7, 0.2, 0.25], [0.3, 1, 0.42, 0.62]);
+        for (let drop = 0; drop < 3; drop++) {
+          const offset = (drop - 1) * collider.radius * 0.62;
+          const fall = (now * (10 + drop * 2) + entityId * 0.31) % (collider.radius * 1.5);
+          drawDisc(position.x + offset, position.y - collider.radius * 0.3 + fall, 1.5, [0.24, 1, 0.35, 0.8], [0.24, 1, 0.35, 0.8]);
+        }
+      } else {
+        drawGlyph(aura.glyph || '•', position.x, position.y - collider.radius - 9, 10, [0.9, 0.9, 1, 0.9]);
+      }
+    }
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  }
+
+  function activeAuraLabels(auraState) {
+    if (!auraState?.active) return [];
+    return auraState.active.map((aura) => `${aura.glyph} ${aura.name.toUpperCase()} ${aura.remaining.toFixed(1)}s`);
+  }
+
   function drawParticles(pixelScale) {
     const pool = fx.pool;
     for (let index = 0; index < pool.count; index++) {
@@ -752,6 +785,13 @@ export function createWebGLArenaRenderer(deps) {
       overlay.strokeText(label, sx, labelY);
       overlay.fillStyle = actor.rare ? '#ffd65a' : actor.kind === ActorKind.PLAYER ? '#dff8ff' : '#d6c9e8';
       overlay.fillText(label, sx, labelY);
+      const auraLabel = activeAuraLabels(world.get(id, Auras)).join(' · ');
+      if (auraLabel) {
+        const auraY = sy - collider.radius * cam.scale * ratio - 19 * ratio;
+        overlay.strokeText(auraLabel, sx, auraY);
+        overlay.fillStyle = '#dff7ff';
+        overlay.fillText(auraLabel, sx, auraY);
+      }
     }
 
     const size = Math.round(128 * ratio);
@@ -869,7 +909,7 @@ export function createWebGLArenaRenderer(deps) {
       const projectileSize = projectile.trailColor === '#8cd8ff'
         ? Math.max(11, collider.radius * 2.7)
         : 11;
-      drawGlyph(projectile.trailColor === '#c8a050' ? '→' : (enemy ? '✦' : '❄'), shown.x, shown.y, projectileSize, [1, 1, 1, 0.95]);
+      drawGlyph(projectile.style === 'arrow' ? '→' : projectile.style === 'poison' ? '☠' : (enemy ? '✦' : '❄'), shown.x, shown.y, projectileSize, [1, 1, 1, 0.95]);
     }
 
     // Lighting is a full-world GPU composition pass. Everything except the
@@ -898,6 +938,10 @@ export function createWebGLArenaRenderer(deps) {
 
     const activePowerups = world.get(playerId, Powerups);
     drawActivePowerups(activePowerups, shownPlayer, playerCollider, now);
+    for (const [id, position, collider, auraState] of world.query(Position, Collider, Auras)) {
+      const shown = displayPosition(id, position);
+      drawActiveAuras(auraState, shown, collider, now, id);
+    }
     drawChargeAnimation(world.get(playerId, Spellbook), shownPlayer, playerCollider, now);
 
     // World-space status bars for every living actor.
@@ -980,7 +1024,7 @@ export function createWebGLArenaRenderer(deps) {
       ? `◆ ${Math.floor(mana?.mana ?? 0)}/${mana?.maxMana ?? 0} · SURGE ${Math.ceil(activePowerups.manaRegenSeconds)}s`
       : `◆ ${Math.floor(mana?.mana ?? 0)}/${mana?.maxMana ?? 0}`;
     hud.mana.classList.toggle('boosted', boosted);
-    const activeLabels = activePowerupLabels(activePowerups);
+    const activeLabels = [...activePowerupLabels(activePowerups), ...activeAuraLabels(world.get(playerId, Auras))];
     hud.meta.textContent = hp?.dead
       ? 'YOU DIED · refresh to re-enter'
       : `${activeLabels.length ? activeLabels.join(' · ') + ' · ' : ''}casts ${runtimeEvents.casts}${net ? ` · ${net.getStatusText()}` : ''}`;

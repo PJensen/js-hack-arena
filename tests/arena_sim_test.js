@@ -4,9 +4,10 @@ import {
   assertEquals,
   assertThrows,
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
-import { AI, Actor, Facing, Health, Input, Mana, Position, Powerups, Projectile, Spellbook, Collider } from '../public/src/rules/components/index.js';
+import { AI, Actor, Auras, Facing, Health, Input, ItemInfo, Mana, Position, Powerups, Projectile, Spellbook, Collider } from '../public/src/rules/components/index.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
-import { spawnFuryRune, spawnHasteRune, spawnManaSurge, spawnPotion, spawnWardRune } from '../public/src/rules/spawner.js';
+import { spawnFuryRune, spawnHasteRune, spawnManaSurge, spawnPotion, spawnSpellbook, spawnWardRune } from '../public/src/rules/spawner.js';
+import { applyAura } from '../public/src/rules/effects.js';
 import {
   SIM_DT,
   SIM_MODE,
@@ -159,6 +160,8 @@ Deno.test("arena sim: combat, projectiles, deaths, and loot are authoritative", 
   const sim = makeOpenSim(123, { enemyCount: 1, respawnEnemies: false });
   sim.addPlayer('peer-a');
   const mobId = [...sim.world.query(AI)][0][0];
+  Object.assign(sim.world.get(mobId, Position), { x: 180, y: 100 });
+  sim.world.get(mobId, AI).target = null;
   const initialHp = sim.world.get(mobId, Health).hp;
 
   sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 1 });
@@ -166,6 +169,7 @@ Deno.test("arena sim: combat, projectiles, deaths, and loot are authoritative", 
   sim.setPlayerInput('peer-a', { seq: 2, aimX: 0, fire: false, spellSlot: 1 });
   sim.step();
   assert(sim.world.get(mobId, Health).hp < initialHp);
+  assert(sim.world.get(mobId, Auras).active.some((aura) => aura.id === 'stunned'));
   assert(sim.captureSnapshot().events.some((event) => event.type === 'spell.bolt'));
 
   sim.setPlayerInput('peer-a', { seq: 3, aimX: 1, fire: true, spellSlot: 0 });
@@ -173,6 +177,7 @@ Deno.test("arena sim: combat, projectiles, deaths, and loot are authoritative", 
   sim.setPlayerInput('peer-a', { seq: 4, aimX: 0, fire: false, spellSlot: 0 });
   for (let i = 0; i < 20; i++) sim.step();
   assert(sim.captureSnapshot().events.some((event) => event.type === 'projectile.hit'));
+  assert(sim.world.get(mobId, Auras).active.some((aura) => aura.id === 'frozen'));
 
   sim.world.get(mobId, Health).hp = 0;
   sim.step();
@@ -266,6 +271,45 @@ Deno.test("arena sim: charged spells spend mana and mana regenerates", () => {
   const afterCast = mana.mana;
   for (let i = 0; i < 10; i++) sim.step();
   assert(mana.mana > afterCast);
+});
+
+Deno.test("arena sim: generic aura effects modify rules and expire", () => {
+  const sim = makeOpenSim(905, { enemyCount: 0 });
+  const playerId = sim.addPlayer('peer-a');
+  const position = sim.world.get(playerId, Position);
+  const health = sim.world.get(playerId, Health);
+
+  applyAura(sim.world, playerId, 'frozen', playerId, 0.2);
+  sim.setPlayerInput('peer-a', { seq: 1, moveX: 1 });
+  sim.step(0.05);
+  assertAlmostEquals(position.x, 102.5, 0.01);
+  for (let i = 0; i < 4; i++) sim.step(0.05);
+  assertEquals(sim.world.get(playerId, Auras).active.some((aura) => aura.id === 'frozen'), false);
+
+  const beforePoison = health.hp;
+  applyAura(sim.world, playerId, 'poisoned', playerId, 1);
+  for (let i = 0; i < 13; i++) sim.step(0.05);
+  assert(health.hp < beforePoison);
+});
+
+Deno.test("arena sim: '?' spellbooks teach mana-powered abilities", () => {
+  const sim = makeOpenSim(906, { enemyCount: 0 });
+  const playerId = sim.addPlayer('peer-a');
+  const position = sim.world.get(playerId, Position);
+  const itemId = spawnSpellbook(sim.world, position.x, position.y);
+  assertEquals(sim.world.get(itemId, ItemInfo).glyph, '?');
+
+  sim.step();
+  const book = sim.world.get(playerId, Spellbook);
+  assert(book.spells.includes('poison_orb'));
+  const mana = sim.world.get(playerId, Mana);
+  const beforeMana = mana.mana;
+  sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 2 });
+  for (let i = 0; i < 5; i++) sim.step();
+  sim.setPlayerInput('peer-a', { seq: 2, aimX: 0, fire: false, spellSlot: 2 });
+  sim.step();
+  assert(mana.mana < beforeMana);
+  assert([...sim.world.query(Projectile)].some(([, projectile]) => projectile.auraId === 'poisoned'));
 });
 
 Deno.test("arena sim: health pickups heal injuries and wait when health is full", () => {

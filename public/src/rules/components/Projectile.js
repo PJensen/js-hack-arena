@@ -11,4 +11,6 @@ export const Projectile = defineComponent('Projectile', {
   burstColor: '#b0e0ff',
   power: 1,           // normalized cast investment, used by damage and VFX
   style: 'frost',     // authored rendering/impact vocabulary
+  auraId: null,       // optional semantic aura applied on hit
+  auraDuration: 0,
 });

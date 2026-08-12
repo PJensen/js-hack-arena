@@ -2,6 +2,7 @@
 import { Position, Velocity, Speed, Facing, AI, AIBehavior, Collider, Health, Projectile, Lifetime, Mana } from '../components/index.js';
 import { moveWithSlide } from '../geometry/sweep.js';
 import { astar } from '../ai/pathfind.js';
+import { getStatMultiplier, isActionLocked } from '../effects.js';
 
 const PATH_REFRESH = 0.5;        // recompute every 0.5s
 
@@ -23,6 +24,9 @@ export function createAISystem(ctx) {
   return function aiSystem(world, dt) {
     for (const id of aiPaths.keys()) if (!world.alive.has(id)) aiPaths.delete(id);
     for (const [id, pos, vel, spd, fac, ai, col] of world.query(Position, Velocity, Speed, Facing, AI, Collider)) {
+      const movementSpeed = spd.max * getStatMultiplier(world, id, 'movementSpeed');
+      const moveLocked = isActionLocked(world, id, 'move');
+      const castLocked = isActionLocked(world, id, 'cast');
       if (ai.target === null) continue;
       if (!world.alive.has(ai.target)) { ai.target = null; continue; }
       const targetHealth = world.get(ai.target, Health);
@@ -44,14 +48,14 @@ export function createAISystem(ctx) {
         const tooFar = dist > ai.preferredDist * 1.3;
 
         if (tooClose) {
-          vel.vx = -(dx / dist) * spd.max;
-          vel.vy = -(dy / dist) * spd.max;
+          vel.vx = -(dx / dist) * movementSpeed;
+          vel.vy = -(dy / dist) * movementSpeed;
         } else if (tooFar || melee) {
-          vel.vx = (dx / dist) * spd.max * (melee ? 1 : 0.6);
-          vel.vy = (dy / dist) * spd.max * (melee ? 1 : 0.6);
+          vel.vx = (dx / dist) * movementSpeed * (melee ? 1 : 0.6);
+          vel.vy = (dy / dist) * movementSpeed * (melee ? 1 : 0.6);
         } else {
-          vel.vx = -(dy / dist) * spd.max * 0.4;
-          vel.vy =  (dx / dist) * spd.max * 0.4;
+          vel.vx = -(dy / dist) * movementSpeed * 0.4;
+          vel.vy =  (dx / dist) * movementSpeed * 0.4;
         }
 
         fac.angle = Math.atan2(dy, dx);
@@ -60,7 +64,7 @@ export function createAISystem(ctx) {
         ai.castCooldown -= dt;
         const mana = world.get(id, Mana);
         const manaCost = 10;
-        if (!melee && ai.castCooldown <= 0 && (!mana || mana.mana >= manaCost)) {
+        if (!castLocked && !melee && ai.castCooldown <= 0 && (!mana || mana.mana >= manaCost)) {
           ai.castCooldown = ai.castRate;
           if (mana) mana.mana -= manaCost;
           const angle = Math.atan2(dy, dx);
@@ -99,8 +103,8 @@ export function createAISystem(ctx) {
           if (wdist < grid.cellSize * 2) {
             cached.path.shift();  // reached waypoint
           } else {
-            vel.vx = (wdx / wdist) * spd.max;
-            vel.vy = (wdy / wdist) * spd.max;
+            vel.vx = (wdx / wdist) * movementSpeed;
+            vel.vy = (wdy / wdist) * movementSpeed;
             fac.angle = Math.atan2(wdy, wdx);
           }
         } else {
@@ -109,6 +113,7 @@ export function createAISystem(ctx) {
       }
 
       // Move with wall slide
+      if (moveLocked) { vel.vx = 0; vel.vy = 0; }
       const mdx = vel.vx * dt, mdy = vel.vy * dt;
       if (Math.abs(mdx) > 0.01 || Math.abs(mdy) > 0.01) {
         const moved = moveWithSlide(grid, pos.x, pos.y, mdx, mdy, col.radius);

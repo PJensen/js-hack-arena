@@ -19,6 +19,7 @@ export const spells = {
     light: { radius: 120, r: 140, g: 200, b: 255 },
     trailColor: '#8cd8ff',
     burstColor: '#b0e0ff',
+    aura: { id: 'frozen', duration: 2.4 },
   },
   arrow: {
     type: 'projectile',
@@ -48,5 +49,23 @@ export const spells = {
     range: 280,         // max range to first target
     chainRadius: 120,   // max hop distance between targets
     maxTargets: 3,      // chain up to 3 enemies
+    aura: { id: 'stunned', duration: 0.8 },
+  },
+  poison_orb: {
+    type: 'projectile',
+    element: 'poison',
+    name: 'Venom Orb',
+    glyph: '\u2620',  // ☠
+    cooldown: 0.45,
+    manaCost: 18,
+    chargeTime: 0.9,
+    damage: 8,
+    speed: 285,
+    radius: 6,
+    ttl: 2.2,
+    light: { radius: 105, r: 75, g: 235, b: 105 },
+    trailColor: '#52e878',
+    burstColor: '#80ff98',
+    aura: { id: 'poisoned', duration: 4 },
   },
 };

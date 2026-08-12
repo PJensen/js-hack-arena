@@ -4,4 +4,5 @@ import { defineComponent } from '../../lib/ecs-js/index.js';
 export const Consumable = defineComponent('Consumable', {
   effect: 'heal',    // 'heal', 'mana', etc.
   potency: 30,       // amount
+  spellId: null,     // authored ability granted by add_spell pickups
 });

@@ -3,6 +3,8 @@ import { defineComponent } from '../../lib/ecs-js/index.js';
 export const SpellId = Object.freeze({
   FROST_BOLT: 'frost_bolt',
   LIGHTNING:  'lightning',
+  ARROW:      'arrow',
+  POISON_ORB: 'poison_orb',
 });
 
 export const Spellbook = defineComponent('Spellbook', {

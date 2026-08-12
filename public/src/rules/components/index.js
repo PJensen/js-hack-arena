@@ -24,3 +24,4 @@ export { Spellbook, SpellId } from './Spellbook.js';
 export { Consumable } from './Consumable.js';
 export { GroundItem } from './GroundItem.js';
 export { MeleeWeapon } from './MeleeWeapon.js';
+export { Auras } from './Auras.js';

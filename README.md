@@ -89,6 +89,20 @@ contact combat, projectile motion and hits, health and death, pickups, terrain
 carving facts, and deterministic server-seeded drops. The Worker runs that
 pipeline. A network client creates a replica and cannot advance gameplay.
 
+### Spell auras and effects
+
+Persistent spell consequences use `Ability -> Aura -> Effect` topology. Spell
+definitions name the aura they apply; aura definitions own their duration,
+player-facing identity, visual treatment, and generic child effects. The rule
+engine currently supports stat multipliers, action locks, and periodic damage.
+Adding another condition normally means authoring one aura entry and a visual,
+without adding condition-specific state to actors or the network contract.
+
+Snapshots deliberately project each active aura as one semantic condition with
+its remaining duration. They do not expose its child-effect tree. For example,
+Frozen appears once to the player while its movement multiplier remains an
+authoritative implementation detail.
+
 Particles, projectile trails and lights, death bursts, bolt rendering, camera,
 remote interpolation, and local movement prediction are client-owned. The
 client derives them from authoritative entities and a bounded presentation-event
