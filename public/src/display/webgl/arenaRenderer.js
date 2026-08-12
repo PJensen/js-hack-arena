@@ -3,6 +3,7 @@ import {
   PlayerTag, PointLight, Position, Powerups, Projectile, Spellbook, Velocity,
 } from '../../rules/components/index.js';
 import { AI } from '../../rules/components/AI.js';
+import { spells as spellCatalog } from '../../rules/data/spellCatalog.js';
 import { createWebGLDevice } from './device.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
 
@@ -644,6 +645,15 @@ export function createWebGLArenaRenderer(deps) {
           const fall = (now * (10 + drop * 2) + entityId * 0.31) % (collider.radius * 1.5);
           drawDisc(position.x + offset, position.y - collider.radius * 0.3 + fall, 1.5, [0.24, 1, 0.35, 0.8], [0.24, 1, 0.35, 0.8]);
         }
+      } else if (aura.visual === 'ice_armor') {
+        drawDisc(position.x, position.y, collider.radius + 5 + pulse * 1.5, [0.18, 0.52, 0.9, 0.14], [0.58, 0.9, 1, 0.78]);
+        for (let shard = 0; shard < 4; shard++) {
+          const angle = shard * Math.PI * 0.5 + Math.PI * 0.25;
+          drawGlyph('◇', position.x + Math.cos(angle) * (collider.radius + 5), position.y + Math.sin(angle) * (collider.radius + 5), 8, [0.72, 0.94, 1, 0.9]);
+        }
+      } else if (aura.visual === 'regeneration') {
+        drawDisc(position.x, position.y, collider.radius + 3 + pulse * 2, [0.1, 0.72, 0.28, 0.12], [0.35, 1, 0.52, 0.58]);
+        drawGlyph('✚', position.x, position.y - collider.radius - 9 - pulse * 3, 10, [0.55, 1, 0.68, 0.95]);
       } else {
         drawGlyph(aura.glyph || '•', position.x, position.y - collider.radius - 9, 10, [0.9, 0.9, 1, 0.9]);
       }
@@ -746,11 +756,28 @@ export function createWebGLArenaRenderer(deps) {
   function drawChargeAnimation(book, position, collider, now) {
     if (!book?.charging) return;
     const spellId = book.spells[book.chargeSpellIndex] || 'frost_bolt';
-    const duration = spellId === 'lightning' ? 1.25 : spellId === 'arrow' ? 0.7 : 1;
-    const charge = Math.min(1, book.charge / duration);
-    const theme = spellId === 'lightning' ? 'electric' : spellId === 'arrow' ? 'fire' : 'frost';
+    const spell = spellCatalog[spellId];
+    if (!spell) return;
+    const duration = book.castPhase === 'channeling'
+      ? spell.cast.channelDuration
+      : book.castPhase === 'casting'
+      ? spell.cast.castTime
+      : spell.cast.maxCharge;
+    const charge = book.castPhase === 'channeling'
+      ? 1 - book.channelRemaining / Math.max(0.001, duration)
+      : Math.min(1, book.charge / Math.max(0.001, duration));
+    const theme = spell.element === 'electric' ? 'electric' : spell.element === 'arrow' ? 'fire' : spell.element;
     const orbit = collider.radius + 8 + charge * 10;
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    if (book.castPhase === 'channeling') {
+      drawLines(new Float32Array([position.x, position.y, book.castTargetX, book.castTargetY]), [0.55, 0.9, 1, 0.3], 2);
+      drawElementOrb(theme, book.castTargetX, book.castTargetY, spell.targeting.areaRadius, now, 0.22);
+      for (let flake = 0; flake < 6; flake++) {
+        const angle = now * (0.8 + flake * 0.03) + flake * Math.PI / 3;
+        const radius = spell.targeting.areaRadius * (0.35 + (flake % 3) * 0.22);
+        drawGlyph('❄', book.castTargetX + Math.cos(angle) * radius, book.castTargetY + Math.sin(angle) * radius, 10, [0.78, 0.96, 1, 0.9]);
+      }
+    }
     drawElementOrb(theme, position.x, position.y, collider.radius + 5 + charge * 7, now, 0.12 + charge * 0.2);
     const points = [];
     for (let index = 0; index < 4; index++) {
@@ -969,7 +996,9 @@ export function createWebGLArenaRenderer(deps) {
       const aimY = shownPlayer.y + Math.sin(aimAngle) * aimDistance;
       drawLines(new Float32Array([shownPlayer.x, shownPlayer.y, aimX, aimY]), [0.35, 0.9, 1, 0.42]);
       const book = world.get(playerId, Spellbook);
-      const charge = book?.charging ? Math.min(1, book.charge / 1.25) : 0;
+      const activeSpell = book?.charging ? spellCatalog[book.spells[book.chargeSpellIndex]] : null;
+      const castDuration = activeSpell?.cast.maxCharge || activeSpell?.cast.castTime || activeSpell?.cast.channelDuration || 1;
+      const charge = book?.charging ? Math.min(1, book.charge / castDuration) : 0;
       drawDisc(aimX, aimY, 3 + charge * 4, [0.35, 0.9, 1, 0.25 + charge * 0.55], [0.72, 1, 1, 0.9]);
     }
 

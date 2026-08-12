@@ -91,12 +91,27 @@ pipeline. A network client creates a replica and cannot advance gameplay.
 
 ### Spell auras and effects
 
-Persistent spell consequences use `Ability -> Aura -> Effect` topology. Spell
-definitions name the aura they apply; aura definitions own their duration,
-player-facing identity, visual treatment, and generic child effects. The rule
-engine currently supports stat multipliers, action locks, and periodic damage.
-Adding another condition normally means authoring one aura entry and a visual,
-without adding condition-specific state to actors or the network contract.
+Every spell is one composition of five independent concerns:
+
+- casting: instant, fixed cast-time, charged, or channeled;
+- resources: an up-front cost or mana consumed on every simulation tick;
+- cooldowns: the global cooldown plus a per-spell cooldown;
+- targeting and delivery: self, direction, chain, projectile, or aimed area;
+- impacts: damage, healing, or application of a persistent aura.
+
+Cast-time and channeled spells author their own release, movement, and damage
+interruption rules. Charging is therefore a per-spell affordance rather than
+the default casting behavior. The catalog currently demonstrates instant
+Lightning, charged Frost Bolt, cast-time Venom Orb, channeled Blizzard, and the
+instant Ice Armor and Regeneration buffs.
+
+Persistent consequences use `Spell -> Aura -> Effect` topology. Aura
+definitions own their duration, beneficial/harmful disposition, player-facing
+identity, visual treatment, and generic child effects. The rule engine supports
+stat multipliers (including damage-type filters), action locks, periodic damage,
+and periodic healing. Adding another condition normally means authoring one
+aura entry and a visual, without adding condition-specific state to actors or
+the network contract.
 
 Snapshots deliberately project each active aura as one semantic condition with
 its remaining duration. They do not expose its child-effect tree. For example,

@@ -43,6 +43,9 @@ export function spawnPlayer(world, x, y, name = 'Player') {
     cooldown: 0,
     charge: 0,
     charging: false,
+    cooldowns: {},
+    castPhase: 'idle',
+    castMode: 'instant',
   });
   return id;
 }
@@ -223,6 +226,9 @@ export function spawnSpellbook(world, x, y, spellId = SpellId.POISON_ORB) {
     [SpellId.LIGHTNING]: { name: 'Tome of Storms', r: 95, g: 165, b: 255 },
     [SpellId.FROST_BOLT]: { name: 'Rime Grimoire', r: 135, g: 225, b: 255 },
     [SpellId.POISON_ORB]: { name: 'Venom Codex', r: 75, g: 235, b: 105 },
+    [SpellId.ICE_ARMOR]: { name: 'Codex of Rimeguard', r: 125, g: 215, b: 255 },
+    [SpellId.BLIZZARD]: { name: 'Wintercall Grimoire', r: 170, g: 225, b: 255 },
+    [SpellId.REGENERATION]: { name: 'Verdant Scripture', r: 95, g: 245, b: 130 },
   };
   const book = spellbooks[spellId];
   if (!book) throw new Error(`unknown spellbook ability: ${spellId}`);

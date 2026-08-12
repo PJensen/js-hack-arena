@@ -1,7 +1,8 @@
 // Authoritative projectile motion, collision, damage, and lifetime. Rendering
 // and particles observe the emitted facts on the client.
-import { AI, Collider, Health, Lifetime, PlayerTag, Position, Powerups, Projectile, Velocity } from '../components/index.js';
-import { applyAura } from '../effects.js';
+import { AI, Collider, Health, Lifetime, PlayerTag, Position, Projectile, Velocity } from '../components/index.js';
+import { applyDamage } from '../effects.js';
+import { applyImpacts } from '../impacts.js';
 
 export function createProjectileSystem({ grid, carve = null }) {
   return function projectileSystem(world, dt) {
@@ -30,18 +31,16 @@ export function createProjectileSystem({ grid, carve = null }) {
         const radius = collider.radius + target.collider.radius;
         if (dx * dx + dy * dy >= radius * radius) continue;
 
-        const damage = Math.max(1, Math.round(projectile.damage * (world.get(target.id, Powerups)?.wardMultiplier || 1)));
-        target.health.hp = Math.max(0, target.health.hp - damage);
-        if (projectile.auraId) {
-          applyAura(world, target.id, projectile.auraId, projectile.owner, projectile.auraDuration);
+        if (projectile.impacts?.length) {
+          applyImpacts(world, target.id, projectile.owner, projectile.impacts, {
+            x: position.x, y: position.y, damageType: projectile.style,
+            spellId: projectile.spellId,
+          });
+        } else {
+          applyDamage(world, target.id, projectile.damage, {
+            sourceId: projectile.owner, x: position.x, y: position.y, damageType: projectile.style,
+          });
         }
-        world.emit('damage.dealt', {
-          target: target.id,
-          source: projectile.owner,
-          amount: damage,
-          x: position.x,
-          y: position.y,
-        });
         world.emit('projectile.hit', {
           projectile: id,
           target: target.id,

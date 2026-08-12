@@ -62,12 +62,15 @@
     /* ── Spell bar ── */
     #spell-bar { position:fixed; bottom:max(22px,env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%);
                  display:flex; gap:8px; z-index:50; pointer-events:auto; }
-    .spell-btn { width:48px; height:48px; border-radius:10px;
+    .spell-btn { position:relative; width:48px; height:48px; border-radius:10px;
                  background:var(--ink); border:1px solid rgba(255,255,255,.18);
                  color:#fff; font-size:22px; line-height:48px; text-align:center;
                  cursor:pointer; box-shadow:0 8px 20px rgba(0,0,0,.3); transition:border-color .15s,background .15s,transform .15s; }
     .spell-btn.active { border-color:var(--cyan); background:rgba(52,133,180,.28); transform:translateY(-3px); box-shadow:0 0 18px rgba(80,210,255,.22); }
     .spell-btn.charging { border-color:#d9fbff; background:conic-gradient(from -90deg,var(--cyan) calc(var(--charge,0) * 1turn),rgba(16,37,54,.88) 0); }
+    .spell-btn.cooldown:not(.charging) { opacity:.56; filter:saturate(.45); }
+    .spell-btn.cooldown::after { content:attr(data-cooldown); position:absolute; inset:0; display:grid; place-items:center;
+                                 color:#fff; font-size:11px; line-height:1; text-shadow:0 1px 3px #000; }
     .spell-btn .spell-key { display:block; font-size:10px; line-height:1;
                             color:rgba(255,255,255,0.4); margin-top:-8px; }
     #zoom-readout { opacity:.45; transition:opacity .2s; }
@@ -302,7 +305,8 @@ function rebuildSpellBar() {
     const btn = document.createElement('div');
     btn.className = 'spell-btn' + (i === book.activeIndex ? ' active' : '');
     btn.dataset.slot = i;
-    btn.title = `${spell.name} · ${spell.manaCost || 0} mana · hold to charge`;
+    const manaText = spell.mana.perTick != null ? `${spell.mana.perTick} mana/tick` : `${spell.mana.cost || 0} mana`;
+    btn.title = `${spell.name} · ${manaText} · ${spell.cast.mode.replace('_', ' ')}`;
     btn.innerHTML = spell.glyph + '<span class="spell-key">' + (i + 1) + '</span>';
     bar.appendChild(btn);
   });
@@ -381,7 +385,14 @@ const loop = createFixedTickLoop({
         const charging = sb.charging && i === sb.chargeSpellIndex;
         b.classList.toggle('charging', charging);
         const spell = spellCatalog[sb.spells[i]];
-        b.style.setProperty('--charge', charging ? Math.min(1, sb.charge / (spell?.chargeTime || 1)) : 0);
+        const remainingCooldown = Math.max(sb.cooldown || 0, sb.cooldowns?.[sb.spells[i]] || 0);
+        b.classList.toggle('cooldown', remainingCooldown > 0);
+        b.dataset.cooldown = remainingCooldown > 0 ? remainingCooldown.toFixed(1) : '';
+        const castDuration = spell?.cast.maxCharge || spell?.cast.castTime || spell?.cast.channelDuration || 1;
+        const castProgress = sb.castPhase === 'channeling'
+          ? 1 - sb.channelRemaining / castDuration
+          : sb.charge / castDuration;
+        b.style.setProperty('--charge', charging ? Math.max(0, Math.min(1, castProgress)) : 0);
       });
     }
   },

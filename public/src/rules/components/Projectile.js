@@ -13,4 +13,6 @@ export const Projectile = defineComponent('Projectile', {
   style: 'frost',     // authored rendering/impact vocabulary
   auraId: null,       // optional semantic aura applied on hit
   auraDuration: 0,
+  impacts: [],        // resolved generic impacts applied on collision
+  spellId: null,
 });

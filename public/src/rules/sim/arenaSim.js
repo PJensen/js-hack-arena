@@ -57,7 +57,7 @@ import { createProjectileSystem } from '../systems/projectileSystem.js';
 
 export const SIM_TICK_HZ = 20;
 export const SIM_DT = 1 / SIM_TICK_HZ;
-export const SIM_SNAPSHOT_VERSION = 7;
+export const SIM_SNAPSHOT_VERSION = 8;
 export const SIM_MODE = Object.freeze({
   AUTHORITY: 'authority',
   REPLICA: 'replica',
@@ -73,7 +73,9 @@ const PRESENTATION_EVENTS = Object.freeze([
   'projectile.wall',
   'spell.bolt',
   'spell.cast',
+  'spell.channel',
   'spell.denied',
+  'spell.interrupted',
   'terrain.carved',
 ]);
 const EVENT_HISTORY_LIMIT = 96;
@@ -285,9 +287,12 @@ export function createArenaSimulation({
         furyMultiplier: powerups.furyMultiplier, furySeconds: powerups.furySeconds,
         wardMultiplier: powerups.wardMultiplier, wardSeconds: powerups.wardSeconds,
         spells: [...book.spells], activeSpell: book.activeIndex, cooldown: book.cooldown,
+        cooldowns: { ...book.cooldowns }, castPhase: book.castPhase, castMode: book.castMode,
         charge: book.charge, charging: book.charging,
         chargeAimX: book.chargeAimX, chargeAimY: book.chargeAimY,
         chargeSpellIndex: book.chargeSpellIndex,
+        castTargetX: book.castTargetX, castTargetY: book.castTargetY,
+        channelRemaining: book.channelRemaining, triggerHeld: book.triggerHeld,
         weapon: { name: weapon.name, glyph: weapon.glyph, damage: weapon.damage },
         auras: projectAuras(world, entityId),
       },
@@ -340,6 +345,8 @@ export function createArenaSimulation({
         style: projectile.style,
         auraId: projectile.auraId,
         auraDuration: projectile.auraDuration,
+        impacts: (projectile.impacts || []).map((impact) => ({ ...impact })),
+        spellId: projectile.spellId,
         ttl: lifetime.ttl,
         owner: ensureNetworkId(projectile.owner, world.has(projectile.owner, AI) ? 'mob' : 'player'),
       },
@@ -438,11 +445,18 @@ export function createArenaSimulation({
       book.spells = [...state.spells];
       book.activeIndex = state.activeSpell;
       book.cooldown = state.cooldown;
+      book.cooldowns = { ...state.cooldowns };
+      book.castPhase = state.castPhase;
+      book.castMode = state.castMode;
       book.charge = state.charge;
       book.charging = state.charging;
       book.chargeAimX = state.chargeAimX;
       book.chargeAimY = state.chargeAimY;
       book.chargeSpellIndex = state.chargeSpellIndex;
+      book.castTargetX = state.castTargetX;
+      book.castTargetY = state.castTargetY;
+      book.channelRemaining = state.channelRemaining;
+      book.triggerHeld = state.triggerHeld;
       powerups.manaRegenMultiplier = state.manaRegenMultiplier;
       powerups.manaRegenSeconds = state.manaRegenSeconds;
       powerups.hasteMultiplier = state.hasteMultiplier;
@@ -678,11 +692,18 @@ function normalizePlayerState(id, state) {
     spells: [...state.spells],
     activeSpell: nonNegativeInteger(state.activeSpell, `${id}.activeSpell`),
     cooldown: finiteNumber(state.cooldown, `${id}.cooldown`),
+    cooldowns: normalizeCooldowns(id, state.cooldowns),
+    castPhase: String(state.castPhase || 'idle'),
+    castMode: String(state.castMode || 'instant'),
     charge: finiteNumber(state.charge, `${id}.charge`),
     charging: Boolean(state.charging),
     chargeAimX: finiteNumber(state.chargeAimX, `${id}.chargeAimX`),
     chargeAimY: finiteNumber(state.chargeAimY, `${id}.chargeAimY`),
     chargeSpellIndex: nonNegativeInteger(state.chargeSpellIndex, `${id}.chargeSpellIndex`),
+    castTargetX: finiteNumber(state.castTargetX ?? 0, `${id}.castTargetX`),
+    castTargetY: finiteNumber(state.castTargetY ?? 0, `${id}.castTargetY`),
+    channelRemaining: finiteNumber(state.channelRemaining ?? 0, `${id}.channelRemaining`),
+    triggerHeld: Boolean(state.triggerHeld),
     manaRegenMultiplier: finiteNumber(state.manaRegenMultiplier, `${id}.manaRegenMultiplier`),
     manaRegenSeconds: finiteNumber(state.manaRegenSeconds, `${id}.manaRegenSeconds`),
     hasteMultiplier: finiteNumber(state.hasteMultiplier, `${id}.hasteMultiplier`),
@@ -732,6 +753,8 @@ function normalizeProjectileState(id, state) {
     style: String(state.style || 'frost'),
     auraId: state.auraId == null ? null : String(state.auraId),
     auraDuration: finiteNumber(state.auraDuration ?? 0, `${id}.auraDuration`),
+    impacts: normalizeImpacts(id, state.impacts),
+    spellId: state.spellId == null ? null : String(state.spellId),
     ttl: finiteNumber(state.ttl, `${id}.ttl`), owner: normalizeNetworkId(state.owner),
   };
 }
@@ -772,7 +795,36 @@ function recordToProjectile(state) {
     style: state.style,
     auraId: state.auraId,
     auraDuration: state.auraDuration,
+    impacts: state.impacts.map((impact) => ({ ...impact })),
+    spellId: state.spellId,
   };
+}
+
+function normalizeCooldowns(id, value) {
+  if (value == null) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`simulation ${id}.cooldowns must be an object`);
+  }
+  const cooldowns = {};
+  for (const [spellId, seconds] of Object.entries(value)) {
+    cooldowns[String(spellId)] = finiteNumber(seconds, `${id}.cooldowns.${spellId}`);
+  }
+  return cooldowns;
+}
+
+function normalizeImpacts(id, value) {
+  if (value == null) return [];
+  if (!Array.isArray(value)) throw new Error(`simulation ${id}.impacts must be an array`);
+  return value.map((impact, index) => {
+    if (!impact || typeof impact !== 'object') throw new Error(`simulation ${id}.impacts[${index}] must be an object`);
+    const normalized = { kind: String(impact.kind) };
+    if (impact.amount != null) normalized.amount = finiteNumber(impact.amount, `${id}.impacts[${index}].amount`);
+    if (impact.duration != null) normalized.duration = finiteNumber(impact.duration, `${id}.impacts[${index}].duration`);
+    if (impact.auraId != null) normalized.auraId = String(impact.auraId);
+    if (impact.damageType != null) normalized.damageType = String(impact.damageType);
+    normalized.chargeScale = null;
+    return normalized;
+  });
 }
 
 function normalizeAuras(id, value) {
@@ -785,6 +837,7 @@ function normalizeAuras(id, value) {
       name: String(aura.name),
       glyph: String(aura.glyph),
       visual: String(aura.visual || 'generic'),
+      disposition: String(aura.disposition || 'neutral'),
       remaining: finiteNumber(aura.remaining, `${id}.auras[${index}].remaining`),
       duration: finiteNumber(aura.duration, `${id}.auras[${index}].duration`),
       stacks: nonNegativeInteger(aura.stacks ?? 1, `${id}.auras[${index}].stacks`),

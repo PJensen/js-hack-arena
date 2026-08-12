@@ -7,7 +7,8 @@ import {
 import { AI, Actor, Auras, Facing, Health, Input, ItemInfo, Mana, Position, Powerups, Projectile, Spellbook, Collider } from '../public/src/rules/components/index.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
 import { spawnFuryRune, spawnHasteRune, spawnManaSurge, spawnPotion, spawnSpellbook, spawnWardRune } from '../public/src/rules/spawner.js';
-import { applyAura } from '../public/src/rules/effects.js';
+import { applyAura, applyDamage, getStatMultiplier } from '../public/src/rules/effects.js';
+import { SpellCastMode, spells as spellCatalog } from '../public/src/rules/data/spellCatalog.js';
 import {
   SIM_DT,
   SIM_MODE,
@@ -46,6 +47,19 @@ function makeOpenSim(seed = 1234, options = {}) {
     ...options,
   });
 }
+
+Deno.test("spell catalog: all spells compose a cast mode and global cooldown", () => {
+  const modes = new Set();
+  for (const spell of Object.values(spellCatalog)) {
+    assert(spell.globalCooldown > 0);
+    assert(spell.cooldown >= 0);
+    assert(spell.targeting?.type);
+    assert(spell.delivery?.kind);
+    assert(Array.isArray(spell.impacts));
+    modes.add(spell.cast.mode);
+  }
+  assertEquals([...modes].sort(), Object.values(SpellCastMode).sort());
+});
 
 Deno.test("arena sim: player movement uses the canonical command and movement path", () => {
   const sim = makeSim();
@@ -172,6 +186,7 @@ Deno.test("arena sim: combat, projectiles, deaths, and loot are authoritative", 
   assert(sim.world.get(mobId, Auras).active.some((aura) => aura.id === 'stunned'));
   assert(sim.captureSnapshot().events.some((event) => event.type === 'spell.bolt'));
 
+  for (let i = 0; i < 4; i++) sim.step();
   sim.setPlayerInput('peer-a', { seq: 3, aimX: 1, fire: true, spellSlot: 0 });
   for (let i = 0; i < 13; i++) sim.step();
   sim.setPlayerInput('peer-a', { seq: 4, aimX: 0, fire: false, spellSlot: 0 });
@@ -280,6 +295,7 @@ Deno.test("arena sim: generic aura effects modify rules and expire", () => {
   const health = sim.world.get(playerId, Health);
 
   applyAura(sim.world, playerId, 'frozen', playerId, 0.2);
+  assertAlmostEquals(getStatMultiplier(sim.world, playerId, 'damageTaken', { damageType: 'fire' }), 1.1);
   sim.setPlayerInput('peer-a', { seq: 1, moveX: 1 });
   sim.step(0.05);
   assertAlmostEquals(position.x, 102.5, 0.01);
@@ -305,11 +321,121 @@ Deno.test("arena sim: '?' spellbooks teach mana-powered abilities", () => {
   const mana = sim.world.get(playerId, Mana);
   const beforeMana = mana.mana;
   sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 2 });
-  for (let i = 0; i < 5; i++) sim.step();
+  for (let i = 0; i < 14; i++) sim.step();
   sim.setPlayerInput('peer-a', { seq: 2, aimX: 0, fire: false, spellSlot: 2 });
   sim.step();
   assert(mana.mana < beforeMana);
   assert([...sim.world.query(Projectile)].some(([, projectile]) => projectile.auraId === 'poisoned'));
+});
+
+Deno.test("arena sim: every spell uses the global cooldown and its own cooldown", () => {
+  const sim = makeOpenSim(907, { enemyCount: 1, respawnEnemies: false });
+  const playerId = sim.addPlayer('peer-a');
+  const mobId = [...sim.world.query(AI)][0][0];
+  Object.assign(sim.world.get(mobId, Position), { x: 180, y: 100 });
+  sim.world.get(mobId, AI).target = null;
+  const book = sim.world.get(playerId, Spellbook);
+
+  sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 1 });
+  sim.step();
+  assert(book.cooldown > 0);
+  assert(book.cooldowns.lightning > 0);
+  sim.setPlayerInput('peer-a', { seq: 2, fire: false, spellSlot: 0 });
+  sim.step();
+  sim.setPlayerInput('peer-a', { seq: 3, aimX: 1, fire: true, spellSlot: 0 });
+  sim.step();
+  assertEquals(book.castPhase, 'idle');
+  assert(sim.captureSnapshot().events.some((event) => event.type === 'spell.denied' && event.payload.reason === 'global_cooldown'));
+});
+
+Deno.test("arena sim: fixed cast-time spells can be interrupted before resolution", () => {
+  const sim = makeOpenSim(908, { enemyCount: 0 });
+  const playerId = sim.addPlayer('peer-a');
+  const book = sim.world.get(playerId, Spellbook);
+  book.spells.push('poison_orb');
+  const mana = sim.world.get(playerId, Mana);
+
+  sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 2 });
+  for (let i = 0; i < 4; i++) sim.step();
+  assertEquals(book.castPhase, 'casting');
+  sim.setPlayerInput('peer-a', { seq: 2, aimX: 1, fire: false, spellSlot: 2 });
+  sim.step();
+  assertEquals(book.castPhase, 'idle');
+  assertEquals(mana.mana, mana.maxMana);
+  assertEquals([...sim.world.query(Projectile)].some(([, projectile]) => projectile.style === 'poison'), false);
+  assert(sim.captureSnapshot().events.some((event) => event.type === 'spell.interrupted'));
+
+  sim.setPlayerInput('peer-a', { seq: 3, aimX: 1, fire: true, spellSlot: 2 });
+  sim.step();
+  applyDamage(sim.world, playerId, 1, { damageType: 'physical' });
+  sim.step();
+  assertEquals(book.castPhase, 'idle');
+  assert(sim.captureSnapshot().events.some((event) => event.type === 'spell.interrupted' && event.payload.reason === 'damage'));
+});
+
+Deno.test("arena sim: Blizzard channels once per global tick and movement interrupts it", () => {
+  const sim = makeOpenSim(909, { enemyCount: 1, respawnEnemies: false });
+  const playerId = sim.addPlayer('peer-a');
+  const book = sim.world.get(playerId, Spellbook);
+  book.spells.push('blizzard');
+  const mobId = [...sim.world.query(AI)][0][0];
+  Object.assign(sim.world.get(mobId, Position), { x: 270, y: 100 });
+  sim.world.get(mobId, AI).target = null;
+  const health = sim.world.get(mobId, Health);
+  const mana = sim.world.get(playerId, Mana);
+  mana.regenPerSecond = 0;
+
+  sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 2 });
+  sim.step();
+  assertEquals(book.castPhase, 'channeling');
+  const manaAtStart = mana.mana;
+  const hpAtStart = health.hp;
+  for (let i = 0; i < 3; i++) sim.step();
+  assertEquals(mana.mana, manaAtStart - 3);
+  assertEquals(health.hp, hpAtStart - 3);
+  assert(sim.world.get(mobId, Auras).active.some((aura) => aura.id === 'frozen'));
+
+  sim.setPlayerInput('peer-a', { seq: 2, moveX: 1, aimX: 1, fire: true, spellSlot: 2 });
+  sim.step();
+  assertEquals(book.castPhase, 'idle');
+  assert(sim.captureSnapshot().events.some((event) => event.type === 'spell.interrupted' && event.payload.reason === 'moved'));
+});
+
+Deno.test("arena sim: Ice Armor is an instant buff with mitigation and an individual cooldown", () => {
+  const sim = makeOpenSim(910, { enemyCount: 0 });
+  const playerId = sim.addPlayer('peer-a');
+  const book = sim.world.get(playerId, Spellbook);
+  book.spells.push('ice_armor');
+  const mana = sim.world.get(playerId, Mana);
+  const health = sim.world.get(playerId, Health);
+
+  sim.setPlayerInput('peer-a', { seq: 1, fire: true, spellSlot: 2 });
+  sim.step();
+  assert(sim.world.get(playerId, Auras).active.some((aura) => aura.id === 'ice_armor'));
+  assertEquals(book.castPhase, 'idle');
+  assert(book.cooldown > 0);
+  assert(book.cooldowns.ice_armor > 7);
+  assertEquals(mana.mana, 76);
+  applyDamage(sim.world, playerId, 20, { damageType: 'physical' });
+  assertEquals(health.hp, 87);
+});
+
+Deno.test("arena sim: Regeneration authors healing over time as a buff effect", () => {
+  const sim = makeOpenSim(911, { enemyCount: 0 });
+  const playerId = sim.addPlayer('peer-a');
+  const book = sim.world.get(playerId, Spellbook);
+  book.spells.push('regeneration');
+  const mana = sim.world.get(playerId, Mana);
+  const health = sim.world.get(playerId, Health);
+  mana.regenPerSecond = 0;
+  health.hp = 50;
+
+  sim.setPlayerInput('peer-a', { seq: 1, fire: true, spellSlot: 2 });
+  sim.step();
+  assert(sim.world.get(playerId, Auras).active.some((aura) => aura.id === 'regeneration'));
+  for (let i = 0; i < 21; i++) sim.step();
+  assertEquals(health.hp, 54);
+  assertEquals(mana.mana, 74);
 });
 
 Deno.test("arena sim: health pickups heal injuries and wait when health is full", () => {

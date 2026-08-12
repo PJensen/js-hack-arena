@@ -1,4 +1,4 @@
-import { Auras, Health, Position } from './components/index.js';
+import { Auras, Health, Position, Powerups } from './components/index.js';
 import { auras as auraCatalog, EffectKind } from './data/auraCatalog.js';
 
 export function applyAura(world, targetId, auraId, sourceId = null, duration = null) {
@@ -28,14 +28,48 @@ export function applyAura(world, targetId, auraId, sourceId = null, duration = n
   return true;
 }
 
-export function getStatMultiplier(world, targetId, stat) {
+export function getStatMultiplier(world, targetId, stat, context = {}) {
   let multiplier = 1;
   forEachEffect(world, targetId, (effect, aura) => {
-    if (effect.kind === EffectKind.STAT_MULTIPLIER && effect.stat === stat) {
+    if (effect.kind === EffectKind.STAT_MULTIPLIER && effect.stat === stat &&
+      (!effect.damageType || effect.damageType === context.damageType)) {
       multiplier *= finiteNumber(effect.value, 1) ** Math.max(1, aura.stacks || 1);
     }
   });
   return multiplier;
+}
+
+export function applyDamage(world, targetId, rawAmount, {
+  sourceId = null, damageType = null, x = null, y = null, spellId = null, periodic = false,
+} = {}) {
+  const health = world.get(targetId, Health);
+  if (!health || health.dead || health.hp <= 0) return 0;
+  const ward = world.get(targetId, Powerups)?.wardMultiplier || 1;
+  const mitigation = getStatMultiplier(world, targetId, 'damageTaken', { damageType });
+  const amount = Math.max(0, Math.round(rawAmount * ward * mitigation));
+  if (amount <= 0) return 0;
+  health.hp = Math.max(0, health.hp - amount);
+  const position = world.get(targetId, Position);
+  world.emit('damage.dealt', {
+    target: targetId, source: sourceId, amount,
+    x: x ?? position?.x ?? 0, y: y ?? position?.y ?? 0,
+    damageType, spellId, periodic,
+  });
+  return amount;
+}
+
+export function applyHealing(world, targetId, rawAmount, { sourceId = null, x = null, y = null, spellId = null } = {}) {
+  const health = world.get(targetId, Health);
+  if (!health || health.dead || health.hp <= 0) return 0;
+  const amount = Math.min(Math.max(0, Math.round(rawAmount)), health.maxHp - health.hp);
+  if (amount <= 0) return 0;
+  health.hp += amount;
+  const position = world.get(targetId, Position);
+  world.emit('damage.dealt', {
+    target: targetId, source: sourceId, amount: -amount,
+    x: x ?? position?.x ?? 0, y: y ?? position?.y ?? 0, spellId,
+  });
+  return amount;
 }
 
 export function isActionLocked(world, targetId, action) {
@@ -51,6 +85,7 @@ export function auraSystem(world, dt) {
     for (const aura of state.active) {
       aura.remaining -= dt;
       tickPeriodicDamage(world, targetId, aura, dt);
+      tickPeriodicHealing(world, targetId, aura, dt);
     }
     const expired = state.active.filter((aura) => aura.remaining <= 0);
     state.active = state.active.filter((aura) => aura.remaining > 0);
@@ -68,6 +103,7 @@ export function projectAuras(world, targetId) {
       name: definition?.name || aura.id,
       glyph: definition?.glyph || '•',
       visual: definition?.visual || 'generic',
+      disposition: definition?.disposition || 'neutral',
       remaining: Math.max(0, aura.remaining),
       duration: aura.duration,
       stacks: aura.stacks || 1,
@@ -94,16 +130,22 @@ function tickPeriodicDamage(world, targetId, aura, dt) {
     while (effect.elapsed >= interval && health.hp > 0) {
       effect.elapsed -= interval;
       const amount = Math.max(0, finiteNumber(effect.amount, 0)) * Math.max(1, aura.stacks || 1);
-      health.hp = Math.max(0, health.hp - amount);
-      const position = world.get(targetId, Position);
-      world.emit('damage.dealt', {
-        target: targetId,
-        source: aura.source,
-        amount,
-        x: position?.x || 0,
-        y: position?.y || 0,
-        periodic: true,
-        auraId: aura.id,
+      applyDamage(world, targetId, amount, {
+        sourceId: aura.source, damageType: effect.damageType, periodic: true,
+      });
+    }
+  }
+}
+
+function tickPeriodicHealing(world, targetId, aura, dt) {
+  for (const effect of aura.effects || []) {
+    if (effect.kind !== EffectKind.PERIODIC_HEAL) continue;
+    const interval = Math.max(0.05, finiteNumber(effect.interval, 1));
+    effect.elapsed = finiteNumber(effect.elapsed, 0) + dt;
+    while (effect.elapsed >= interval) {
+      effect.elapsed -= interval;
+      applyHealing(world, targetId, finiteNumber(effect.amount, 0) * Math.max(1, aura.stacks || 1), {
+        sourceId: aura.source,
       });
     }
   }
