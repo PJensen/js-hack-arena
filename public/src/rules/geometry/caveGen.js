@@ -197,12 +197,14 @@ function connectSpawns(grid, spawns, seed) {
     const bend = Math.sin((seed + index * 8191) * 0.013) * Math.min(150, length * 0.12);
     const points = [];
     const steps = Math.max(2, Math.ceil(length / (grid.cellSize * 0.75)));
+    const routeStep = length / steps;
+    const landmarkStride = Math.max(1, Math.round(360 / routeStep));
     for (let step = 0; step <= steps; step++) {
       const t = step / steps;
       const curve = Math.sin(t * Math.PI) * bend;
       const x = hub.x + dx * t + nx * curve;
       const y = hub.y + dy * t + ny * curve;
-      if (step % Math.max(1, Math.round(180 / grid.cellSize)) === 0 || step === steps) points.push({ x, y });
+      if (step % landmarkStride === 0 || step === steps) points.push({ x, y });
       carveOpenCell(grid, x, y, 30);
     }
     routes.push({ from: { ...hub }, to: { ...destination }, points });

@@ -367,6 +367,8 @@ export function createWebGLArenaRenderer(deps) {
   const meleeSwings = [];
   const bloodDecals = [];
   let lastFrameTime = performance.now() * 0.001;
+  let torchParticleAccumulator = 0;
+  let torchParticleSequence = 0;
 
   world.on('spell.bolt', (event) => {
     bolts.push({ ...event, age: 0, duration: 0.18 });
@@ -525,9 +527,9 @@ export function createWebGLArenaRenderer(deps) {
       const distance = Math.hypot(torch.x - shownPlayer.x, torch.y - shownPlayer.y);
       if (distance > 520 + Math.max(view[2], view[3]) * 0.75) continue;
       candidates.push({
-        x: torch.x, y: torch.y - 8, radius: 285,
-        intensity: 1.08 + 0.16 * Math.sin(now * 9 + torch.phase),
-        r: 1, g: 0.42, b: 0.11, distance,
+        x: torch.x, y: torch.y - 12, radius: 390,
+        intensity: 1.55 + 0.24 * Math.sin(now * 9 + torch.phase),
+        r: 1, g: 0.48, b: 0.14, distance,
       });
     }
     for (const bolt of bolts) {
@@ -649,14 +651,45 @@ export function createWebGLArenaRenderer(deps) {
     return Math.abs(x - view[0]) <= view[2] * 0.5 + margin && Math.abs(y - view[1]) <= view[3] * 0.5 + margin;
   }
 
-  function drawDungeonDecorations(now) {
+  function spawnTorchParticle(torch, now, hot) {
+    const sequence = ++torchParticleSequence;
+    const noise = Math.sin(sequence * 91.73 + torch.phase * 17.1) * 43758.5453;
+    const random = noise - Math.floor(noise);
+    const life = (hot ? 0.34 : 0.62) + random * 0.22;
+    fx.pool.spawn({
+      x: torch.x + (random * 2 - 1) * 2.8,
+      y: torch.y - 13,
+      vx: (random * 2 - 1) * (hot ? 7 : 13) + Math.sin(now * 4 + torch.phase) * 3,
+      vy: -(hot ? 20 : 30) - random * 18,
+      ax: Math.sin(torch.phase + sequence) * 5,
+      ay: -7,
+      life,
+      size0: hot ? 6.5 : 5,
+      size1: hot ? 1.8 : 0.5,
+      r: 1,
+      g: hot ? 0.82 : 0.24 + random * 0.2,
+      b: hot ? 0.28 : 0.025,
+      a0: hot ? 0.96 : 0.82,
+      a1: 0,
+    });
+  }
+
+  function drawDungeonDecorations(now, renderDt) {
+    torchParticleAccumulator += renderDt;
+    const emitParticles = torchParticleAccumulator >= 0.055;
+    if (emitParticles) torchParticleAccumulator %= 0.055;
     for (const torch of decorations?.torches || []) {
       if (!inView(torch.x, torch.y, 45)) continue;
       const flicker = 0.5 + 0.5 * Math.sin(now * 11 + torch.phase);
-      drawLines(new Float32Array([torch.x, torch.y + 8, torch.x, torch.y - 8]), [0.34, 0.19, 0.08, 1], 3);
+      drawLines(new Float32Array([torch.x, torch.y + 10, torch.x, torch.y - 7]), [0.34, 0.19, 0.08, 1], 4);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-      drawElementOrb('fire', torch.x, torch.y - 11, 6 + flicker * 2, now + torch.phase, 0.95);
+      drawDisc(torch.x, torch.y - 12, 8 + flicker * 1.8, [1, 0.18, 0.02, 0.14], [1, 0.55, 0.08, 0.28]);
+      drawDisc(torch.x, torch.y - 13, 3.2 + flicker, [1, 0.86, 0.35, 0.92], [1, 0.98, 0.7, 1]);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      if (emitParticles) {
+        spawnTorchParticle(torch, now, true);
+        spawnTorchParticle(torch, now, false);
+      }
     }
   }
 
@@ -761,7 +794,7 @@ export function createWebGLArenaRenderer(deps) {
     const renderDt = Math.min(0.05, Math.max(0, now - lastFrameTime));
     lastFrameTime = now;
 
-    drawDungeonDecorations(now);
+    drawDungeonDecorations(now, renderDt);
 
     for (let i = bloodDecals.length - 1; i >= 0; i--) {
       const decal = bloodDecals[i];
@@ -800,8 +833,6 @@ export function createWebGLArenaRenderer(deps) {
         bob = Math.abs(stride) * -1.4;
         lean *= 0.25;
         drawCube(shown.x + lean, shown.y + bob, collider.radius * (1 + stride * 0.035), now + id * 0.17, 0.94);
-      } else {
-        drawElementOrb(actor.theme, shown.x + lean, shown.y + bob, collider.radius * (1 + stride * moving * 0.025), now + id * 0.17, actor.theme === 'shadow' ? 0.9 : 0.82);
       }
       const glyphColor = actor.theme === 'fire' ? [1, 0.84, 0.5, 1] : actor.theme === 'frost' ? [0.72, 1, 0.9, 1] : [0.85, 0.68, 1, 1];
       drawGlyph(actor.glyph, shown.x + lean, shown.y + bob + 1, collider.radius * (actor.name === 'Gelatinous Cube' ? 0.8 : 1.5), actor.name === 'Gelatinous Cube' ? [0.88, 1, 0.84, 0.58] : glyphColor);
@@ -828,17 +859,21 @@ export function createWebGLArenaRenderer(deps) {
     // intentionally luminous VFX and HUD participates in darkness and color.
     drawLighting(collectLights(now, shownPlayer));
 
-    // Powerups are emissive story objects: their silhouette remains legible
-    // after darkness composition, while their PointLight still colors terrain.
+    // Ground powerups use clean rings rather than the elemental status shader.
+    // The animated shader remains reserved for meaningful active effects.
     for (const [id, position, _item, info] of world.query(Position, GroundItem, ItemInfo)) {
       const effect = world.get(id, Consumable)?.effect;
       if (!['mana_regen', 'haste', 'fury', 'ward'].includes(effect)) continue;
       const bob = Math.sin(now * 3 + id) * 2.5;
       const pulse = 0.5 + 0.5 * Math.sin(now * 4.5 + id);
       const theme = themeForPowerup(effect);
+      const ringColor = theme === 'fire' ? [1, 0.34, 0.08, 0.7]
+        : theme === 'shadow' ? [0.7, 0.28, 1, 0.7]
+        : theme === 'frost' ? [0.32, 1, 0.78, 0.7]
+        : [0.34, 0.72, 1, 0.7];
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-      drawElementOrb(theme, position.x, position.y + bob, 13 + pulse * 3, now + id, 0.72);
-      drawDisc(position.x, position.y + bob, 17 + pulse * 5, [0, 0, 0, 0], [0.52, 0.92, 1, 0.18 + pulse * 0.25]);
+      drawDisc(position.x, position.y + bob, 12, [0.02, 0.04, 0.07, 0.58], ringColor);
+      drawDisc(position.x, position.y + bob, 16 + pulse * 1.5, [0, 0, 0, 0], [...ringColor.slice(0, 3), 0.16 + pulse * 0.18]);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       drawGlyph(info.glyph, position.x, position.y + bob, 18, [0.96, 1, 1, 1]);
     }

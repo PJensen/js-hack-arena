@@ -3,20 +3,16 @@
 export function createDungeonDecorations({ grid, routes = [], spawns = [], seed = 1 }) {
   const rng = mulberry32(seed ^ 0x51a7f00d);
   const torches = [];
-  const torchKeys = new Set();
 
   const placeTorch = (x, y, routeIndex = -1) => {
     const open = findOpen(grid, x, y, 75);
     if (!open) return;
-    const key = `${Math.round(open.x / 45)}:${Math.round(open.y / 45)}`;
-    if (torchKeys.has(key)) return;
-    torchKeys.add(key);
+    if (torches.some((torch) => Math.hypot(torch.x - open.x, torch.y - open.y) < 240)) return;
     torches.push({ ...open, routeIndex, phase: rng() * Math.PI * 2 });
   };
 
   spawns.forEach((spawn, index) => {
-    placeTorch(spawn.x + 34, spawn.y, index);
-    placeTorch(spawn.x - 34, spawn.y, index);
+    placeTorch(spawn.x, spawn.y - 32, index);
   });
   routes.forEach((route, routeIndex) => {
     route.points.forEach((point) => placeTorch(point.x, point.y, routeIndex));
