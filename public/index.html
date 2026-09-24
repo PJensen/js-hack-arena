@@ -172,6 +172,7 @@ import { createDungeonDecorations } from './src/display/worldDecorations.js';
 import { createSnapshotInterpolator } from './src/display/snapshotInterpolator.js';
 import { createLocalPlayerPrediction } from './src/display/localPlayerPrediction.js';
 import { createProjectileFxController } from './src/display/passes/projectileFx.js';
+import { createArenaAudio, unlockArenaAudio } from './src/display/audio/arenaAudio.js';
 import { ArrowAmmo, BowWeapon, MeleeWeapon, Spellbook, Position } from './src/rules/components/index.js';
 import { createNetClient } from './src/net/client.js';
 import { samplePlayerCommand } from './src/input/samplePlayerCommand.js';
@@ -189,6 +190,8 @@ const playerName = await new Promise((resolve) => {
   requestAnimationFrame(() => field.focus());
   form.addEventListener('submit', (event) => {
     event.preventDefault();
+    // Unlock Web Audio while this is still a browser user gesture.
+    unlockArenaAudio();
     const name = field.value.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 20) || 'Adventurer';
     localStorage.setItem('hack-arena.player-name', name);
     gate.remove();
@@ -340,6 +343,13 @@ world.on('item.pickup', () => rebuildSpellBar());
 rebuildSpellBar();
 
 const projectileFx = createProjectileFxController({ world, fx, runtimeEvents });
+const arenaAudio = createArenaAudio({
+  world,
+  getPlayerPosition() {
+    const position = world.get(playerId, Position);
+    return presentation?.position(playerId, position) ?? position;
+  },
+});
 
 // ── Renderer ────────────────────────────────────────────────────
 renderer = createWebGLArenaRenderer({
@@ -459,6 +469,7 @@ addEventListener('beforeunload', () => {
   loop.stop();
   inputRouter.destroy();
   netClient.destroy();
+  arenaAudio.dispose();
   renderer.dispose();
 });
 </script>
