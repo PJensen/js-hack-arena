@@ -8,4 +8,6 @@ export const Input = defineComponent('Input', {
   aimX: 0,       // right-stick X [-1, 1]
   aimY: 0,       // right-stick Y [-1, 1]
   fire: false,   // trigger held
+  pickupX: null, // one-shot world-space weapon pickup target
+  pickupY: null,
 });

@@ -1,5 +1,6 @@
 // Authoritative entity lifecycle. Presentation observes entity.died events.
-import { Actor, Health, Input, Lifetime, PlayerTag, Position, Projectile, Velocity } from '../components/index.js';
+import { Actor, Health, Input, Lifetime, PlayerTag, Position, Projectile, RecoverableArrows, Velocity } from '../components/index.js';
+import { spawnArrows } from '../spawner.js';
 
 export function deathSystem(world, _dt) {
   const destroy = new Set();
@@ -15,6 +16,8 @@ export function deathSystem(world, _dt) {
       y: position.y,
       glyph: actor.glyph,
     });
+    const arrows = world.get(id, RecoverableArrows)?.count || 0;
+    if (arrows > 0) spawnArrows(world, position.x, position.y, arrows);
     if (world.has(id, PlayerTag)) {
       const input = world.get(id, Input);
       if (input) Object.assign(input, { moveX: 0, moveY: 0, aimX: 0, aimY: 0, fire: false });

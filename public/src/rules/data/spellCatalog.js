@@ -25,7 +25,8 @@ export const DeliveryKind = Object.freeze({
 export const ImpactKind = Object.freeze({
   DAMAGE: 'damage',
   HEAL: 'heal',
-  APPLY_AURA: 'apply_aura',
+  APPLY_CONDITION: 'apply_condition',
+  APPLY_AURA: 'apply_aura', // legacy serialized impact kind
 });
 
 export const DEFAULT_GLOBAL_COOLDOWN = 0.45;
@@ -41,19 +42,20 @@ export const spells = Object.freeze({
     delivery: { kind: DeliveryKind.PROJECTILE, speed: 320, radius: 5, ttl: 2 },
     impacts: [
       { kind: ImpactKind.DAMAGE, amount: 15, chargeScale: [0.65, 1.35] },
-      { kind: ImpactKind.APPLY_AURA, auraId: 'frozen', duration: 2.4, chargeScale: [0.6, 1] },
+      { kind: ImpactKind.APPLY_CONDITION, conditionId: 'frozen', duration: 2.4, chargeScale: [0.6, 1] },
     ],
     trailColor: '#8cd8ff', burstColor: '#b0e0ff',
   }),
   arrow: spell({
     id: 'arrow',
     name: 'Arrow', glyph: '→', element: 'arrow',
+    ammoType: 'arrow',
     cast: { mode: SpellCastMode.CHARGED, maxCharge: 0.7 },
     mana: { cost: 0 },
     cooldown: 0.18,
     targeting: { type: TargetingType.DIRECTION, range: 520 },
     delivery: { kind: DeliveryKind.PROJECTILE, speed: 450, radius: 3, ttl: 1.5 },
-    impacts: [{ kind: ImpactKind.DAMAGE, amount: 10, chargeScale: [0.65, 1.35] }],
+    impacts: [{ kind: ImpactKind.DAMAGE, amount: 10, damageType: 'physical', chargeScale: [0.65, 1.35] }],
     trailColor: '#c8a050', burstColor: '#a08040',
   }),
   lightning: spell({
@@ -66,7 +68,7 @@ export const spells = Object.freeze({
     delivery: { kind: DeliveryKind.DIRECT },
     impacts: [
       { kind: ImpactKind.DAMAGE, amount: 25 },
-      { kind: ImpactKind.APPLY_AURA, auraId: 'stunned', duration: 0.8 },
+      { kind: ImpactKind.APPLY_CONDITION, conditionId: 'stunned', duration: 0.8 },
     ],
   }),
   poison_orb: spell({
@@ -79,7 +81,7 @@ export const spells = Object.freeze({
     delivery: { kind: DeliveryKind.PROJECTILE, speed: 285, radius: 6, ttl: 2.2 },
     impacts: [
       { kind: ImpactKind.DAMAGE, amount: 8 },
-      { kind: ImpactKind.APPLY_AURA, auraId: 'poisoned', duration: 4 },
+      { kind: ImpactKind.APPLY_CONDITION, conditionId: 'poisoned', duration: 4 },
     ],
     trailColor: '#52e878', burstColor: '#80ff98',
   }),
@@ -91,7 +93,7 @@ export const spells = Object.freeze({
     cooldown: 8,
     targeting: { type: TargetingType.SELF },
     delivery: { kind: DeliveryKind.DIRECT },
-    impacts: [{ kind: ImpactKind.APPLY_AURA, auraId: 'ice_armor', duration: 6 }],
+    impacts: [{ kind: ImpactKind.APPLY_CONDITION, conditionId: 'ice_armor', duration: 6 }],
   }),
   regeneration: spell({
     id: 'regeneration',
@@ -101,7 +103,7 @@ export const spells = Object.freeze({
     cooldown: 10,
     targeting: { type: TargetingType.SELF },
     delivery: { kind: DeliveryKind.DIRECT },
-    impacts: [{ kind: ImpactKind.APPLY_AURA, auraId: 'regeneration', duration: 6 }],
+    impacts: [{ kind: ImpactKind.APPLY_CONDITION, conditionId: 'regeneration', duration: 6 }],
   }),
   blizzard: spell({
     id: 'blizzard',
@@ -113,7 +115,7 @@ export const spells = Object.freeze({
     delivery: { kind: DeliveryKind.AREA },
     impacts: [
       { kind: ImpactKind.DAMAGE, amount: 1 },
-      { kind: ImpactKind.APPLY_AURA, auraId: 'frozen', duration: 0.35 },
+      { kind: ImpactKind.APPLY_CONDITION, conditionId: 'frozen', duration: 0.35 },
     ],
   }),
 });

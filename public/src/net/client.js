@@ -81,9 +81,9 @@ export function createNetClient({
     }
   }
 
-  function update(tick, sampledInput) {
+  function update(tick, sampledInput, pickupIntent = null) {
     const now = performance.now();
-    if (!socket || socket.readyState !== WebSocket.OPEN || now - lastSendAt < minSendMs) return;
+    if (!socket || socket.readyState !== WebSocket.OPEN || now - lastSendAt < minSendMs) return false;
     lastSendAt = now;
     send(MESSAGE.INPUT, {
       input: makeInputFrame({
@@ -95,8 +95,11 @@ export function createNetClient({
         aimY: sampledInput?.intent?.aimY,
         fire: sampledInput?.intent?.fire,
         spellSlot: sampledInput?.spellSlot,
+        pickupX: pickupIntent?.x,
+        pickupY: pickupIntent?.y,
       }),
     });
+    return true;
   }
 
   function handleMessage(raw) {

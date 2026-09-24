@@ -1,5 +1,5 @@
 import { Health } from './components/index.js';
-import { applyAura, applyDamage, applyHealing } from './effects.js';
+import { applyCondition, applyDamage, applyHealing } from './effects.js';
 import { ImpactKind } from './data/spellCatalog.js';
 
 // Resolve author-time spell impacts into a projectile/channel-safe payload.
@@ -9,8 +9,8 @@ export function resolveImpacts(impacts, { power = 1, amountMultiplier = 1 } = {}
     if (impact.kind === ImpactKind.DAMAGE || impact.kind === ImpactKind.HEAL) {
       return { ...impact, amount: Math.max(0, impact.amount * scale * amountMultiplier), chargeScale: null };
     }
-    if (impact.kind === ImpactKind.APPLY_AURA) {
-      return { ...impact, duration: impact.duration * scale, chargeScale: null };
+    if (isConditionImpact(impact.kind)) {
+      return { ...impact, duration: impact.duration * scale, conditionId: impact.conditionId || impact.auraId, chargeScale: null };
     }
     return { ...impact, chargeScale: null };
   });
@@ -33,11 +33,15 @@ export function applyImpacts(world, targetId, sourceId, impacts, context = {}) {
       applied = applyHealing(world, targetId, impact.amount, {
         sourceId, x: context.x, y: context.y, spellId: context.spellId,
       }) > 0 || applied;
-    } else if (impact.kind === ImpactKind.APPLY_AURA) {
-      applied = applyAura(world, targetId, impact.auraId, sourceId, impact.duration) || applied;
+    } else if (isConditionImpact(impact.kind)) {
+      applied = applyCondition(world, targetId, impact.conditionId || impact.auraId, sourceId, impact.duration) || applied;
     }
   }
   return applied;
+}
+
+function isConditionImpact(kind) {
+  return kind === ImpactKind.APPLY_CONDITION || kind === ImpactKind.APPLY_AURA;
 }
 
 export function canReceiveImpacts(world, targetId) {

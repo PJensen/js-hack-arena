@@ -1,6 +1,6 @@
 import {
-  AI, Collider, Health, Input, Lifetime, Mana, PlayerTag, Position, Powerups,
-  Projectile, Spellbook, Velocity,
+  AI, ArrowAmmo, BowWeapon, Collider, Health, Input, Lifetime, Mana, PlayerTag,
+  Position, Powerups, Projectile, Spellbook, Velocity,
 } from '../components/index.js';
 import {
   DeliveryKind, SpellCastMode, TargetingType, spells as spellCatalog,
@@ -52,6 +52,7 @@ export function createPlayerCombatSystem({ grid }) {
       const spellId = book.spells[spellIndex];
       const spell = spellCatalog[spellId];
       if (!spell) continue;
+      if (!hasRequiredWeaponAndAmmo(world, playerId, spell, { deny })) continue;
       if (!hasRequiredAim(spell, input)) {
         deny(world, playerId, spellId, 'target');
         continue;
@@ -145,6 +146,10 @@ function maintainCast(world, grid, playerId, input, book, position, dt) {
 
 function resolveCast(world, grid, playerId, book, position, spell, power) {
   const spellId = book.spells[book.chargeSpellIndex];
+  if (!hasRequiredWeaponAndAmmo(world, playerId, spell, { deny })) {
+    finishCast(book);
+    return false;
+  }
   const mana = world.get(playerId, Mana);
   const manaCost = manaCostFor(spell, power);
   if (mana && mana.mana < manaCost) {
@@ -154,7 +159,12 @@ function resolveCast(world, grid, playerId, book, position, spell, power) {
   }
 
   const fury = world.get(playerId, Powerups)?.furyMultiplier || 1;
-  const impacts = resolveImpacts(spell.impacts, { power, amountMultiplier: fury });
+  const impacts = applyWeaponDamage(
+    playerId,
+    spell,
+    resolveImpacts(spell.impacts, { power, amountMultiplier: fury }),
+    world,
+  );
   let resolved = false;
   if (spell.targeting.type === TargetingType.ENEMY_CHAIN) {
     resolved = castChain(world, grid, playerId, position, spell, impacts);
@@ -172,6 +182,7 @@ function resolveCast(world, grid, playerId, book, position, spell, power) {
   }
 
   if (mana) mana.mana = Math.max(0, mana.mana - manaCost);
+  spendAmmo(world, playerId, spell);
   engageCooldowns(book, spellId, spell);
   emitCast(world, playerId, spellId, position, book, power, manaCost);
   finishCast(book);
@@ -241,17 +252,54 @@ function spawnSpellProjectile(world, playerId, position, book, spell, impacts, p
     vy: Math.sin(angle) * spell.delivery.speed * speedScale,
   });
   const damage = impacts.find((impact) => impact.kind === 'damage')?.amount || 0;
-  const aura = impacts.find((impact) => impact.kind === 'apply_aura');
+  const bow = world.get(playerId, BowWeapon);
+  const condition = impacts.find((impact) => impact.kind === 'apply_condition' || impact.kind === 'apply_aura');
   world.add(projectileId, Projectile, {
     damage: Math.max(1, Math.round(damage)), owner: playerId, team: 'players',
     speed: spell.delivery.speed, piercing: false,
     trailColor: spell.trailColor, burstColor: spell.burstColor,
     power, style: spell.element,
-    auraId: aura?.auraId || null, auraDuration: aura?.duration || 0,
+    conditionId: condition?.conditionId || condition?.auraId || null,
+    conditionDuration: condition?.duration || 0,
+    auraId: condition?.conditionId || condition?.auraId || null,
+    auraDuration: condition?.duration || 0,
     impacts, spellId: spell.id,
+    recoverableAmmo: spell.ammoType === 'arrow' && !bow?.infiniteArrows,
   });
   world.add(projectileId, Lifetime, { ttl: spell.delivery.ttl });
   world.add(projectileId, Collider, { radius: spell.delivery.radius * radiusScale });
+}
+
+function hasRequiredWeaponAndAmmo(world, playerId, spell, { deny }) {
+  if (spell.ammoType !== 'arrow') return true;
+  const bow = world.get(playerId, BowWeapon);
+  if (!bow?.equipped) {
+    deny(world, playerId, spell.id, 'weapon');
+    return false;
+  }
+  if (!bow.infiniteArrows && (world.get(playerId, ArrowAmmo)?.count || 0) < 1) {
+    deny(world, playerId, spell.id, 'ammo');
+    return false;
+  }
+  return true;
+}
+
+function applyWeaponDamage(playerId, spell, impacts, world) {
+  if (spell.ammoType !== 'arrow') return impacts;
+  const bow = world.get(playerId, BowWeapon);
+  const baseDamage = spell.impacts.find((impact) => impact.kind === 'damage')?.amount || 10;
+  const scale = (bow?.damage || baseDamage) / baseDamage;
+  return impacts.map((impact) => impact.kind === 'damage'
+    ? { ...impact, amount: impact.amount * scale }
+    : impact);
+}
+
+function spendAmmo(world, playerId, spell) {
+  if (spell.ammoType !== 'arrow') return;
+  const bow = world.get(playerId, BowWeapon);
+  if (bow?.infiniteArrows) return;
+  const ammo = world.get(playerId, ArrowAmmo);
+  if (ammo) ammo.count = Math.max(0, ammo.count - 1);
 }
 
 function captureCast(book, spellIndex, spell, input, position) {

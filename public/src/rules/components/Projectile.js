@@ -11,8 +11,11 @@ export const Projectile = defineComponent('Projectile', {
   burstColor: '#b0e0ff',
   power: 1,           // normalized cast investment, used by damage and VFX
   style: 'frost',     // authored rendering/impact vocabulary
-  auraId: null,       // optional semantic aura applied on hit
+  conditionId: null,
+  conditionDuration: 0,
+  auraId: null,       // legacy alias for conditionId
   auraDuration: 0,
   impacts: [],        // resolved generic impacts applied on collision
   spellId: null,
+  recoverableAmmo: false,
 });

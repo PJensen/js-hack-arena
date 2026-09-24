@@ -1,14 +1,15 @@
-import { Auras, Health, Position, Powerups } from './components/index.js';
-import { auras as auraCatalog, EffectKind } from './data/auraCatalog.js';
+import { Actor, ActorKind, AuraEmitter, AuraMemberships, Conditions, Health, Position, Powerups } from './components/index.js';
+import { conditions as conditionCatalog } from './data/conditionCatalog.js';
+import { EffectKind } from './data/effectCatalog.js';
 
-export function applyAura(world, targetId, auraId, sourceId = null, duration = null) {
-  const definition = auraCatalog[auraId];
+export function applyCondition(world, targetId, conditionId, sourceId = null, duration = null) {
+  const definition = conditionCatalog[conditionId];
   if (!definition || !world.alive.has(targetId)) return false;
-  if (!world.has(targetId, Auras)) world.add(targetId, Auras);
+  if (!world.has(targetId, Conditions)) world.add(targetId, Conditions);
 
-  const state = world.get(targetId, Auras);
+  const state = world.get(targetId, Conditions);
   const lifetime = positiveDuration(duration, definition.duration);
-  const existing = state.active.find((aura) => aura.id === auraId);
+  const existing = state.active.find((condition) => condition.id === conditionId);
   if (existing) {
     existing.source = sourceId;
     existing.remaining = Math.max(existing.remaining, lifetime);
@@ -24,16 +25,16 @@ export function applyAura(world, targetId, auraId, sourceId = null, duration = n
       effects: cloneEffects(definition.effects),
     });
   }
-  world.emit('aura.applied', { target: targetId, source: sourceId, auraId, duration: lifetime });
+  world.emit('condition.applied', { target: targetId, source: sourceId, conditionId, duration: lifetime });
   return true;
 }
 
 export function getStatMultiplier(world, targetId, stat, context = {}) {
   let multiplier = 1;
-  forEachEffect(world, targetId, (effect, aura) => {
+  forEachEffect(world, targetId, (effect, source) => {
     if (effect.kind === EffectKind.STAT_MULTIPLIER && effect.stat === stat &&
       (!effect.damageType || effect.damageType === context.damageType)) {
-      multiplier *= finiteNumber(effect.value, 1) ** Math.max(1, aura.stacks || 1);
+      multiplier *= finiteNumber(effect.value, 1) ** Math.max(1, source.stacks || 1);
     }
   });
   return multiplier;
@@ -80,79 +81,180 @@ export function isActionLocked(world, targetId, action) {
   return locked;
 }
 
-export function auraSystem(world, dt) {
-  for (const [targetId, state] of world.query(Auras)) {
-    for (const aura of state.active) {
-      aura.remaining -= dt;
-      tickPeriodicDamage(world, targetId, aura, dt);
-      tickPeriodicHealing(world, targetId, aura, dt);
+// Runs before movement and combat, keeping emitter membership and timed
+// conditions current for every later system in the tick.
+export function effectSystem(world, dt) {
+  updateAuraMemberships(world, dt);
+  for (const [targetId, state] of world.query(Conditions)) {
+    for (const condition of state.active) {
+      condition.remaining -= dt;
+      tickPeriodicEffects(world, targetId, condition, dt);
     }
-    const expired = state.active.filter((aura) => aura.remaining <= 0);
-    state.active = state.active.filter((aura) => aura.remaining > 0);
-    for (const aura of expired) world.emit('aura.expired', { target: targetId, auraId: aura.id });
+    const expired = state.active.filter((condition) => condition.remaining <= 0);
+    state.active = state.active.filter((condition) => condition.remaining > 0);
+    for (const condition of expired) {
+      world.emit('condition.expired', { target: targetId, conditionId: condition.id });
+    }
+  }
+
+  for (const [targetId, memberships] of world.query(AuraMemberships)) {
+    for (const membership of memberships.active) tickPeriodicEffects(world, targetId, membership, dt);
   }
 }
 
-export function projectAuras(world, targetId) {
-  const state = world.get(targetId, Auras);
+export function projectConditions(world, targetId) {
+  const state = world.get(targetId, Conditions);
   if (!state) return [];
-  return state.active.map((aura) => {
-    const definition = auraCatalog[aura.id];
+  return state.active.map((condition) => {
+    const definition = conditionCatalog[condition.id];
     return {
-      id: aura.id,
-      name: definition?.name || aura.id,
+      id: condition.id,
+      name: definition?.name || condition.id,
       glyph: definition?.glyph || '•',
       visual: definition?.visual || 'generic',
       disposition: definition?.disposition || 'neutral',
-      remaining: Math.max(0, aura.remaining),
-      duration: aura.duration,
-      stacks: aura.stacks || 1,
+      remaining: Math.max(0, condition.remaining),
+      duration: condition.duration,
+      stacks: condition.stacks || 1,
     };
   });
 }
 
-function forEachEffect(world, targetId, visit) {
-  const state = world.get(targetId, Auras);
-  if (!state) return;
-  for (const aura of state.active) {
-    if (aura.remaining <= 0) continue;
-    for (const effect of aura.effects || []) visit(effect, aura);
+export function projectAuraEmitter(world, entityId) {
+  const emitter = world.get(entityId, AuraEmitter);
+  if (!emitter) return null;
+  return {
+    id: String(emitter.id || ''),
+    name: String(emitter.name || emitter.id || 'Aura'),
+    radius: Math.max(0, finiteNumber(emitter.radius, 0)),
+    targets: emitter.targets || 'all',
+    team: emitter.team || null,
+    effects: cloneEffects(emitter.effects),
+    visual: cloneVisual(emitter.visual),
+    duration: Math.max(0, finiteNumber(emitter.duration, 0)),
+    remaining: finiteNumber(emitter.remaining, -1),
+    active: Boolean(emitter.active),
+  };
+}
+
+function updateAuraMemberships(world, dt) {
+  const emitters = [];
+  for (const [id, position, emitter] of world.query(Position, AuraEmitter)) {
+    if (!emitter.active) continue;
+    if (emitter.duration > 0) {
+      if (emitter.remaining < 0) emitter.remaining = emitter.duration;
+      emitter.remaining -= dt;
+      if (emitter.remaining <= 0) {
+        emitter.remaining = 0;
+        emitter.active = false;
+        world.emit('aura.expired', { emitter: id, auraId: emitter.id });
+        continue;
+      }
+    }
+    const radius = Math.max(0, finiteNumber(emitter.radius, 0));
+    if (radius <= 0) continue;
+    emitters.push({ id, position, emitter, radiusSquared: radius * radius });
+  }
+
+  const actors = [...world.query(Position, Actor)];
+  for (const [targetId, position, actor] of actors) {
+    const health = world.get(targetId, Health);
+    const old = world.get(targetId, AuraMemberships)?.active || [];
+    const previous = new Map(old.map((membership) => [membership.emitterId, membership]));
+    const next = [];
+    if (!health || (!health.dead && health.hp > 0)) {
+      for (const { id, position: sourcePosition, emitter, radiusSquared } of emitters) {
+        const sourceTeam = emitter.team || actorTeam(world, id);
+        if (!isTargeted(emitter.targets, sourceTeam, actorTeam(world, targetId))) continue;
+        const dx = position.x - sourcePosition.x;
+        const dy = position.y - sourcePosition.y;
+        if (dx * dx + dy * dy > radiusSquared) continue;
+
+        const existing = previous.get(id);
+        next.push(existing && existing.id === emitter.id
+          ? existing
+          : {
+            emitterId: id,
+            id: emitter.id,
+            source: id,
+            stacks: 1,
+            effects: cloneEffects(emitter.effects),
+          });
+      }
+    }
+    if (!world.has(targetId, AuraMemberships)) world.add(targetId, AuraMemberships);
+    world.get(targetId, AuraMemberships).active = next;
   }
 }
 
-function tickPeriodicDamage(world, targetId, aura, dt) {
-  const health = world.get(targetId, Health);
-  if (!health || health.dead || health.hp <= 0) return;
-  for (const effect of aura.effects || []) {
-    if (effect.kind !== EffectKind.PERIODIC_DAMAGE) continue;
-    const interval = Math.max(0.05, finiteNumber(effect.interval, 1));
-    effect.elapsed = finiteNumber(effect.elapsed, 0) + dt;
-    while (effect.elapsed >= interval && health.hp > 0) {
-      effect.elapsed -= interval;
-      const amount = Math.max(0, finiteNumber(effect.amount, 0)) * Math.max(1, aura.stacks || 1);
-      applyDamage(world, targetId, amount, {
-        sourceId: aura.source, damageType: effect.damageType, periodic: true,
-      });
+function actorTeam(world, entityId) {
+  const actor = world.get(entityId, Actor);
+  if (!actor) return 'neutral';
+  if (actor.team && actor.team !== 'neutral') return actor.team;
+  if (actor.kind === ActorKind.PLAYER) return 'friendly';
+  if (actor.kind === ActorKind.MOB) return 'hostile';
+  return actor.team || 'neutral';
+}
+
+function isTargeted(targets, sourceTeam, targetTeam) {
+  if (targets === 'all') return true;
+  if (!sourceTeam || sourceTeam === 'neutral' || !targetTeam || targetTeam === 'neutral') return false;
+  if (targets === 'friendly') return sourceTeam === targetTeam;
+  if (targets === 'hostile') return sourceTeam !== targetTeam;
+  return false;
+}
+
+function forEachEffect(world, targetId, visit) {
+  const conditions = world.get(targetId, Conditions);
+  if (conditions) {
+    for (const condition of conditions.active) {
+      if (condition.remaining <= 0) continue;
+      for (const effect of condition.effects || []) visit(effect, condition);
+    }
+  }
+  const memberships = world.get(targetId, AuraMemberships);
+  if (memberships) {
+    for (const membership of memberships.active) {
+      for (const effect of membership.effects || []) visit(effect, membership);
     }
   }
 }
 
-function tickPeriodicHealing(world, targetId, aura, dt) {
-  for (const effect of aura.effects || []) {
-    if (effect.kind !== EffectKind.PERIODIC_HEAL) continue;
+function tickPeriodicEffects(world, targetId, source, dt) {
+  for (const effect of source.effects || []) {
+    if (effect.kind !== EffectKind.PERIODIC_DAMAGE && effect.kind !== EffectKind.PERIODIC_HEAL) continue;
+    if (effect.kind === EffectKind.PERIODIC_DAMAGE) {
+      const health = world.get(targetId, Health);
+      if (!health || health.dead || health.hp <= 0) continue;
+    }
     const interval = Math.max(0.05, finiteNumber(effect.interval, 1));
     effect.elapsed = finiteNumber(effect.elapsed, 0) + dt;
     while (effect.elapsed >= interval) {
       effect.elapsed -= interval;
-      applyHealing(world, targetId, finiteNumber(effect.amount, 0) * Math.max(1, aura.stacks || 1), {
-        sourceId: aura.source,
-      });
+      const amount = Math.max(0, finiteNumber(effect.amount, 0)) * Math.max(1, source.stacks || 1);
+      if (effect.kind === EffectKind.PERIODIC_DAMAGE) {
+        if (world.get(targetId, Health)?.hp <= 0) break;
+        applyDamage(world, targetId, amount, {
+          sourceId: source.source, damageType: effect.damageType, periodic: true,
+        });
+      } else {
+        applyHealing(world, targetId, amount, { sourceId: source.source });
+      }
     }
   }
 }
 
 function cloneEffects(effects) {
   return (effects || []).map((effect) => ({ ...effect, elapsed: 0 }));
+}
+
+function cloneVisual(visual) {
+  return {
+    glyph: String(visual?.glyph || '◌'),
+    color: Array.isArray(visual?.color) && visual.color.length >= 3
+      ? visual.color.slice(0, 3).map((channel) => Math.max(0, Math.min(1, finiteNumber(channel, 1))))
+      : [0.65, 0.85, 1],
+  };
 }
 
 function positiveDuration(value, fallback) {
@@ -163,3 +265,8 @@ function positiveDuration(value, fallback) {
 function finiteNumber(value, fallback) {
   return Number.isFinite(value) ? value : fallback;
 }
+
+// Legacy names remain available while spell data and callers migrate.
+export const applyAura = applyCondition;
+export const auraSystem = effectSystem;
+export const projectAuras = projectConditions;

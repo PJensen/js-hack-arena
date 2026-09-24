@@ -1,15 +1,32 @@
 import {
-  Actor, ActorKind, Auras, Collider, Consumable, Facing, GroundItem, Health, Input, ItemInfo, Mana,
-  PlayerTag, PointLight, Position, Powerups, Projectile, Spellbook, Velocity,
+  Actor, ActorKind, BowWeapon, Conditions, AuraEmitter, Collider,
+  Consumable, Facing, GroundItem, Health, Input, ItemInfo, Mana, MeleeWeapon,
+  PickupLock, PlayerTag, PointLight, Position, Powerups, Projectile, Spellbook,
+  Velocity, WeaponPickup,
 } from '../../rules/components/index.js';
 import { AI } from '../../rules/components/AI.js';
 import { spells as spellCatalog } from '../../rules/data/spellCatalog.js';
+import { rarityTextColors } from '../../rules/data/lootTable.js';
 import { createWebGLDevice } from './device.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
 
 // Lighting is a core gameplay/readability layer. Keep enough simultaneous
 // sources for actors, loot, projectiles, and transient spell illumination.
 export const MAX_DYNAMIC_LIGHTS = 24;
+
+function compareDirection(next, current) {
+  return next > current ? 'up' : next < current ? 'down' : '';
+}
+
+function rarityColor(rarity) {
+  const hex = rarityTextColors[rarity] || '#e8f1fa';
+  return [
+    parseInt(hex.slice(1, 3), 16) / 255,
+    parseInt(hex.slice(3, 5), 16) / 255,
+    parseInt(hex.slice(5, 7), 16) / 255,
+    1,
+  ];
+}
 
 const WORLD_VERTEX = `#version 300 es
 layout(location=0) in vec2 a_position;
@@ -364,6 +381,7 @@ export function createWebGLArenaRenderer(deps) {
   const lightColors = new Float32Array(MAX_DYNAMIC_LIGHTS * 3);
   let fieldDirty = false;
   let disposed = false;
+  let weaponCardHitbox = null;
   const bolts = [];
   const meleeSwings = [];
   const bloodDecals = [];
@@ -624,46 +642,60 @@ export function createWebGLArenaRenderer(deps) {
     return labels;
   }
 
-  function drawActiveAuras(auraState, position, collider, now, entityId) {
-    if (!auraState?.active?.length) return;
+  function drawActiveConditions(conditionState, position, collider, now, entityId) {
+    if (!conditionState?.active?.length) return;
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-    for (let auraIndex = 0; auraIndex < auraState.active.length; auraIndex++) {
-      const aura = auraState.active[auraIndex];
-      const pulse = 0.5 + 0.5 * Math.sin(now * 6 + entityId * 0.73 + auraIndex);
-      if (aura.visual === 'frozen') {
+    for (let conditionIndex = 0; conditionIndex < conditionState.active.length; conditionIndex++) {
+      const condition = conditionState.active[conditionIndex];
+      const pulse = 0.5 + 0.5 * Math.sin(now * 6 + entityId * 0.73 + conditionIndex);
+      if (condition.visual === 'frozen') {
         drawDisc(position.x, position.y, collider.radius + 3 + pulse * 2, [0.18, 0.58, 1, 0.18], [0.58, 0.92, 1, 0.72]);
         drawGlyph('❄', position.x, position.y - collider.radius - 10, 11 + pulse * 2, [0.78, 0.96, 1, 0.95]);
-      } else if (aura.visual === 'stunned') {
+      } else if (condition.visual === 'stunned') {
         for (let star = 0; star < 3; star++) {
           const angle = now * 5 + star * Math.PI * 2 / 3;
           drawGlyph('★', position.x + Math.cos(angle) * (collider.radius + 5), position.y - collider.radius - 8 + Math.sin(angle) * 4, 8, [1, 0.9, 0.24, 1]);
         }
-      } else if (aura.visual === 'poisoned') {
+      } else if (condition.visual === 'poisoned') {
         drawDisc(position.x, position.y, collider.radius + 2 + pulse * 2, [0.12, 0.7, 0.2, 0.25], [0.3, 1, 0.42, 0.62]);
         for (let drop = 0; drop < 3; drop++) {
           const offset = (drop - 1) * collider.radius * 0.62;
           const fall = (now * (10 + drop * 2) + entityId * 0.31) % (collider.radius * 1.5);
           drawDisc(position.x + offset, position.y - collider.radius * 0.3 + fall, 1.5, [0.24, 1, 0.35, 0.8], [0.24, 1, 0.35, 0.8]);
         }
-      } else if (aura.visual === 'ice_armor') {
+      } else if (condition.visual === 'ice_armor') {
         drawDisc(position.x, position.y, collider.radius + 5 + pulse * 1.5, [0.18, 0.52, 0.9, 0.14], [0.58, 0.9, 1, 0.78]);
         for (let shard = 0; shard < 4; shard++) {
           const angle = shard * Math.PI * 0.5 + Math.PI * 0.25;
           drawGlyph('◇', position.x + Math.cos(angle) * (collider.radius + 5), position.y + Math.sin(angle) * (collider.radius + 5), 8, [0.72, 0.94, 1, 0.9]);
         }
-      } else if (aura.visual === 'regeneration') {
+      } else if (condition.visual === 'regeneration') {
         drawDisc(position.x, position.y, collider.radius + 3 + pulse * 2, [0.1, 0.72, 0.28, 0.12], [0.35, 1, 0.52, 0.58]);
         drawGlyph('✚', position.x, position.y - collider.radius - 9 - pulse * 3, 10, [0.55, 1, 0.68, 0.95]);
       } else {
-        drawGlyph(aura.glyph || '•', position.x, position.y - collider.radius - 9, 10, [0.9, 0.9, 1, 0.9]);
+        drawGlyph(condition.glyph || '•', position.x, position.y - collider.radius - 9, 10, [0.9, 0.9, 1, 0.9]);
       }
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
-  function activeAuraLabels(auraState) {
-    if (!auraState?.active) return [];
-    return auraState.active.map((aura) => `${aura.glyph} ${aura.name.toUpperCase()} ${aura.remaining.toFixed(1)}s`);
+  function activeConditionLabels(conditionState) {
+    if (!conditionState?.active) return [];
+    return conditionState.active.map((condition) => `${condition.glyph} ${condition.name.toUpperCase()} ${condition.remaining.toFixed(1)}s`);
+  }
+
+  function drawAuraEmitter(emitter, position, now, entityId) {
+    if (!emitter?.active || emitter.radius <= 0) return;
+    const pulse = 0.5 + 0.5 * Math.sin(now * 3.2 + entityId * 0.47);
+    const rawColor = emitter.visual?.color;
+    const color = Array.isArray(rawColor) && rawColor.length >= 3
+      ? rawColor.slice(0, 3).map((channel) => Number.isFinite(channel) ? Math.max(0, Math.min(1, channel)) : 1)
+      : [0.65, 0.85, 1];
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    drawDisc(position.x, position.y, emitter.radius, [...color, 0.018 + pulse * 0.018], [...color, 0.22 + pulse * 0.16]);
+    drawDisc(position.x, position.y, emitter.radius * 0.94, [0, 0, 0, 0], [...color, 0.08 + pulse * 0.06]);
+    drawGlyph(emitter.visual?.glyph || '◌', position.x, position.y - emitter.radius - 9, 12 + pulse * 2, [...color, 0.92]);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
   function drawParticles(pixelScale) {
@@ -812,12 +844,12 @@ export function createWebGLArenaRenderer(deps) {
       overlay.strokeText(label, sx, labelY);
       overlay.fillStyle = actor.rare ? '#ffd65a' : actor.kind === ActorKind.PLAYER ? '#dff8ff' : '#d6c9e8';
       overlay.fillText(label, sx, labelY);
-      const auraLabel = activeAuraLabels(world.get(id, Auras)).join(' · ');
-      if (auraLabel) {
-        const auraY = sy - collider.radius * cam.scale * ratio - 19 * ratio;
-        overlay.strokeText(auraLabel, sx, auraY);
+      const conditionLabel = activeConditionLabels(world.get(id, Conditions)).join(' · ');
+      if (conditionLabel) {
+        const conditionY = sy - collider.radius * cam.scale * ratio - 19 * ratio;
+        overlay.strokeText(conditionLabel, sx, conditionY);
         overlay.fillStyle = '#dff7ff';
-        overlay.fillText(auraLabel, sx, auraY);
+        overlay.fillText(conditionLabel, sx, conditionY);
       }
     }
 
@@ -837,6 +869,95 @@ export function createWebGLArenaRenderer(deps) {
     }
     overlay.textAlign = 'left'; overlay.textBaseline = 'bottom'; overlay.font = `800 ${Math.round(9 * ratio)}px ui-monospace,monospace`;
     overlay.fillStyle = 'rgba(210,240,255,.68)'; overlay.fillText('THE DEEP', left + 7 * ratio, top - 4 * ratio);
+    drawNearbyWeaponCard(width, height, ratio, shownPlayer);
+  }
+
+  function drawNearbyWeaponCard(width, height, ratio, shownPlayer) {
+    weaponCardHitbox = null;
+    const previewRadius = 132;
+    let candidate = null;
+    for (const [id, position, _ground, info, pickup] of world.query(Position, GroundItem, ItemInfo, WeaponPickup)) {
+      const lock = world.get(id, PickupLock);
+      if (lock?.owner === playerId && lock.remaining > 0) continue;
+      const distance = Math.hypot(position.x - shownPlayer.x, position.y - shownPlayer.y);
+      if (distance > previewRadius || !inView(position.x, position.y, 20)) continue;
+      if (!candidate || distance < candidate.distance) candidate = { position, info, pickup, distance };
+    }
+    if (!candidate) return;
+
+    const currentMelee = world.get(playerId, MeleeWeapon);
+    const currentBow = world.get(playerId, BowWeapon);
+    const rows = candidate.pickup.slot === 'ranged'
+      ? [
+        {
+          label: 'Arrow Physical', value: candidate.pickup.damage,
+          change: currentBow?.equipped ? compareDirection(candidate.pickup.damage, currentBow.damage) : 'up',
+        },
+        {
+          label: 'Arrows', value: candidate.pickup.infiniteArrows ? '∞' : 'Consumed',
+          change: candidate.pickup.infiniteArrows && !currentBow?.infiniteArrows ? 'up'
+            : !candidate.pickup.infiniteArrows && currentBow?.infiniteArrows ? 'down' : '',
+        },
+      ]
+      : [{
+        label: 'Physical', value: candidate.pickup.damage,
+        change: compareDirection(candidate.pickup.damage, currentMelee?.damage || 0),
+      }];
+
+    const cardWidth = Math.min(222 * ratio, width - 16 * ratio);
+    const cardHeight = (42 + rows.length * 16) * ratio;
+    const sx = ((candidate.position.x - view[0]) / view[2] + 0.5) * width;
+    const sy = ((candidate.position.y - view[1]) / view[3] + 0.5) * height;
+    const gap = 14 * ratio;
+    let cardX = sx + gap;
+    if (cardX + cardWidth > width - 8 * ratio) cardX = sx - cardWidth - gap;
+    cardX = Math.max(8 * ratio, Math.min(width - cardWidth - 8 * ratio, cardX));
+    const cardY = Math.max(8 * ratio, Math.min(height - cardHeight - 8 * ratio, sy - cardHeight * 0.5));
+    const color = rarityTextColors[candidate.info.rarity] || '#e8f1fa';
+    weaponCardHitbox = {
+      x: cardX, y: cardY, width: cardWidth, height: cardHeight,
+      target: { x: candidate.position.x, y: candidate.position.y },
+    };
+
+    overlay.fillStyle = 'rgba(4,8,15,.92)';
+    overlay.fillRect(cardX, cardY, cardWidth, cardHeight);
+    overlay.strokeStyle = color;
+    overlay.lineWidth = Math.max(1, ratio);
+    overlay.strokeRect(cardX, cardY, cardWidth, cardHeight);
+    overlay.textAlign = 'left';
+    overlay.textBaseline = 'top';
+    overlay.font = `800 ${Math.round(12 * ratio)}px ui-monospace,monospace`;
+    overlay.fillStyle = color;
+    overlay.fillText(candidate.info.name, cardX + 9 * ratio, cardY + 6 * ratio, cardWidth - 18 * ratio);
+    overlay.font = `700 ${Math.round(11 * ratio)}px ui-monospace,monospace`;
+    rows.forEach((row, index) => {
+      const y = cardY + (25 + index * 16) * ratio;
+      overlay.textAlign = 'left';
+      overlay.fillStyle = 'rgba(222,234,247,.88)';
+      overlay.fillText(row.label, cardX + 9 * ratio, y);
+      overlay.textAlign = 'right';
+      overlay.fillStyle = 'rgba(246,249,255,.96)';
+      overlay.fillText(String(row.value), cardX + cardWidth - 27 * ratio, y);
+      if (row.change) {
+        overlay.fillStyle = row.change === 'up' ? '#6ff08c' : '#ff7777';
+        overlay.fillText(row.change === 'up' ? '↑' : '↓', cardX + cardWidth - 8 * ratio, y);
+      }
+    });
+    overlay.textAlign = 'left';
+    overlay.fillStyle = 'rgba(190,210,229,.6)';
+    overlay.font = `700 ${Math.round(8 * ratio)}px ui-monospace,monospace`;
+    overlay.fillText('CLICK / TAP TO EQUIP', cardX + 9 * ratio, cardY + (29 + rows.length * 16) * ratio);
+  }
+
+  function weaponPickupAtPointer(clientX, clientY) {
+    if (!weaponCardHitbox || !overlayCanvas) return null;
+    const rect = overlayCanvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const x = (clientX - rect.left) * overlayCanvas.width / rect.width;
+    const y = (clientY - rect.top) * overlayCanvas.height / rect.height;
+    const card = weaponCardHitbox;
+    if (x < card.x || x > card.x + card.width || y < card.y || y > card.y + card.height) return null;
+    return { ...card.target };
   }
 
   function renderFrame() {
@@ -892,7 +1013,10 @@ export function createWebGLArenaRenderer(deps) {
       const consumable = world.get(id, Consumable);
       const isPowerup = ['mana_regen', 'haste', 'fury', 'ward'].includes(consumable?.effect);
       if (isPowerup) continue;
-      drawGlyph(info.glyph, position.x, position.y, 20, [1, 0.32, 0.5, 1]);
+      const itemColor = world.has(id, WeaponPickup)
+        ? rarityColor(info.rarity)
+        : consumable?.effect === 'add_arrows' ? [1, 0.78, 0.40, 1] : [1, 0.32, 0.5, 1];
+      drawGlyph(info.glyph, position.x, position.y, 20, itemColor);
     }
     for (const [id, _playerTag, position, collider] of world.query(PlayerTag, Position, Collider)) {
       const shown = displayPosition(id, position);
@@ -965,9 +1089,13 @@ export function createWebGLArenaRenderer(deps) {
 
     const activePowerups = world.get(playerId, Powerups);
     drawActivePowerups(activePowerups, shownPlayer, playerCollider, now);
-    for (const [id, position, collider, auraState] of world.query(Position, Collider, Auras)) {
+    for (const [id, position, collider, conditionState] of world.query(Position, Collider, Conditions)) {
       const shown = displayPosition(id, position);
-      drawActiveAuras(auraState, shown, collider, now, id);
+      drawActiveConditions(conditionState, shown, collider, now, id);
+    }
+    for (const [id, position, emitter] of world.query(Position, AuraEmitter)) {
+      const shown = displayPosition(id, position);
+      drawAuraEmitter(emitter, shown, now, id);
     }
     drawChargeAnimation(world.get(playerId, Spellbook), shownPlayer, playerCollider, now);
 
@@ -1047,13 +1175,16 @@ export function createWebGLArenaRenderer(deps) {
     const keyboard = input.keyboardInput();
     const router = input.leftStick.getOutput();
     const mana = world.get(playerId, Mana);
+    const meleeWeapon = world.get(playerId, MeleeWeapon);
     hud.hp.textContent = `♥ ${Math.ceil(hp?.hp ?? 0)}/${hp?.maxHp ?? 0}`;
+    hud.weapon.textContent = `⚔ ${meleeWeapon?.damage ?? 5}`;
+    hud.weapon.title = `${meleeWeapon?.name || 'Fists'} · ${meleeWeapon?.damage ?? 5} physical damage per hit`;
     const boosted = activePowerups?.manaRegenSeconds > 0;
     hud.mana.textContent = boosted
       ? `◆ ${Math.floor(mana?.mana ?? 0)}/${mana?.maxMana ?? 0} · SURGE ${Math.ceil(activePowerups.manaRegenSeconds)}s`
       : `◆ ${Math.floor(mana?.mana ?? 0)}/${mana?.maxMana ?? 0}`;
     hud.mana.classList.toggle('boosted', boosted);
-    const activeLabels = [...activePowerupLabels(activePowerups), ...activeAuraLabels(world.get(playerId, Auras))];
+    const activeLabels = [...activePowerupLabels(activePowerups), ...activeConditionLabels(world.get(playerId, Conditions))];
     hud.meta.textContent = hp?.dead
       ? 'YOU DIED · refresh to re-enter'
       : `${activeLabels.length ? activeLabels.join(' · ') + ' · ' : ''}casts ${runtimeEvents.casts}${net ? ` · ${net.getStatusText()}` : ''}`;
@@ -1066,6 +1197,7 @@ export function createWebGLArenaRenderer(deps) {
 
   return Object.freeze({
     renderFrame,
+    weaponPickupAtPointer,
     terrainChanged() { fieldDirty = true; },
     dispose() { if (!disposed) { disposed = true; overlay?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height); device.dispose(); } },
   });

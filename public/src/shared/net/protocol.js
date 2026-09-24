@@ -1,4 +1,4 @@
-export const NET_VERSION = '0.3.0';
+export const NET_VERSION = '0.4.0';
 
 export const MESSAGE = Object.freeze({
   HELLO: 'hello',
@@ -77,8 +77,10 @@ export function makeInputFrame({
   aimY = 0,
   fire = false,
   spellSlot = null,
+  pickupX = null,
+  pickupY = null,
 } = {}) {
-  return {
+  const frame = {
     seq: Number.isFinite(seq) ? seq : 0,
     tick: Number.isFinite(tick) ? tick : 0,
     moveX: clampUnit(moveX),
@@ -88,6 +90,11 @@ export function makeInputFrame({
     fire: Boolean(fire),
     spellSlot: Number.isInteger(spellSlot) ? spellSlot : null,
   };
+  if (Number.isFinite(pickupX) && Number.isFinite(pickupY)) {
+    frame.pickupX = pickupX;
+    frame.pickupY = pickupY;
+  }
+  return frame;
 }
 
 function clampUnit(value) {

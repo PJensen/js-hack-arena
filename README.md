@@ -89,7 +89,7 @@ contact combat, projectile motion and hits, health and death, pickups, terrain
 carving facts, and deterministic server-seeded drops. The Worker runs that
 pipeline. A network client creates a replica and cannot advance gameplay.
 
-### Spell auras and effects
+### Conditions, auras, and effects
 
 Every spell is one composition of five independent concerns:
 
@@ -97,7 +97,7 @@ Every spell is one composition of five independent concerns:
 - resources: an up-front cost or mana consumed on every simulation tick;
 - cooldowns: the global cooldown plus a per-spell cooldown;
 - targeting and delivery: self, direction, chain, projectile, or aimed area;
-- impacts: damage, healing, or application of a persistent aura.
+- impacts: damage, healing, or application of a timed condition.
 
 Cast-time and channeled spells author their own release, movement, and damage
 interruption rules. Charging is therefore a per-spell affordance rather than
@@ -105,18 +105,25 @@ the default casting behavior. The catalog currently demonstrates instant
 Lightning, charged Frost Bolt, cast-time Venom Orb, channeled Blizzard, and the
 instant Ice Armor and Regeneration buffs.
 
-Persistent consequences use `Spell -> Aura -> Effect` topology. Aura
-definitions own their duration, beneficial/harmful disposition, player-facing
-identity, visual treatment, and generic child effects. The rule engine supports
-stat multipliers (including damage-type filters), action locks, periodic damage,
-and periodic healing. Adding another condition normally means authoring one
-aura entry and a visual, without adding condition-specific state to actors or
-the network contract.
+Timed consequences such as Frozen, Poisoned, Ice Armor, and Regeneration are
+Conditions attached to one actor. Their child Effects are generic operations
+such as stat multipliers, action locks, periodic damage, and periodic healing.
 
-Snapshots deliberately project each active aura as one semantic condition with
-its remaining duration. They do not expose its child-effect tree. For example,
-Frozen appears once to the player while its movement multiplier remains an
-authoritative implementation detail.
+A spatial Aura is an emitter attached to any positioned entity. Its radius and
+target relationship define a field; actor membership is recalculated each
+simulation tick, so effects begin on entry and end on exit. The same component
+can live on a moving actor, a totem, an item, or a standalone world field. Its
+visual describes the field around the emitter. A one-shot area impact remains
+an Impact resolved at its target point.
+
+Snapshots project Conditions as actor-facing labels and replicate aura emitter
+definitions on their source entities. Emitter membership is derived at runtime
+and is not sent over the network.
+
+Snapshots deliberately project each active condition as one player-facing label
+with its remaining duration. They do not expose its child-effect tree. For
+example, Frozen appears once to the player while its movement multiplier stays
+an authoritative implementation detail.
 
 Particles, projectile trails and lights, death bursts, bolt rendering, camera,
 remote interpolation, and local movement prediction are client-owned. The

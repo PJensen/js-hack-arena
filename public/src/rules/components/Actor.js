@@ -9,6 +9,7 @@ export const ActorKind = Object.freeze({
 
 export const Actor = defineComponent('Actor', {
   kind: ActorKind.PLAYER,
+  team: 'neutral',
   name: '',
   glyph: '@',
   theme: 'neutral',

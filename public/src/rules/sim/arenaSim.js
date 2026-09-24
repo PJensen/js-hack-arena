@@ -1,9 +1,12 @@
 import { World } from '../../lib/ecs-js/index.js';
 import {
   AI,
-  Auras,
+  ArrowAmmo,
+  Conditions,
+  AuraEmitter,
   Actor,
   ActorKind,
+  BowWeapon,
   Collider,
   Consumable,
   Facing,
@@ -13,17 +16,19 @@ import {
   ItemInfo,
   Lifetime,
   MeleeWeapon,
+  WeaponPickup,
   Mana,
   PointLight,
   Powerups,
   PlayerTag,
   Position,
   Projectile,
+  PickupLock,
   Spellbook,
   Velocity,
 } from '../components/index.js';
 import { mobDropTable, mobDropTotalWeight, rollTable } from '../data/lootTable.js';
-import { auraSystem, projectAuras } from '../effects.js';
+import { effectSystem, projectConditions, projectAuraEmitter } from '../effects.js';
 import { createGridCarver } from '../geometry/carve.js';
 import {
   spawnArrows,
@@ -50,14 +55,14 @@ import { createBumpSystem } from '../systems/bumpSystem.js';
 import { deathSystem } from '../systems/deathSystem.js';
 import { createMovementSystem } from '../systems/movementSystem.js';
 import { manaSystem } from '../systems/manaSystem.js';
-import { pickupSystem } from '../systems/pickupSystem.js';
+import { createPickupSystem } from '../systems/pickupSystem.js';
 import { powerupSystem } from '../systems/powerupSystem.js';
 import { createPlayerCombatSystem } from '../systems/playerCombatSystem.js';
 import { createProjectileSystem } from '../systems/projectileSystem.js';
 
 export const SIM_TICK_HZ = 20;
 export const SIM_DT = 1 / SIM_TICK_HZ;
-export const SIM_SNAPSHOT_VERSION = 8;
+export const SIM_SNAPSHOT_VERSION = 10;
 export const SIM_MODE = Object.freeze({
   AUTHORITY: 'authority',
   REPLICA: 'replica',
@@ -173,6 +178,10 @@ export function createArenaSimulation({
     input.aimX = clampUnit(command.aimX);
     input.aimY = clampUnit(command.aimY);
     input.fire = Boolean(command.fire);
+    if (Number.isFinite(command.pickupX) && Number.isFinite(command.pickupY)) {
+      input.pickupX = command.pickupX;
+      input.pickupY = command.pickupY;
+    }
 
     if (Number.isInteger(command.spellSlot) && world.has(entityId, Spellbook)) {
       const book = world.get(entityId, Spellbook);
@@ -253,7 +262,17 @@ export function createArenaSimulation({
     if (world.has(entityId, AI)) return captureMob(entityId);
     if (world.has(entityId, Projectile)) return captureProjectile(entityId);
     if (world.has(entityId, GroundItem)) return captureItem(entityId);
+    if (world.has(entityId, AuraEmitter)) return captureAuraField(entityId);
     return null;
+  }
+
+  function captureAuraField(entityId) {
+    const position = world.get(entityId, Position);
+    return {
+      id: ensureNetworkId(entityId, 'aura'),
+      kind: 'aura_field',
+      state: { x: position.x, y: position.y, auraEmitter: projectAuraEmitter(world, entityId) },
+    };
   }
 
   function capturePlayer(entityId) {
@@ -267,6 +286,8 @@ export function createArenaSimulation({
     const book = world.get(entityId, Spellbook);
     const powerups = world.get(entityId, Powerups);
     const weapon = world.get(entityId, MeleeWeapon);
+    const bow = world.get(entityId, BowWeapon);
+    const ammo = world.get(entityId, ArrowAmmo);
     const actor = world.get(entityId, Actor);
     return {
       id: ensureNetworkId(entityId, 'player'),
@@ -276,6 +297,7 @@ export function createArenaSimulation({
       state: {
         x: position.x, y: position.y,
         name: actor.name,
+        team: actor.team,
         vx: velocity.vx, vy: velocity.vy,
         facing: facing.angle,
         radius: collider.radius,
@@ -293,8 +315,14 @@ export function createArenaSimulation({
         chargeSpellIndex: book.chargeSpellIndex,
         castTargetX: book.castTargetX, castTargetY: book.castTargetY,
         channelRemaining: book.channelRemaining, triggerHeld: book.triggerHeld,
-        weapon: { name: weapon.name, glyph: weapon.glyph, damage: weapon.damage },
-        auras: projectAuras(world, entityId),
+        weapon: { name: weapon.name, glyph: weapon.glyph, damage: weapon.damage, rarity: weapon.rarity },
+        rangedWeapon: {
+          equipped: bow.equipped, name: bow.name, glyph: bow.glyph,
+          rarity: bow.rarity, damage: bow.damage, infiniteArrows: bow.infiniteArrows,
+        },
+        arrowCount: ammo.count,
+        conditions: projectConditions(world, entityId),
+        auraEmitter: projectAuraEmitter(world, entityId),
       },
     };
   }
@@ -312,13 +340,15 @@ export function createArenaSimulation({
       kind: 'mob',
       state: {
         x: position.x, y: position.y,
+        team: actor.team,
         vx: velocity.vx, vy: velocity.vy,
         facing: facing.angle,
         radius: collider.radius,
         hp: health.hp, maxHp: health.maxHp, dead: health.dead,
         mana: mana.mana, maxMana: mana.maxMana, manaRegen: mana.regenPerSecond,
         name: actor.name, glyph: actor.glyph, theme: actor.theme, rare: actor.rare,
-        auras: projectAuras(world, entityId),
+        conditions: projectConditions(world, entityId),
+        auraEmitter: projectAuraEmitter(world, entityId),
       },
     };
   }
@@ -343,10 +373,12 @@ export function createArenaSimulation({
         burstColor: projectile.burstColor,
         power: projectile.power,
         style: projectile.style,
-        auraId: projectile.auraId,
-        auraDuration: projectile.auraDuration,
+        conditionId: projectile.conditionId || projectile.auraId,
+        conditionDuration: projectile.conditionDuration || projectile.auraDuration,
+        auraEmitter: projectAuraEmitter(world, entityId),
         impacts: (projectile.impacts || []).map((impact) => ({ ...impact })),
         spellId: projectile.spellId,
+        recoverableAmmo: projectile.recoverableAmmo,
         ttl: lifetime.ttl,
         owner: ensureNetworkId(projectile.owner, world.has(projectile.owner, AI) ? 'mob' : 'player'),
       },
@@ -358,6 +390,8 @@ export function createArenaSimulation({
     const collider = world.get(entityId, Collider);
     const info = world.get(entityId, ItemInfo);
     const consumable = world.get(entityId, Consumable);
+    const weapon = world.get(entityId, WeaponPickup);
+    const pickupLock = world.get(entityId, PickupLock);
     return {
       id: ensureNetworkId(entityId, 'item'),
       kind: 'item',
@@ -365,8 +399,18 @@ export function createArenaSimulation({
         x: position.x, y: position.y,
         radius: collider.radius,
         name: info?.name ?? 'Item', glyph: info?.glyph ?? '?',
+        slot: info?.slot ?? 'none', count: info?.count ?? 1,
+        rarity: info?.rarity ?? '',
         effect: consumable?.effect ?? null, potency: consumable?.potency ?? 0,
         spellId: consumable?.spellId ?? null,
+        weapon: weapon ? {
+          slot: weapon.slot, damage: weapon.damage, infiniteArrows: weapon.infiniteArrows,
+        } : null,
+        pickupLock: pickupLock?.remaining > 0 ? {
+          owner: ensureNetworkId(pickupLock.owner, 'player'),
+          remaining: pickupLock.remaining,
+        } : null,
+        auraEmitter: projectAuraEmitter(world, entityId),
       },
     };
   }
@@ -393,9 +437,9 @@ export function createArenaSimulation({
       world.add(entityId, Collider, { radius: state.radius });
       world.add(entityId, Health, { hp: state.hp, maxHp: state.maxHp, dead: state.dead });
       world.add(entityId, Mana, { mana: state.mana, maxMana: state.maxMana, regenPerSecond: state.manaRegen });
-      world.add(entityId, Actor, { kind: ActorKind.MOB, name: state.name, glyph: state.glyph, theme: state.theme, rare: state.rare });
+      world.add(entityId, Actor, { kind: ActorKind.MOB, team: state.team, name: state.name, glyph: state.glyph, theme: state.theme, rare: state.rare });
       world.add(entityId, AI, { target: null });
-      world.add(entityId, Auras, { active: state.auras.map(replicaAura) });
+      world.add(entityId, Conditions, { active: state.conditions.map(replicaCondition) });
       world.add(entityId, PointLight, lightForTheme(state.theme));
     } else if (record.kind === 'projectile') {
       world.add(entityId, Velocity, { vx: state.vx, vy: state.vy });
@@ -405,9 +449,16 @@ export function createArenaSimulation({
     } else if (record.kind === 'item') {
       world.add(entityId, Collider, { radius: state.radius });
       world.add(entityId, GroundItem);
-      world.add(entityId, ItemInfo, { name: state.name, glyph: state.glyph });
+      world.add(entityId, ItemInfo, {
+        name: state.name, glyph: state.glyph, slot: state.slot,
+        count: state.count, rarity: state.rarity,
+      });
       if (state.effect) world.add(entityId, Consumable, { effect: state.effect, potency: state.potency, spellId: state.spellId });
-      world.add(entityId, PointLight, replicaItemLight(state.effect));
+      if (state.weapon) world.add(entityId, WeaponPickup, state.weapon);
+      if (state.pickupLock) world.add(entityId, PickupLock, { owner: null, remaining: state.pickupLock.remaining });
+      world.add(entityId, PointLight, replicaItemLight(state.effect, state.rarity));
+    } else if (record.kind === 'aura_field') {
+      world.add(entityId, AuraEmitter, state.auraEmitter);
     }
   }
 
@@ -436,9 +487,11 @@ export function createArenaSimulation({
       mana.maxMana = state.maxMana;
       mana.regenPerSecond = state.manaRegen;
     }
+    setAuraEmitter(world, entityId, state.auraEmitter);
 
     if (record.kind === 'player') {
       world.get(entityId, Actor).name = state.name;
+      world.get(entityId, Actor).team = state.team;
       lastInputSeqByPeer.set(record.owner, record.inputSeq);
       const book = world.get(entityId, Spellbook);
       const powerups = world.get(entityId, Powerups);
@@ -467,14 +520,26 @@ export function createArenaSimulation({
       powerups.wardSeconds = state.wardSeconds;
       const weapon = world.get(entityId, MeleeWeapon);
       Object.assign(weapon, state.weapon);
-      world.get(entityId, Auras).active = state.auras.map(replicaAura);
+      Object.assign(world.get(entityId, BowWeapon), state.rangedWeapon);
+      world.get(entityId, ArrowAmmo).count = state.arrowCount;
+      world.get(entityId, Conditions).active = state.conditions.map(replicaCondition);
+    } else if (record.kind === 'item') {
+      const lock = state.pickupLock;
+      if (lock) {
+        const owner = lock.owner == null ? null : entityByNetworkId.get(lock.owner) ?? null;
+        if (world.has(entityId, PickupLock)) Object.assign(world.get(entityId, PickupLock), { owner, remaining: lock.remaining });
+        else world.add(entityId, PickupLock, { owner, remaining: lock.remaining });
+      } else if (world.has(entityId, PickupLock)) {
+        world.get(entityId, PickupLock).remaining = 0;
+      }
     } else if (record.kind === 'mob') {
       const actor = world.get(entityId, Actor);
       actor.name = state.name;
+      actor.team = state.team;
       actor.glyph = state.glyph;
       actor.theme = state.theme;
       actor.rare = state.rare;
-      world.get(entityId, Auras).active = state.auras.map(replicaAura);
+      world.get(entityId, Conditions).active = state.conditions.map(replicaCondition);
     } else if (record.kind === 'projectile') {
       const projectile = world.get(entityId, Projectile);
       Object.assign(projectile, recordToProjectile(state));
@@ -608,14 +673,14 @@ export function normalizeSnapshot(snapshot) {
 
 function installAuthoritativeRules(world, grid) {
   const systems = [
-    auraSystem,
+    effectSystem,
     createMovementSystem({ grid }),
     manaSystem,
     powerupSystem,
     createAISystem({ grid }),
     createPlayerCombatSystem({ grid }),
     createBumpSystem(),
-    pickupSystem,
+    createPickupSystem({ grid }),
     createProjectileSystem({ grid, carve: createGridCarver(grid) }),
     deathSystem,
   ];
@@ -637,8 +702,8 @@ function installEventJournal(world, history, nextIdentity) {
 function spawnDrop(world, drop, x, y) {
   if (!drop || drop.type === 'nothing') return null;
   if (drop.type === 'potion') return spawnPotion(world, x, y, drop.potency);
-  if (drop.type === 'bow') return spawnBow(world, x, y);
-  if (drop.type === 'sword') return spawnSword(world, x, y, drop.tier);
+  if (drop.type === 'bow') return spawnBow(world, x, y, drop.rarity);
+  if (drop.type === 'sword') return spawnSword(world, x, y, drop.tier, drop.rarity);
   if (drop.type === 'arrows') return spawnArrows(world, x, y, drop.count);
   if (drop.type === 'mana_surge') return spawnManaSurge(world, x, y);
   if (drop.type === 'haste_rune') return spawnHasteRune(world, x, y);
@@ -662,7 +727,7 @@ function normalizeEntityRecord(entity) {
   if (!entity || typeof entity !== 'object') throw new Error('simulation entity must be an object');
   const id = normalizeNetworkId(entity.id);
   const kind = String(entity.kind || '');
-  if (!['player', 'mob', 'projectile', 'item'].includes(kind)) throw new Error(`unsupported simulation entity kind: ${kind || 'missing'}`);
+  if (!['player', 'mob', 'projectile', 'item', 'aura_field'].includes(kind)) throw new Error(`unsupported simulation entity kind: ${kind || 'missing'}`);
   const state = entity.state;
   if (!state || typeof state !== 'object') throw new Error(`simulation ${id} state must be an object`);
 
@@ -676,6 +741,7 @@ function normalizeEntityRecord(entity) {
   }
   if (kind === 'mob') return { id, kind, state: normalizeMobState(id, state) };
   if (kind === 'projectile') return { id, kind, state: normalizeProjectileState(id, state) };
+  if (kind === 'aura_field') return { id, kind, state: normalizeAuraFieldState(id, state) };
   return { id, kind, state: normalizeItemState(id, state) };
 }
 
@@ -688,7 +754,8 @@ function normalizePlayerState(id, state) {
   return {
     ...normalizeBodyState(id, state),
     name: normalizeActorName(state.name),
-    auras: normalizeAuras(id, state.auras),
+    conditions: normalizeConditions(id, state.conditions ?? state.auras),
+    auraEmitter: normalizeAuraEmitter(id, state.auraEmitter),
     spells: [...state.spells],
     activeSpell: nonNegativeInteger(state.activeSpell, `${id}.activeSpell`),
     cooldown: finiteNumber(state.cooldown, `${id}.cooldown`),
@@ -715,12 +782,33 @@ function normalizePlayerState(id, state) {
     weapon: {
       name: String(weapon.name), glyph: String(weapon.glyph),
       damage: finiteNumber(weapon.damage, `${id}.weapon.damage`),
+      rarity: String(weapon.rarity || ''),
     },
+    rangedWeapon: normalizeBowState(id, state.rangedWeapon),
+    arrowCount: nonNegativeInteger(state.arrowCount ?? 10, `${id}.arrowCount`),
+  };
+}
+
+function normalizeBowState(id, value) {
+  const bow = value || {};
+  return {
+    equipped: Boolean(bow.equipped),
+    name: String(bow.name || ''),
+    glyph: String(bow.glyph || ')'),
+    rarity: String(bow.rarity || ''),
+    damage: finiteNumber(bow.damage ?? 0, `${id}.rangedWeapon.damage`),
+    infiniteArrows: Boolean(bow.infiniteArrows),
   };
 }
 
 function normalizeMobState(id, state) {
-  return { ...normalizeBodyState(id, state), name: normalizeActorName(state.name), glyph: String(state.glyph), theme: String(state.theme || 'shadow'), rare: Boolean(state.rare), auras: normalizeAuras(id, state.auras) };
+  return {
+    ...normalizeBodyState(id, state),
+    name: normalizeActorName(state.name), glyph: String(state.glyph),
+    theme: String(state.theme || 'shadow'), rare: Boolean(state.rare),
+    conditions: normalizeConditions(id, state.conditions ?? state.auras),
+    auraEmitter: normalizeAuraEmitter(id, state.auraEmitter),
+  };
 }
 
 function normalizeActorName(value) {
@@ -730,6 +818,7 @@ function normalizeActorName(value) {
 function normalizeBodyState(id, state) {
   return {
     x: finiteNumber(state.x, `${id}.x`), y: finiteNumber(state.y, `${id}.y`),
+    team: String(state.team || 'neutral'),
     vx: finiteNumber(state.vx, `${id}.vx`), vy: finiteNumber(state.vy, `${id}.vy`),
     facing: finiteNumber(state.facing, `${id}.facing`),
     radius: finiteNumber(state.radius, `${id}.radius`),
@@ -751,8 +840,10 @@ function normalizeProjectileState(id, state) {
     trailColor: String(state.trailColor || ''), burstColor: String(state.burstColor || ''),
     power: finiteNumber(state.power, `${id}.power`),
     style: String(state.style || 'frost'),
-    auraId: state.auraId == null ? null : String(state.auraId),
-    auraDuration: finiteNumber(state.auraDuration ?? 0, `${id}.auraDuration`),
+    recoverableAmmo: Boolean(state.recoverableAmmo),
+    conditionId: state.conditionId == null ? (state.auraId == null ? null : String(state.auraId)) : String(state.conditionId),
+    conditionDuration: finiteNumber(state.conditionDuration ?? state.auraDuration ?? 0, `${id}.conditionDuration`),
+    auraEmitter: normalizeAuraEmitter(id, state.auraEmitter),
     impacts: normalizeImpacts(id, state.impacts),
     spellId: state.spellId == null ? null : String(state.spellId),
     ttl: finiteNumber(state.ttl, `${id}.ttl`), owner: normalizeNetworkId(state.owner),
@@ -760,13 +851,51 @@ function normalizeProjectileState(id, state) {
 }
 
 function normalizeItemState(id, state) {
+  const weapon = state.weapon == null ? null : normalizeWeaponPickup(id, state.weapon);
   return {
     x: finiteNumber(state.x, `${id}.x`), y: finiteNumber(state.y, `${id}.y`),
     radius: finiteNumber(state.radius, `${id}.radius`),
     name: String(state.name), glyph: String(state.glyph),
+    slot: String(state.slot || 'none'),
+    count: nonNegativeInteger(state.count ?? 1, `${id}.count`),
+    rarity: String(state.rarity || ''),
     effect: state.effect == null ? null : String(state.effect),
     potency: finiteNumber(state.potency, `${id}.potency`),
     spellId: state.spellId == null ? null : String(state.spellId),
+    weapon,
+    pickupLock: state.pickupLock == null ? null : normalizePickupLock(id, state.pickupLock),
+    auraEmitter: normalizeAuraEmitter(id, state.auraEmitter),
+  };
+}
+
+function normalizePickupLock(id, value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`simulation ${id}.pickupLock must be an object`);
+  }
+  return {
+    owner: value.owner == null ? null : normalizeNetworkId(value.owner),
+    remaining: Math.max(0, finiteNumber(value.remaining, `${id}.pickupLock.remaining`)),
+  };
+}
+
+function normalizeWeaponPickup(id, value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`simulation ${id}.weapon must be an object`);
+  }
+  return {
+    slot: String(value.slot || 'melee'),
+    damage: finiteNumber(value.damage, `${id}.weapon.damage`),
+    infiniteArrows: Boolean(value.infiniteArrows),
+  };
+}
+
+function normalizeAuraFieldState(id, state) {
+  const auraEmitter = normalizeAuraEmitter(id, state.auraEmitter);
+  if (!auraEmitter) throw new Error(`simulation ${id}.auraEmitter is required`);
+  return {
+    x: finiteNumber(state.x, `${id}.x`),
+    y: finiteNumber(state.y, `${id}.y`),
+    auraEmitter,
   };
 }
 
@@ -793,10 +922,13 @@ function recordToProjectile(state) {
     burstColor: state.burstColor,
     power: state.power,
     style: state.style,
-    auraId: state.auraId,
-    auraDuration: state.auraDuration,
+    conditionId: state.conditionId,
+    conditionDuration: state.conditionDuration,
+    auraId: state.conditionId,
+    auraDuration: state.conditionDuration,
     impacts: state.impacts.map((impact) => ({ ...impact })),
     spellId: state.spellId,
+    recoverableAmmo: state.recoverableAmmo,
   };
 }
 
@@ -820,36 +952,98 @@ function normalizeImpacts(id, value) {
     const normalized = { kind: String(impact.kind) };
     if (impact.amount != null) normalized.amount = finiteNumber(impact.amount, `${id}.impacts[${index}].amount`);
     if (impact.duration != null) normalized.duration = finiteNumber(impact.duration, `${id}.impacts[${index}].duration`);
-    if (impact.auraId != null) normalized.auraId = String(impact.auraId);
+    const conditionId = impact.conditionId ?? impact.auraId;
+    if (conditionId != null) normalized.conditionId = String(conditionId);
     if (impact.damageType != null) normalized.damageType = String(impact.damageType);
     normalized.chargeScale = null;
     return normalized;
   });
 }
 
-function normalizeAuras(id, value) {
+function normalizeConditions(id, value) {
   if (value == null) return [];
-  if (!Array.isArray(value)) throw new Error(`simulation ${id}.auras must be an array`);
-  return value.map((aura, index) => {
-    if (!aura || typeof aura !== 'object') throw new Error(`simulation ${id}.auras[${index}] must be an object`);
+  if (!Array.isArray(value)) throw new Error(`simulation ${id}.conditions must be an array`);
+  return value.map((condition, index) => {
+    if (!condition || typeof condition !== 'object') throw new Error(`simulation ${id}.conditions[${index}] must be an object`);
     return {
-      id: String(aura.id),
-      name: String(aura.name),
-      glyph: String(aura.glyph),
-      visual: String(aura.visual || 'generic'),
-      disposition: String(aura.disposition || 'neutral'),
-      remaining: finiteNumber(aura.remaining, `${id}.auras[${index}].remaining`),
-      duration: finiteNumber(aura.duration, `${id}.auras[${index}].duration`),
-      stacks: nonNegativeInteger(aura.stacks ?? 1, `${id}.auras[${index}].stacks`),
+      id: String(condition.id),
+      name: String(condition.name),
+      glyph: String(condition.glyph),
+      visual: String(condition.visual || 'generic'),
+      disposition: String(condition.disposition || 'neutral'),
+      remaining: finiteNumber(condition.remaining, `${id}.conditions[${index}].remaining`),
+      duration: finiteNumber(condition.duration, `${id}.conditions[${index}].duration`),
+      stacks: nonNegativeInteger(condition.stacks ?? 1, `${id}.conditions[${index}].stacks`),
     };
   });
 }
 
-function replicaAura(aura) {
-  return { ...aura, source: null, effects: [] };
+function normalizeAuraEmitter(id, value) {
+  if (value == null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) throw new Error(`simulation ${id}.auraEmitter must be an object`);
+  const radius = finiteNumber(value.radius, `${id}.auraEmitter.radius`);
+  if (radius <= 0) throw new Error(`simulation ${id}.auraEmitter.radius must be positive`);
+  const targets = String(value.targets || 'all');
+  if (!['hostile', 'friendly', 'all'].includes(targets)) throw new Error(`simulation ${id}.auraEmitter.targets is invalid`);
+  if (!Array.isArray(value.effects)) throw new Error(`simulation ${id}.auraEmitter.effects must be an array`);
+  const color = value.visual?.color;
+  return {
+    id: String(value.id || ''),
+    name: String(value.name || value.id || 'Aura'),
+    radius,
+    targets,
+    team: value.team == null ? null : String(value.team),
+    effects: value.effects.map((effect, index) => normalizeEffect(id, effect, index)),
+    visual: {
+      glyph: String(value.visual?.glyph || '◌'),
+      color: Array.isArray(color) && color.length >= 3
+        ? color.slice(0, 3).map((channel, index) => clampColor(finiteNumber(channel, `${id}.auraEmitter.visual.color[${index}]`)))
+        : [0.65, 0.85, 1],
+    },
+    duration: Math.max(0, finiteNumber(value.duration ?? 0, `${id}.auraEmitter.duration`)),
+    remaining: finiteNumber(value.remaining ?? -1, `${id}.auraEmitter.remaining`),
+    active: Boolean(value.active),
+  };
 }
 
-function replicaItemLight(effect) {
+function normalizeEffect(id, value, index) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`simulation ${id}.auraEmitter.effects[${index}] must be an object`);
+  }
+  const effect = { kind: String(value.kind || '') };
+  for (const key of ['stat', 'action', 'damageType']) {
+    if (value[key] != null) effect[key] = String(value[key]);
+  }
+  for (const key of ['value', 'amount', 'interval']) {
+    if (value[key] != null) effect[key] = finiteNumber(value[key], `${id}.auraEmitter.effects[${index}].${key}`);
+  }
+  effect.elapsed = 0;
+  return effect;
+}
+
+function replicaCondition(condition) {
+  return { ...condition, source: null, effects: [] };
+}
+
+function setAuraEmitter(world, entityId, value) {
+  if (value == null) {
+    if (world.has(entityId, AuraEmitter)) world.remove(entityId, AuraEmitter);
+    return;
+  }
+  if (world.has(entityId, AuraEmitter)) Object.assign(world.get(entityId, AuraEmitter), value);
+  else world.add(entityId, AuraEmitter, value);
+}
+
+function clampColor(value) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function replicaItemLight(effect, rarity = '') {
+  if (rarity === 'common') return { radius: 55, r: 160, g: 160, b: 160 };
+  if (rarity === 'uncommon') return { radius: 65, r: 100, g: 220, b: 100 };
+  if (rarity === 'rare') return { radius: 70, r: 80, g: 140, b: 255 };
+  if (rarity === 'epic') return { radius: 80, r: 200, g: 80, b: 255 };
+  if (rarity === 'legendary') return { radius: 95, r: 255, g: 200, b: 50 };
   if (effect === 'heal') return { radius: 60, r: 255, g: 50, b: 80 };
   if (effect === 'mana_regen') return { radius: 95, r: 65, g: 145, b: 255 };
   if (effect === 'haste') return { radius: 90, r: 55, g: 245, b: 190 };

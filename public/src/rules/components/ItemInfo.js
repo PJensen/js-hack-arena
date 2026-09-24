@@ -4,6 +4,8 @@ import { defineComponent } from '../../lib/ecs-js/index.js';
 export const ItemSlot = Object.freeze({
   NONE:    'none',
   HAND:    'hand',
+  MELEE:   'melee',
+  RANGED:  'ranged',
   OFFHAND: 'offhand',
 });
 
@@ -12,4 +14,5 @@ export const ItemInfo = defineComponent('ItemInfo', {
   glyph: '?',
   slot:  ItemSlot.NONE,
   count: 1,
+  rarity: '',
 });

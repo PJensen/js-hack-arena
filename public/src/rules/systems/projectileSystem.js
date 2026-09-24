@@ -1,8 +1,9 @@
 // Authoritative projectile motion, collision, damage, and lifetime. Rendering
 // and particles observe the emitted facts on the client.
-import { AI, Collider, Health, Lifetime, PlayerTag, Position, Projectile, Velocity } from '../components/index.js';
+import { AI, Collider, Health, Lifetime, PlayerTag, Position, Projectile, RecoverableArrows, Velocity } from '../components/index.js';
 import { applyDamage } from '../effects.js';
 import { applyImpacts } from '../impacts.js';
+import { findOpenNear, spawnArrows } from '../spawner.js';
 
 export function createProjectileSystem({ grid, carve = null }) {
   return function projectileSystem(world, dt) {
@@ -41,6 +42,10 @@ export function createProjectileSystem({ grid, carve = null }) {
             sourceId: projectile.owner, x: position.x, y: position.y, damageType: projectile.style,
           });
         }
+        if (projectile.recoverableAmmo && world.has(target.id, AI)) {
+          const stuck = world.get(target.id, RecoverableArrows);
+          if (stuck) stuck.count += 1;
+        }
         world.emit('projectile.hit', {
           projectile: id,
           target: target.id,
@@ -57,6 +62,10 @@ export function createProjectileSystem({ grid, carve = null }) {
       if (destroy.has(id)) continue;
 
       if (grid.distanceMove(position.x, position.y) < collider.radius) {
+        if (projectile.recoverableAmmo) {
+          const open = findOpenNear(grid, position.x, position.y, 72);
+          spawnArrows(world, open.x, open.y, 1);
+        }
         const radius = projectile.style === 'arrow' ? 0 : projectile.damage * 0.5;
         if (carve && radius > 0) carve(position.x, position.y, radius);
         world.emit('projectile.wall', {
