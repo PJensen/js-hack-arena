@@ -4,13 +4,17 @@
 // presentation events into local Web Audio playback. It must never run in the
 // Worker or influence gameplay state.
 
-import { play, preload, unlock } from './audioEngine.js';
+import { play, preload, startLoopSequence, stopLoopSequence, unlock } from './audioEngine.js';
 
 const AUDIO_ROOT = './assets/audio/';
 const SOUND = Object.freeze({
   frostCast: `${AUDIO_ROOT}spell_frost.mp3`,
   frostImpact: `${AUDIO_ROOT}impact_ice.mp3`,
   lightningCast: `${AUDIO_ROOT}weather_lightning_strike.mp3`,
+  buffCast: `${AUDIO_ROOT}spell_buff.mp3`,
+  poisonCast: `${AUDIO_ROOT}spell_acid_spit.mp3`,
+  poisonImpact: `${AUDIO_ROOT}status_slimed.mp3`,
+  shadowImpact: `${AUDIO_ROOT}spell_agony.mp3`,
   meleeHit: `${AUDIO_ROOT}melee_hit.mp3`,
   rangedShot: `${AUDIO_ROOT}ranged_shot.mp3`,
   pickupGeneric: `${AUDIO_ROOT}pickup_generic.mp3`,
@@ -24,6 +28,11 @@ const SOUND = Object.freeze({
 });
 
 const PRELOAD = Object.freeze(Object.values(SOUND));
+const DUNGEON_AMBIENCE = Object.freeze([
+  `${AUDIO_ROOT}ambient_dungeon_1.mp3`,
+  `${AUDIO_ROOT}ambient_dungeon_2.mp3`,
+]);
+const AMBIENCE_KEY = 'arena:dungeon';
 const MAX_HEAR_DISTANCE = 760;
 const FULL_VOLUME_DISTANCE = 42;
 
@@ -44,20 +53,25 @@ export function createArenaAudio({ world, getPlayerPosition }) {
   // Audio is intentionally warmed after the entry gesture. A failed preload
   // is harmless; play() will retry through its normal lazy-load path.
   preload(PRELOAD).catch(() => {});
+  preload(DUNGEON_AMBIENCE).then(() => {
+    startLoopSequence(AMBIENCE_KEY, DUNGEON_AMBIENCE, {
+      bus: 'ambient', volume: 0.2, fadeIn: 0.8, crossfade: 1.2,
+    });
+  }).catch(() => {});
 
   const disposers = [];
   listen('spell.cast', (event) => {
-    const sound = event?.spellId === 'frost_bolt'
-      ? SOUND.frostCast
-      : event?.spellId === 'lightning' ? SOUND.lightningCast : null;
+    const sound = spellCastSound(event?.spellId);
     if (sound) playAt(sound, event, { volume: event.spellId === 'lightning' ? 0.62 : 0.75 });
   });
 
   listen('projectile.hit', (event) => {
-    if (event?.style === 'frost') playAt(SOUND.frostImpact, event, { volume: 0.8, maxVoices: 4 });
+    const sound = projectileImpactSound(event?.style);
+    if (sound) playAt(sound, event, { volume: 0.72, maxVoices: 4 });
   });
   listen('projectile.wall', (event) => {
-    if (event?.style === 'frost') playAt(SOUND.frostImpact, event, { volume: 0.55, maxVoices: 4 });
+    const sound = projectileImpactSound(event?.style);
+    if (sound) playAt(sound, event, { volume: 0.5, maxVoices: 4 });
   });
   listen('melee.hit', (event) => {
     playAt(SOUND.meleeHit, event, { volume: 0.72, maxVoices: 5, randomPitch: 35 });
@@ -82,6 +96,7 @@ export function createArenaAudio({ world, getPlayerPosition }) {
   return {
     dispose() {
       for (const dispose of disposers.splice(0)) dispose?.();
+      stopLoopSequence(AMBIENCE_KEY, { fadeOut: 0.35 });
     },
   };
 
@@ -113,6 +128,27 @@ export function createArenaAudio({ world, getPlayerPosition }) {
       return SOUND.pickupWeapon;
     }
     return SOUND.pickupGeneric;
+  }
+
+  function spellCastSound(spellId) {
+    return {
+      frost_bolt: SOUND.frostCast,
+      lightning: SOUND.lightningCast,
+      poison_orb: SOUND.poisonCast,
+      ice_armor: SOUND.buffCast,
+      regeneration: SOUND.healing,
+      blizzard: SOUND.frostCast,
+      arrow: SOUND.rangedShot,
+    }[spellId] || null;
+  }
+
+  function projectileImpactSound(style) {
+    return {
+      frost: SOUND.frostImpact,
+      poison: SOUND.poisonImpact,
+      shadow: SOUND.shadowImpact,
+      arrow: SOUND.meleeHit,
+    }[style] || null;
   }
 }
 
