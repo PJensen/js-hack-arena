@@ -71,6 +71,7 @@ export const SIM_MODE = Object.freeze({
 const PRESENTATION_EVENTS = Object.freeze([
   'damage.dealt',
   'entity.died',
+  'chest.opened',
   'item.pickup',
   'melee.hit',
   'projectile.expired',

@@ -11,6 +11,16 @@ const SOUND = Object.freeze({
   frostCast: `${AUDIO_ROOT}spell_frost.mp3`,
   frostImpact: `${AUDIO_ROOT}impact_ice.mp3`,
   lightningCast: `${AUDIO_ROOT}weather_lightning_strike.mp3`,
+  meleeHit: `${AUDIO_ROOT}melee_hit.mp3`,
+  rangedShot: `${AUDIO_ROOT}ranged_shot.mp3`,
+  pickupGeneric: `${AUDIO_ROOT}pickup_generic.mp3`,
+  pickupWeapon: `${AUDIO_ROOT}pickup_weapon.mp3`,
+  pickupPotion: `${AUDIO_ROOT}pickup_potion.mp3`,
+  spellLearned: `${AUDIO_ROOT}magic_unlock.mp3`,
+  healing: `${AUDIO_ROOT}healing_magic_1.mp3`,
+  chestOpen: `${AUDIO_ROOT}chest_open.mp3`,
+  death: `${AUDIO_ROOT}death.mp3`,
+  playerDeath: `${AUDIO_ROOT}player_death.mp3`,
 });
 
 const PRELOAD = Object.freeze(Object.values(SOUND));
@@ -49,6 +59,25 @@ export function createArenaAudio({ world, getPlayerPosition }) {
   listen('projectile.wall', (event) => {
     if (event?.style === 'frost') playAt(SOUND.frostImpact, event, { volume: 0.55, maxVoices: 4 });
   });
+  listen('melee.hit', (event) => {
+    playAt(SOUND.meleeHit, event, { volume: 0.72, maxVoices: 5, randomPitch: 35 });
+  });
+  listen('spell.cast', (event) => {
+    if (event?.spellId === 'arrow') playAt(SOUND.rangedShot, event, { volume: 0.8, maxVoices: 4, randomPitch: 25 });
+  });
+  listen('entity.died', (event) => {
+    const sound = event?.kind === 'player' ? SOUND.playerDeath : SOUND.death;
+    playAt(sound, event, { volume: event?.kind === 'player' ? 0.95 : 0.62, maxVoices: 3 });
+  });
+  listen('damage.dealt', (event) => {
+    if (Number(event?.amount) < 0) playAt(SOUND.healing, event, { volume: 0.7, maxVoices: 2 });
+  });
+  listen('item.pickup', (event) => {
+    playAt(pickupSound(event), event, { volume: 0.72, maxVoices: 4, randomPitch: 18 });
+  });
+  listen('chest.opened', (event) => {
+    playAt(SOUND.chestOpen, event, { volume: 0.78, maxVoices: 2, randomPitch: 12 });
+  });
 
   return {
     dispose() {
@@ -73,6 +102,17 @@ export function createArenaAudio({ world, getPlayerPosition }) {
       maxVoices: options.maxVoices ?? 3,
       randomPitch: options.randomPitch ?? 12,
     });
+  }
+
+  function pickupSound(event) {
+    if (event?.spellId) return SOUND.spellLearned;
+    if (event?.healed) return SOUND.healing;
+    const item = String(event?.item || '').toLowerCase();
+    if (item.includes('potion')) return SOUND.pickupPotion;
+    if (event?.slot === 'melee' || event?.slot === 'ranged' || item.includes('sword') || item.includes('bow')) {
+      return SOUND.pickupWeapon;
+    }
+    return SOUND.pickupGeneric;
   }
 }
 

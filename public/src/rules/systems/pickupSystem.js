@@ -111,7 +111,7 @@ function equipWeapon(world, player, itemId, itemPosition, info, grid) {
     return;
   }
 
-  world.emit('item.pickup', { entity: player.id, item: info?.name, slot });
+  world.emit('item.pickup', { entity: player.id, item: info?.name, slot, x: player.pos.x, y: player.pos.y });
 }
 
 function dropEquippedWeapon(world, position, ownerId, weapon) {
@@ -144,7 +144,7 @@ function consumeItem(world, player, itemId, position, info, consumable) {
       target: id, source: itemId, amount: -healed,
       x: player.pos.x, y: player.pos.y,
     });
-    world.emit('item.pickup', { entity: id, item: info?.name, healed });
+    world.emit('item.pickup', { entity: id, item: info?.name, healed, x: player.pos.x, y: player.pos.y });
     return true;
   }
 
@@ -152,7 +152,7 @@ function consumeItem(world, player, itemId, position, info, consumable) {
     const ammo = world.get(id, ArrowAmmo);
     const amount = Math.max(0, Math.floor(consumable.potency));
     ammo.count += amount;
-    world.emit('item.pickup', { entity: id, item: info?.name, arrows: amount, arrowCount: ammo.count });
+    world.emit('item.pickup', { entity: id, item: info?.name, arrows: amount, arrowCount: ammo.count, x: player.pos.x, y: player.pos.y });
     return true;
   }
 
@@ -160,7 +160,7 @@ function consumeItem(world, player, itemId, position, info, consumable) {
     const book = world.get(id, Spellbook);
     const spellId = consumable.spellId;
     if (spellId && !book.spells.includes(spellId)) book.spells.push(spellId);
-    world.emit('item.pickup', { entity: id, item: info?.name, spellId });
+    world.emit('item.pickup', { entity: id, item: info?.name, spellId, x: player.pos.x, y: player.pos.y });
     return true;
   }
 
@@ -168,7 +168,7 @@ function consumeItem(world, player, itemId, position, info, consumable) {
     const powerups = world.get(id, Powerups);
     powerups.manaRegenMultiplier = 2.5;
     powerups.manaRegenSeconds = Math.max(powerups.manaRegenSeconds, consumable.potency);
-    world.emit('item.pickup', { entity: id, item: info?.name, powerup: 'mana_regen', duration: consumable.potency });
+    world.emit('item.pickup', { entity: id, item: info?.name, powerup: 'mana_regen', duration: consumable.potency, x: player.pos.x, y: player.pos.y });
     return true;
   }
 
@@ -181,13 +181,13 @@ function consumeItem(world, player, itemId, position, info, consumable) {
     }[consumable.effect];
     powerups[config[0]] = config[2];
     powerups[config[1]] = Math.max(powerups[config[1]], consumable.potency);
-    world.emit('item.pickup', { entity: id, item: info?.name, powerup: consumable.effect, duration: consumable.potency });
+    world.emit('item.pickup', { entity: id, item: info?.name, powerup: consumable.effect, duration: consumable.potency, x: player.pos.x, y: player.pos.y });
     return true;
   }
 
   if (consumable.effect === 'epic_chest') {
     world.emit('chest.opened', { entity: id, x: position.x, y: position.y });
-    world.emit('item.pickup', { entity: id, item: info?.name });
+    world.emit('item.pickup', { entity: id, item: info?.name, x: player.pos.x, y: player.pos.y });
     return true;
   }
 
