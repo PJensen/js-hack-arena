@@ -26,7 +26,15 @@ export function createDungeonDecorations({ grid, routes = [], spawns = [], seed 
   });
 
   const campfire = hearth ? Object.freeze({ ...hearth, phase: rng() * Math.PI * 2 }) : null;
-  return Object.freeze({ torches: Object.freeze(torches), campfire });
+  // If both flanks are solid, try the end of the room opposite the hearth.
+  const farSide = hearth && hearth.y > start.y ? -1 : 1;
+  const patch = start && (
+    findOpen(grid, start.x - 152, start.y + 32, 24, 24) ??
+    findOpen(grid, start.x + 152, start.y + 32, 24, 24) ??
+    findOpen(grid, start.x, start.y + farSide * 133, 24, 24)
+  );
+  const mushroom = patch ? Object.freeze({ ...patch, phase: rng() * Math.PI * 2 }) : null;
+  return Object.freeze({ torches: Object.freeze(torches), campfire, mushroom });
 }
 
 function findOpen(grid, x, y, radius, clearance = 20) {

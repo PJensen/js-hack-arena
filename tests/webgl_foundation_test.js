@@ -4,6 +4,7 @@ import { ParticleFX, ParticlePool } from '../public/src/display/webgl/particles.
 import { MAX_DYNAMIC_LIGHTS } from '../public/src/display/webgl/arenaRenderer.js';
 import { buildTerrainMesh } from '../public/src/display/webgl/terrainMesh.js';
 import { createDungeonDecorations } from '../public/src/display/worldDecorations.js';
+import { biolum, emberLight, torchLight } from '../public/src/display/lightPatterns.js';
 import { generateCave } from '../public/src/rules/geometry/caveGen.js';
 
 Deno.test('webgl foundation: cave generation retains signed visual density', () => {
@@ -24,11 +25,25 @@ Deno.test('webgl foundation: expanded cave routes remain open and navigable', ()
 Deno.test('webgl foundation: starting campfire is clear of the player and nearby torches', () => {
   const spawns = [{ x: 200, y: 200 }, { x: 600, y: 250 }];
   const routes = [{ points: [{ x: 200, y: 100 }, { x: 950, y: 250 }] }];
-  const { campfire, torches } = createDungeonDecorations({
+  const { campfire, torches, mushroom } = createDungeonDecorations({
     grid: { distanceMove: () => 100 }, spawns, routes,
   });
   assert(Math.hypot(campfire.x - spawns[0].x, campfire.y - spawns[0].y) >= 52);
   assertEquals(torches.map(torch => torch.x), [600, 950]);
+  assert(Math.hypot(mushroom.x - campfire.x, mushroom.y - campfire.y) > 130);
+});
+
+Deno.test('webgl foundation: fire and bioluminescence have distinct, repeatable rhythms', () => {
+  assert(torchLight(1, 0) !== torchLight(1, Math.PI));
+  const flare = 0.76 / 0.23;
+  assert(emberLight(flare, 0) > emberLight(flare - 0.7, 0) + 0.15);
+  assert(emberLight(flare, 0) > emberLight(flare + 0.7, 0) + 0.15);
+  const bright = biolum(1.8, 0);
+  const dim = biolum(5.5, 0);
+  assert(bright.intensity > dim.intensity + 0.3);
+  assert(dim.intensity > 0.45);
+  assert(Math.abs(bright.b - dim.b) > 0.08);
+  assertEquals(biolum(1.8, 0), bright);
 });
 
 Deno.test('webgl foundation: terrain mesh retains open floor and raises solid density', () => {

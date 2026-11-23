@@ -7,6 +7,7 @@ import {
 import { AI } from '../../rules/components/AI.js';
 import { spells as spellCatalog } from '../../rules/data/spellCatalog.js';
 import { rarityTextColors } from '../../rules/data/lootTable.js';
+import { biolum, emberLight, torchLight } from '../lightPatterns.js';
 import { createWebGLDevice } from './device.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
 import { createCampfireMesh } from './campfireMesh.js';
@@ -25,6 +26,7 @@ import { POTION_GLOW_FRAGMENT } from './shaders/potionGlow.frag.js';
 import { FLAME_FRAGMENT } from './shaders/flame.frag.js';
 import { CAMPFIRE_VERTEX } from './shaders/campfire.vert.js';
 import { CAMPFIRE_FRAGMENT } from './shaders/campfire.frag.js';
+import { MUSHROOM_FRAGMENT } from './shaders/mushroom.frag.js';
 import { CUBE_FRAGMENT } from './shaders/cube.frag.js';
 import { PROJECTILE_VERTEX } from './shaders/projectile.vert.js';
 import { FROST_BOLT_FRAGMENT } from './shaders/frostBolt.frag.js';
@@ -151,11 +153,15 @@ export function createWebGLArenaRenderer(deps) {
   const flame = worldProgram(device, FLAME_FRAGMENT);
   flame.time = uniform(gl, flame.program, 'u_time');
   flame.alpha = uniform(gl, flame.program, 'u_alpha');
+  const fungus = worldProgram(device, MUSHROOM_FRAGMENT);
+  fungus.glow = uniform(gl, fungus.program, 'u_glow');
+  fungus.intensity = uniform(gl, fungus.program, 'u_intensity');
   const campfireProgram = device.program(CAMPFIRE_VERTEX, CAMPFIRE_FRAGMENT);
   const campfireLocations = {
     view: uniform(gl, campfireProgram, 'u_view'),
     position: uniform(gl, campfireProgram, 'u_position'),
     time: uniform(gl, campfireProgram, 'u_time'),
+    intensity: uniform(gl, campfireProgram, 'u_intensity'),
   };
   const cube = worldProgram(device, CUBE_FRAGMENT);
   cube.time = uniform(gl, cube.program, 'u_time');
@@ -453,24 +459,34 @@ export function createWebGLArenaRenderer(deps) {
     }
     for (const torch of decorations?.torches || []) {
       const y = torch.y - 12;
-      const radius = 205;
+      const intensity = torchLight(now, torch.phase);
+      const radius = 205 * (0.84 + 0.20 * intensity);
       if (!inView(torch.x, y, radius)) continue;
       candidates.push({
         x: torch.x, y, radius,
-        intensity: 1.08 + 0.20 * torchFlicker(now, torch.phase),
+        intensity: 1.28 * intensity,
         r: 1, g: 0.48, b: 0.18,
       });
     }
     const campfire = decorations?.campfire;
     if (campfire) {
       const y = campfire.y - 8;
-      const radius = 245;
+      const intensity = emberLight(now, campfire.phase);
+      const radius = 245 * (0.77 + 0.25 * intensity);
       if (inView(campfire.x, y, radius)) {
         candidates.push({
           x: campfire.x, y, radius,
-          intensity: 1.25 + 0.18 * torchFlicker(now, campfire.phase),
-          r: 1, g: 0.44, b: 0.20,
+          intensity: 1.40 * intensity,
+          r: 1, g: 0.38 + 0.07 * intensity, b: 0.14 + 0.06 * intensity,
         });
+      }
+    }
+    const mushroom = decorations?.mushroom;
+    if (mushroom) {
+      const glow = biolum(now, mushroom.phase);
+      const radius = 125 + 56 * glow.intensity;
+      if (inView(mushroom.x, mushroom.y, radius)) {
+        candidates.push({ x: mushroom.x, y: mushroom.y, radius, ...glow });
       }
     }
     for (const bolt of bolts) {
@@ -651,14 +667,6 @@ export function createWebGLArenaRenderer(deps) {
     return Math.abs(x - view[0]) <= view[2] * 0.5 + margin && Math.abs(y - view[1]) <= view[3] * 0.5 + margin;
   }
 
-  // Real flames drift, flare, and settle on overlapping time scales. Keeping
-  // these frequencies low avoids the electronic strobe of a single fast sine.
-  function torchFlicker(now, phase) {
-    return 0.52 * Math.sin(now * 0.72 + phase) +
-      0.30 * Math.sin(now * 1.31 + phase * 1.73) +
-      0.18 * Math.sin(now * 2.17 + phase * 0.61);
-  }
-
   function spawnTorchParticle(torch, now, hot) {
     const sequence = ++torchParticleSequence;
     const noise = Math.sin(sequence * 91.73 + torch.phase * 17.1) * 43758.5453;
@@ -693,6 +701,7 @@ export function createWebGLArenaRenderer(deps) {
       gl.uniform4fv(campfireLocations.view, view);
       gl.uniform2f(campfireLocations.position, campfire.x, campfire.y);
       gl.uniform1f(campfireLocations.time, now + campfire.phase);
+      gl.uniform1f(campfireLocations.intensity, emberLight(now, campfire.phase));
       gl.clear(gl.DEPTH_BUFFER_BIT);
       gl.enable(gl.DEPTH_TEST);
       gl.drawArrays(gl.TRIANGLES, 0, campfireVertices.length / 7);
@@ -727,16 +736,25 @@ export function createWebGLArenaRenderer(deps) {
     }
   }
 
-  // Draw after darkness composition so flames remain emissive. The broad,
-  // low-alpha halo visually joins the flame to its actual dynamic light pool.
-  function drawTorchEmission(now) {
+  // Draw after darkness composition to retain the emissive details.
+  function drawDecorationEmission(now) {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     for (const torch of decorations?.torches || []) {
       if (!inView(torch.x, torch.y, 90)) continue;
-      const flicker = 0.5 + 0.5 * torchFlicker(now, torch.phase);
-      drawFlame(torch.x, torch.y - 15, 30 + flicker * 6, 42 + flicker * 8, now + torch.phase, 0.72);
+      const intensity = torchLight(now, torch.phase);
+      drawFlame(torch.x, torch.y - 15, 28 + intensity * 6, 28 + intensity * 18, now + torch.phase, 0.83 * intensity);
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    const mushroom = decorations?.mushroom;
+    if (mushroom && inView(mushroom.x, mushroom.y, 32)) {
+      const glow = biolum(now, mushroom.phase);
+      gl.useProgram(fungus.program);
+      gl.bindVertexArray(quadVao);
+      setWorld(fungus, mushroom.x, mushroom.y - 6, 52, 48);
+      gl.uniform3f(fungus.glow, glow.r, glow.g, glow.b);
+      gl.uniform1f(fungus.intensity, glow.intensity);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
   }
 
   function drawChargeAnimation(book, position, collider, now) {
@@ -967,7 +985,7 @@ export function createWebGLArenaRenderer(deps) {
     // Lighting is a full-world GPU composition pass. Everything except the
     // intentionally luminous VFX and HUD participates in darkness and color.
     drawLighting(collectLights(now));
-    drawTorchEmission(now);
+    drawDecorationEmission(now);
 
     // Loot signals are intentionally emissive: shafts remain readable through
     // dungeon darkness, with height and color communicating rarity.
