@@ -216,7 +216,7 @@ import { createProjectileFxController } from './src/display/passes/projectileFx.
 import { createArenaAudio, unlockArenaAudio } from './src/display/audio/arenaAudio.js';
 import { createItemTooltip } from './src/display/ui/itemTooltip.js';
 import { createResourceBar } from './src/display/ui/resourceBars.js';
-import { ArrowAmmo, BowWeapon, MeleeWeapon, Spellbook, Position } from './src/rules/components/index.js';
+import { ArrowAmmo, BowWeapon, Health, Mana, MeleeWeapon, Powerups, Spellbook, Position } from './src/rules/components/index.js';
 import { createNetClient } from './src/net/client.js';
 import { samplePlayerCommand } from './src/input/samplePlayerCommand.js';
 import { SIM_MODE, SIM_TICK_HZ, createArenaSimulation } from './src/rules/sim/arenaSim.js';
@@ -403,6 +403,8 @@ const itemTooltip = createItemTooltip({
 });
 const healthBar = createResourceBar(document.getElementById('hud-hp-bar'), { key: 'health', label: '♥', color: '#ff4164' });
 const manaBar = createResourceBar(document.getElementById('hud-mana-bar'), { key: 'mana', label: '◆', color: '#55aaff', boostedClass: 'mana-boosted' });
+healthBar.set(100, 100);
+manaBar.set(100, 100);
 renderer = createWebGLArenaRenderer({
   canvas, overlayCanvas, cam, grid, bounds, decorations, fx, world, SEED, runtimeEvents,
   net: netClient, playerId,
@@ -472,6 +474,13 @@ const loop = createFixedTickLoop({
   },
   render() {
     renderer.renderFrame();
+    const liveHealth = world.get(playerId, Health);
+    const liveMana = world.get(playerId, Mana);
+    const livePowerups = world.get(playerId, Powerups);
+    healthBar.set(liveHealth?.hp ?? 0, liveHealth?.maxHp ?? 1);
+    manaBar.set(liveMana?.mana ?? 0, liveMana?.maxMana ?? 1, {
+      boosted: (livePowerups?.manaRegenSeconds || 0) > 0,
+    });
     // Sync spell bar UI with active spell
     if (world.has(playerId, Spellbook)) {
       const sb = world.get(playerId, Spellbook);
