@@ -30,6 +30,8 @@ import { PROP_MESH_FRAGMENT } from './shaders/propMesh.frag.js';
 import { MUSHROOM_FRAGMENT } from './shaders/mushroom.frag.js';
 import { GHOST_PIPE_VERTEX } from './shaders/ghostPipe.vert.js';
 import { CUBE_FRAGMENT } from './shaders/cube.frag.js';
+import { CUBE_VERTEX } from './shaders/cube.vert.js';
+import { createCubeMesh } from './cubeMesh.js';
 import { PROJECTILE_VERTEX } from './shaders/projectile.vert.js';
 import { FROST_BOLT_FRAGMENT } from './shaders/frostBolt.frag.js';
 import { CHARGE_FRAGMENT } from './shaders/charge.frag.js';
@@ -93,9 +95,9 @@ function themeForPowerup(effect) {
   return 'electric';
 }
 
-function worldProgram(device, fragment) {
+function worldProgram(device, fragment, vertex = WORLD_VERTEX) {
   const { gl } = device;
-  const program = device.program(WORLD_VERTEX, fragment);
+  const program = device.program(vertex, fragment);
   return {
     program,
     view: uniform(gl, program, 'u_view'),
@@ -130,6 +132,20 @@ function uploadPropMesh(device, vertices) {
   gl.enableVertexAttribArray(2);
   gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 28, 24);
   return { vao, count: vertices.length / 7 };
+}
+
+function uploadCubeMesh(device, vertices) {
+  const { gl } = device;
+  const vao = device.vertexArray();
+  gl.bindVertexArray(vao);
+  device.buffer(gl.ARRAY_BUFFER, vertices);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
+  gl.enableVertexAttribArray(1);
+  gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 32, 12);
+  gl.enableVertexAttribArray(2);
+  gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 32, 24);
+  return { vao, count: vertices.length / 8 };
 }
 
 export function createWebGLArenaRenderer(deps) {
@@ -187,9 +203,10 @@ export function createWebGLArenaRenderer(deps) {
     time: uniform(gl, campfireProgram, 'u_time'),
     intensity: uniform(gl, campfireProgram, 'u_intensity'),
   };
-  const cube = worldProgram(device, CUBE_FRAGMENT);
+  const cube = worldProgram(device, CUBE_FRAGMENT, CUBE_VERTEX);
   cube.time = uniform(gl, cube.program, 'u_time');
   cube.alpha = uniform(gl, cube.program, 'u_alpha');
+  const cubeMesh = uploadCubeMesh(device, createCubeMesh());
   const frostBolt = directionalProgram(device, FROST_BOLT_FRAGMENT);
   const charge = worldProgram(device, CHARGE_FRAGMENT);
   charge.theme = uniform(gl, charge.program, 'u_theme');
@@ -394,11 +411,13 @@ export function createWebGLArenaRenderer(deps) {
 
   function drawCube(x, y, radius, time, alpha = 1) {
     gl.useProgram(cube.program);
-    gl.bindVertexArray(quadVao);
-    setWorld(cube, x, y, radius * 2.25, radius * 2.25);
+    gl.bindVertexArray(cubeMesh.vao);
+    gl.uniform4fv(cube.view, view);
+    gl.uniform2f(cube.position, x, y + radius * 0.62);
+    gl.uniform1f(cube.size, radius * 1.08);
     gl.uniform1f(cube.time, time);
     gl.uniform1f(cube.alpha, alpha);
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.drawArrays(gl.TRIANGLES, 0, cubeMesh.count);
   }
 
   function drawLines(points, color, width = 1) {
@@ -983,7 +1002,9 @@ export function createWebGLArenaRenderer(deps) {
         drawCube(shown.x + lean, shown.y + bob, collider.radius * (1 + stride * 0.035), now + id * 0.17, 0.94);
       }
       const glyphColor = actor.theme === 'fire' ? [1, 0.84, 0.5, 1] : actor.theme === 'frost' ? [0.72, 1, 0.9, 1] : [0.85, 0.68, 1, 1];
-      drawGlyph(actor.glyph, shown.x + lean, shown.y + bob + 1, collider.radius * (actor.name === 'Gelatinous Cube' ? 0.8 : 1.5), actor.name === 'Gelatinous Cube' ? [0.88, 1, 0.84, 0.58] : glyphColor);
+      if (actor.name !== 'Gelatinous Cube') {
+        drawGlyph(actor.glyph, shown.x + lean, shown.y + bob + 1, collider.radius * 1.5, glyphColor);
+      }
       if (actor.rare) drawGlyph('★', shown.x + collider.radius * 0.72, shown.y + bob - collider.radius * 0.78, 10, [1, 0.78, 0.18, 1]);
       const facing = world.get(id, Facing)?.angle ?? 0;
       drawDisc(shown.x + Math.cos(facing) * collider.radius, shown.y + Math.sin(facing) * collider.radius, 2, [1, 0.57, 0.8, 1], [1, 0.57, 0.8, 1]);
