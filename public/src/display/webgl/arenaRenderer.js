@@ -25,6 +25,7 @@ import { FLAME_FRAGMENT } from './shaders/flame.frag.js';
 import { CUBE_FRAGMENT } from './shaders/cube.frag.js';
 import { PROJECTILE_VERTEX } from './shaders/projectile.vert.js';
 import { FROST_BOLT_FRAGMENT } from './shaders/frostBolt.frag.js';
+import { CHARGE_FRAGMENT } from './shaders/charge.frag.js';
 
 // Lighting is a core gameplay/readability layer. Keep enough simultaneous
 // sources for actors, loot, projectiles, and transient spell illumination.
@@ -144,6 +145,7 @@ export function createWebGLArenaRenderer(deps) {
   potionGlow.theme = uniform(gl, potionGlow.program, 'u_theme');
   potionGlow.time = uniform(gl, potionGlow.program, 'u_time');
   potionGlow.alpha = uniform(gl, potionGlow.program, 'u_alpha');
+  potionGlow.swirl = uniform(gl, potionGlow.program, 'u_swirl');
   const flame = worldProgram(device, FLAME_FRAGMENT);
   flame.time = uniform(gl, flame.program, 'u_time');
   flame.alpha = uniform(gl, flame.program, 'u_alpha');
@@ -151,6 +153,15 @@ export function createWebGLArenaRenderer(deps) {
   cube.time = uniform(gl, cube.program, 'u_time');
   cube.alpha = uniform(gl, cube.program, 'u_alpha');
   const frostBolt = directionalProgram(device, FROST_BOLT_FRAGMENT);
+  const charge = worldProgram(device, CHARGE_FRAGMENT);
+  charge.theme = uniform(gl, charge.program, 'u_theme');
+  charge.time = uniform(gl, charge.program, 'u_time');
+  charge.alpha = uniform(gl, charge.program, 'u_alpha');
+  charge.charge = uniform(gl, charge.program, 'u_charge');
+  charge.theme = uniform(gl, charge.program, 'u_theme');
+  charge.time = uniform(gl, charge.program, 'u_time');
+  charge.alpha = uniform(gl, charge.program, 'u_alpha');
+  charge.charge = uniform(gl, charge.program, 'u_charge');
 
   const lineProgram = device.program(LINE_VERTEX, SOLID_FRAGMENT);
   const lineLocations = {
@@ -297,13 +308,25 @@ export function createWebGLArenaRenderer(deps) {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  function drawPotionGlow(theme, x, y, radius, time, alpha = 1) {
+  function drawPotionGlow(theme, x, y, radius, time, alpha = 1, swirl = 1) {
     gl.useProgram(potionGlow.program);
     gl.bindVertexArray(quadVao);
     setWorld(potionGlow, x, y, radius * 2, radius * 2);
     gl.uniform1i(potionGlow.theme, themeIndex(theme));
     gl.uniform1f(potionGlow.time, time);
     gl.uniform1f(potionGlow.alpha, alpha);
+    gl.uniform1f(potionGlow.swirl, swirl);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  function drawChargeField(theme, x, y, radius, time, chargeAmount, alpha = 1) {
+    gl.useProgram(charge.program);
+    gl.bindVertexArray(quadVao);
+    setWorld(charge, x, y, radius * 2, radius * 2);
+    gl.uniform1i(charge.theme, themeIndex(theme));
+    gl.uniform1f(charge.time, time);
+    gl.uniform1f(charge.charge, chargeAmount);
+    gl.uniform1f(charge.alpha, alpha);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
@@ -666,27 +689,12 @@ export function createWebGLArenaRenderer(deps) {
       ? 1 - book.channelRemaining / Math.max(0.001, duration)
       : Math.min(1, book.charge / Math.max(0.001, duration));
     const theme = spell.element === 'electric' ? 'electric' : spell.element === 'arrow' ? 'fire' : spell.element;
-    const orbit = collider.radius + 8 + charge * 10;
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     if (book.castPhase === 'channeling') {
       drawLines(new Float32Array([position.x, position.y, book.castTargetX, book.castTargetY]), [0.55, 0.9, 1, 0.3], 2);
-      drawElementOrb(theme, book.castTargetX, book.castTargetY, spell.targeting.areaRadius, now, 0.22);
-      for (let flake = 0; flake < 6; flake++) {
-        const angle = now * (0.8 + flake * 0.03) + flake * Math.PI / 3;
-        const radius = spell.targeting.areaRadius * (0.35 + (flake % 3) * 0.22);
-        drawGlyph('❄', book.castTargetX + Math.cos(angle) * radius, book.castTargetY + Math.sin(angle) * radius, 10, [0.78, 0.96, 1, 0.9]);
-      }
+      drawChargeField(theme, book.castTargetX, book.castTargetY, spell.targeting.areaRadius, now, charge, 0.22);
     }
-    drawElementOrb(theme, position.x, position.y, collider.radius + 5 + charge * 7, now, 0.12 + charge * 0.2);
-    const points = [];
-    for (let index = 0; index < 4; index++) {
-      const angle = now * (2.4 + charge * 3) + index * Math.PI * 0.5;
-      const x = position.x + Math.cos(angle) * orbit;
-      const y = position.y + Math.sin(angle) * orbit;
-      drawDisc(x, y, 1.8 + charge * 1.4, [0.72, 0.96, 1, 0.8], [1, 1, 1, 0.9]);
-      points.push(x, y, position.x + Math.cos(angle) * collider.radius, position.y + Math.sin(angle) * collider.radius);
-    }
-    drawLines(new Float32Array(points), [0.4, 0.9, 1, 0.2 + charge * 0.35], 2);
+    drawChargeField(theme, position.x, position.y, collider.radius + 6 + charge * 8, now, charge, 0.18 + charge * 0.32);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
@@ -904,7 +912,8 @@ export function createWebGLArenaRenderer(deps) {
       const shaft = lootShaftHeight(info, consumable?.effect);
       if (consumable) {
         const potionTheme = consumable.effect === 'mana' ? 'electric' : 'fire';
-        drawPotionGlow(potionTheme, shown.x, shown.y, 16 + pulse * 2, now + id * 0.13, 0.9);
+        const swirl = consumable.effect === 'heal' ? 0 : 1;
+        drawPotionGlow(potionTheme, shown.x, shown.y, 16 + pulse * 2, now + id * 0.13, 0.9, swirl);
       }
       drawLines(new Float32Array([
         shown.x - 3, shown.y - 5, shown.x - 1, shown.y - shaft,

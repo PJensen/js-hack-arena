@@ -10,15 +10,15 @@ void main() {
   float x = p.x;
   float y = p.y;
 
-  // A tapered ice shard: the point faces +X and the wake trails behind it.
-  float taper = 0.13 + 0.28 * smoothstep(-0.72, 0.42, x);
-  taper *= 1.0 - 0.30 * smoothstep(0.40, 1.0, x);
-  float facetWave = 0.035 * sin(x * 17.0 - u_time * 3.0);
-  float crystal = 1.0 - smoothstep(taper - 0.035, taper + 0.035, abs(y + facetWave));
-  float tip = 1.0 - smoothstep(0.86, 1.0, x);
+  // A short faceted ice spear: narrow tail, angular shoulders, sharp tip.
+  float bodyWidth = mix(0.055, 0.24, smoothstep(-0.82, 0.02, x));
+  bodyWidth *= 1.0 - 0.92 * smoothstep(0.38, 1.0, x);
+  float facet = 0.028 * sin(x * 15.0 - u_time * 2.5);
+  float crystal = 1.0 - smoothstep(bodyWidth - 0.025, bodyWidth + 0.025, abs(y + facet));
+  float tip = 1.0 - smoothstep(0.52, 0.98, x);
 
   // Soft wake, concentrated behind the crystal rather than around its edge.
-  float wakeWidth = 0.12 + 0.20 * smoothstep(-1.0, -0.12, -x);
+  float wakeWidth = 0.06 + 0.14 * smoothstep(-1.0, -0.12, -x);
   float wake = (1.0 - smoothstep(wakeWidth, wakeWidth + 0.16, abs(y)))
              * (1.0 - smoothstep(-0.95, 0.55, x));
   float shimmer = 0.5 + 0.5 * sin(x * 12.0 + y * 8.0 - u_time * 4.0);

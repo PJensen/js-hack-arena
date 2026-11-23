@@ -3,6 +3,7 @@ precision highp float;
 uniform int u_theme;
 uniform float u_time;
 uniform float u_alpha;
+uniform float u_swirl;
 in vec2 v_uv;
 out vec4 out_color;
 vec3 theme_color() {
@@ -21,7 +22,7 @@ void main() {
   float core = pow(max(0.0, 1.0 - radius), 1.8);
   float halo = pow(max(0.0, 1.0 - radius), 0.42);
   float swirl = 0.5 + 0.5 * sin(angle * 5.0 - u_time * 2.6 + radius * 8.0);
-  float wisps = pow(swirl, 3.0) * (1.0 - radius * 0.35);
+  float wisps = pow(swirl, 3.0) * (1.0 - radius * 0.35) * u_swirl;
   vec3 color = base * (0.32 * halo + 0.72 * core + 0.30 * wisps);
   float alpha = (0.10 * halo + 0.34 * core + 0.12 * wisps) * pulse * u_alpha;
   out_color = vec4(color, alpha);
