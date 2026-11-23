@@ -9,6 +9,20 @@ import { spells as spellCatalog } from '../../rules/data/spellCatalog.js';
 import { rarityTextColors } from '../../rules/data/lootTable.js';
 import { createWebGLDevice } from './device.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
+import { WORLD_VERTEX } from './shaders/world.vert.js';
+import { CAVE_VERTEX } from './shaders/cave.vert.js';
+import { CAVE_FRAGMENT } from './shaders/cave.frag.js';
+import { DISC_FRAGMENT } from './shaders/disc.frag.js';
+import { GLYPH_FRAGMENT } from './shaders/glyph.frag.js';
+import { PARTICLE_VERTEX } from './shaders/particle.vert.js';
+import { PARTICLE_FRAGMENT } from './shaders/particle.frag.js';
+import { LINE_VERTEX } from './shaders/line.vert.js';
+import { SOLID_FRAGMENT } from './shaders/solid.frag.js';
+import { createLightFragment } from './shaders/light.frag.js';
+import { ELEMENT_FRAGMENT } from './shaders/element.frag.js';
+import { POTION_GLOW_FRAGMENT } from './shaders/potionGlow.frag.js';
+import { FLAME_FRAGMENT } from './shaders/flame.frag.js';
+import { CUBE_FRAGMENT } from './shaders/cube.frag.js';
 
 // Lighting is a core gameplay/readability layer. Keep enough simultaneous
 // sources for actors, loot, projectiles, and transient spell illumination.
@@ -43,276 +57,6 @@ function lootShaftHeight(info, effect) {
   if (effect === 'heal' || effect === 'mana') return 30;
   return { common: 20, uncommon: 30, rare: 44, epic: 62, legendary: 84 }[String(info?.rarity || 'common')] || 20;
 }
-
-const WORLD_VERTEX = `#version 300 es
-layout(location=0) in vec2 a_position;
-uniform vec4 u_view;
-uniform vec2 u_position;
-uniform vec2 u_size;
-out vec2 v_uv;
-out vec2 v_world;
-vec2 world_to_clip(vec2 world) {
-  vec2 clip = (world - u_view.xy) * 2.0 / u_view.zw;
-  return vec2(clip.x, -clip.y);
-}
-void main() {
-  vec2 world = u_position + a_position * u_size;
-  gl_Position = vec4(world_to_clip(world), 0.0, 1.0);
-  v_uv = a_position + 0.5;
-  v_world = world;
-}`;
-
-const CAVE_VERTEX = `#version 300 es
-layout(location=0) in vec4 a_vertex;
-uniform vec4 u_view;
-out vec2 v_uv;
-out vec2 v_world;
-void main() {
-  vec2 clip = (a_vertex.xy - u_view.xy) * 2.0 / u_view.zw;
-  gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
-  v_world = a_vertex.xy;
-  v_uv = a_vertex.zw;
-}`;
-
-const CAVE_FRAGMENT = `#version 300 es
-precision highp float;
-uniform sampler2D u_field;
-uniform ivec2 u_grid_size;
-uniform vec2 u_light;
-in vec2 v_uv;
-in vec2 v_world;
-out vec4 out_color;
-float field_sample(vec2 uv) {
-  vec2 point = clamp(uv, 0.0, 1.0) * vec2(u_grid_size - 1);
-  ivec2 base = ivec2(floor(point));
-  ivec2 next = min(base + 1, u_grid_size - 1);
-  vec2 blend = fract(point);
-  float a = texelFetch(u_field, base, 0).r;
-  float b = texelFetch(u_field, ivec2(next.x, base.y), 0).r;
-  float c = texelFetch(u_field, ivec2(base.x, next.y), 0).r;
-  float d = texelFetch(u_field, next, 0).r;
-  return mix(mix(a, b, blend.x), mix(c, d, blend.x), blend.y);
-}
-void main() {
-  float clearance = field_sample(v_uv);
-  vec3 wall = vec3(0.043, 0.059, 0.071);
-  vec3 edge = vec3(0.059, 0.102, 0.157);
-  vec3 floorColor = vec3(0.078, 0.125, 0.188);
-  vec3 color = clearance > 18.0 ? floorColor : (clearance > 10.0 ? edge : wall);
-  float distanceToLight = distance(v_world, u_light);
-  float torch = max(0.0, 1.0 - distanceToLight / 310.0);
-  torch *= torch;
-  color *= 0.62 + torch * 0.82;
-  color += torch * vec3(0.13, 0.065, 0.018);
-  out_color = vec4(color, 1.0);
-}`;
-
-const DISC_FRAGMENT = `#version 300 es
-precision highp float;
-uniform vec4 u_color;
-uniform vec4 u_stroke;
-in vec2 v_uv;
-out vec4 out_color;
-void main() {
-  float distanceFromCenter = length(v_uv - 0.5) * 2.0;
-  float aa = fwidth(distanceFromCenter);
-  float coverage = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, distanceFromCenter);
-  float border = smoothstep(0.78 - aa, 0.78 + aa, distanceFromCenter);
-  if (coverage <= 0.0) discard;
-  out_color = mix(u_color, u_stroke, border);
-  out_color.a *= coverage;
-}`;
-
-const GLYPH_FRAGMENT = `#version 300 es
-precision highp float;
-uniform sampler2D u_atlas;
-uniform vec4 u_frame;
-uniform vec4 u_color;
-in vec2 v_uv;
-out vec4 out_color;
-void main() {
-  vec2 uv = u_frame.xy + v_uv * u_frame.zw;
-  float alpha = texture(u_atlas, uv).a;
-  if (alpha < 0.03) discard;
-  out_color = vec4(u_color.rgb, u_color.a * alpha);
-}`;
-
-const PARTICLE_VERTEX = `#version 300 es
-layout(location=0) in vec2 a_position;
-layout(location=1) in float a_size;
-layout(location=2) in vec4 a_color;
-uniform vec4 u_view;
-uniform float u_pixel_scale;
-out vec4 v_color;
-void main() {
-  vec2 clip = (a_position - u_view.xy) * 2.0 / u_view.zw;
-  gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
-  gl_PointSize = max(1.0, a_size * u_pixel_scale);
-  v_color = a_color;
-}`;
-
-const PARTICLE_FRAGMENT = `#version 300 es
-precision highp float;
-in vec4 v_color;
-out vec4 out_color;
-void main() {
-  float radius = length(gl_PointCoord * 2.0 - 1.0);
-  float alpha = 1.0 - smoothstep(0.68, 1.0, radius);
-  if (alpha <= 0.0) discard;
-  out_color = vec4(v_color.rgb, v_color.a * alpha);
-}`;
-
-const LINE_VERTEX = `#version 300 es
-layout(location=0) in vec2 a_position;
-uniform vec4 u_view;
-void main() {
-  vec2 clip = (a_position - u_view.xy) * 2.0 / u_view.zw;
-  gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
-}`;
-
-const SOLID_FRAGMENT = `#version 300 es
-precision highp float;
-uniform vec4 u_color;
-out vec4 out_color;
-void main() { out_color = u_color; }`;
-
-const LIGHT_FRAGMENT = `#version 300 es
-precision highp float;
-#define MAX_LIGHTS ${MAX_DYNAMIC_LIGHTS}
-uniform int u_light_count;
-uniform vec4 u_lights[MAX_LIGHTS];
-uniform vec3 u_light_colors[MAX_LIGHTS];
-in vec2 v_world;
-out vec4 out_color;
-void main() {
-  vec3 illumination = vec3(0.13, 0.16, 0.21);
-  for (int i = 0; i < MAX_LIGHTS; i++) {
-    if (i >= u_light_count) break;
-    vec4 source = u_lights[i];
-    float distanceRatio = distance(v_world, source.xy) / max(1.0, source.z);
-    float falloff = 1.0 - smoothstep(0.0, 1.0, distanceRatio);
-    falloff *= falloff;
-    illumination += u_light_colors[i] * falloff * source.w * 1.35;
-  }
-  out_color = vec4(clamp(illumination, 0.0, 1.25), 1.0);
-}`;
-
-const ELEMENT_FRAGMENT = `#version 300 es
-precision highp float;
-uniform int u_theme;
-uniform float u_time;
-uniform float u_alpha;
-in vec2 v_uv;
-out vec4 out_color;
-void main() {
-  vec2 p = (v_uv - 0.5) * 2.0;
-  float radius = length(p);
-  float angle = atan(p.y, p.x);
-  float edge = 1.0;
-  vec3 color;
-  if (u_theme == 0) {
-    edge = 0.86 + 0.10 * sin(angle * 5.0 + u_time * 7.0) * (0.4 + radius * 0.6);
-    color = mix(vec3(1.0, 0.18, 0.03), vec3(1.0, 0.86, 0.22), 1.0 - radius);
-  } else if (u_theme == 1) {
-    float swirl = 0.5 + 0.5 * sin(angle * 3.0 - u_time * 2.4 + radius * 9.0);
-    color = mix(vec3(0.025, 0.008, 0.06), vec3(0.62, 0.16, 0.95), swirl * radius);
-  } else if (u_theme == 2) {
-    edge = 0.84 + 0.11 * cos(angle * 6.0);
-    float crystal = 0.5 + 0.5 * cos(angle * 6.0 + radius * 10.0);
-    color = mix(vec3(0.08, 0.48, 0.72), vec3(0.78, 1.0, 1.0), crystal * (1.0 - radius * 0.45));
-  } else {
-    float arc = pow(abs(sin(angle * 7.0 + u_time * 13.0 + radius * 8.0)), 14.0);
-    color = mix(vec3(0.08, 0.32, 1.0), vec3(0.92, 1.0, 1.0), arc + (1.0 - radius) * 0.4);
-  }
-  float aa = fwidth(radius);
-  float alpha = 1.0 - smoothstep(edge - aa, edge + aa, radius);
-  if (alpha <= 0.0) discard;
-  float rim = smoothstep(0.58, edge, radius);
-  out_color = vec4(color + rim * 0.16, alpha * u_alpha);
-}`;
-
-// Potion auras are deliberately a filled, shader-generated glow rather than
-// a pair of geometric rings. The radial falloff, animated wisps, and edge
-// bloom all come from the fragment shader so the effect stays soft at any
-// zoom level and never reads as a canvas outline.
-const POTION_GLOW_FRAGMENT = `#version 300 es
-precision highp float;
-uniform int u_theme;
-uniform float u_time;
-uniform float u_alpha;
-in vec2 v_uv;
-out vec4 out_color;
-
-vec3 theme_color() {
-  if (u_theme == 0) return vec3(1.0, 0.20, 0.045);
-  if (u_theme == 1) return vec3(0.68, 0.24, 1.0);
-  if (u_theme == 2) return vec3(0.20, 1.0, 0.76);
-  return vec3(0.22, 0.64, 1.0);
-}
-
-void main() {
-  vec2 p = (v_uv - 0.5) * 2.0;
-  float radius = length(p);
-  if (radius > 1.0) discard;
-
-  vec3 base = theme_color();
-  float angle = atan(p.y, p.x);
-  float pulse = 0.92 + 0.08 * sin(u_time * 4.0);
-  float core = pow(max(0.0, 1.0 - radius), 1.8);
-  float halo = pow(max(0.0, 1.0 - radius), 0.42);
-  float swirl = 0.5 + 0.5 * sin(angle * 5.0 - u_time * 2.6 + radius * 8.0);
-  float wisps = pow(swirl, 3.0) * (1.0 - radius * 0.35);
-  vec3 color = base * (0.32 * halo + 0.72 * core + 0.30 * wisps);
-  float alpha = (0.10 * halo + 0.34 * core + 0.12 * wisps) * pulse * u_alpha;
-  out_color = vec4(color, alpha);
-}`;
-
-const FLAME_FRAGMENT = `#version 300 es
-precision highp float;
-uniform float u_time;
-uniform float u_alpha;
-in vec2 v_uv;
-out vec4 out_color;
-void main() {
-  vec2 p = (v_uv - 0.5) * 2.0;
-  float wobble = sin(u_time * 5.0 + p.y * 7.0) * 0.07 + sin(u_time * 8.3 - p.y * 4.0) * 0.035;
-  p.x -= wobble * (0.35 + p.y * 0.25);
-  float body = 1.0 - smoothstep(0.12, 0.92, length(vec2(p.x * 1.12, p.y * 0.82)));
-  float flameTip = smoothstep(0.80, 0.12, p.y) * smoothstep(-0.15, 0.42, p.y);
-  float core = 1.0 - smoothstep(0.02, 0.58, length(vec2(p.x * 1.7, (p.y + 0.18) * 1.25)));
-  float glow = pow(max(0.0, 1.0 - length(p)), 0.55);
-  float alpha = (glow * 0.18 + body * 0.48 + flameTip * 0.24 + core * 0.24) * u_alpha;
-  vec3 color = mix(vec3(1.0, 0.12, 0.01), vec3(1.0, 0.92, 0.42), core);
-  out_color = vec4(color, alpha);
-}`;
-
-const CUBE_FRAGMENT = `#version 300 es
-precision highp float;
-uniform float u_time;
-uniform float u_alpha;
-in vec2 v_uv;
-out vec4 out_color;
-float bubble(vec2 p, vec2 center, float radius) {
-  return 1.0 - smoothstep(radius - 0.025, radius + 0.025, length(p - center));
-}
-void main() {
-  vec2 p = (v_uv - 0.5) * 2.0;
-  p.x += sin(p.y * 5.0 + u_time * 1.8) * 0.035;
-  p.y += cos(p.x * 4.0 - u_time * 1.5) * 0.028;
-  vec2 q = abs(p) - vec2(0.72, 0.74);
-  float box = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - 0.22;
-  float aa = fwidth(box);
-  float shape = 1.0 - smoothstep(-aa, aa, box);
-  if (shape <= 0.0) discard;
-  float surface = 0.5 + 0.5 * sin(p.y * 11.0 + p.x * 5.0 + u_time * 2.2);
-  float bubbles = bubble(p, vec2(-0.28, 0.18 + sin(u_time) * 0.08), 0.12)
-                + bubble(p, vec2(0.31, -0.24 + cos(u_time * 1.3) * 0.08), 0.09)
-                + bubble(p, vec2(0.12, 0.42 + sin(u_time * 0.7) * 0.06), 0.065);
-  float rim = smoothstep(-0.22, 0.02, box);
-  vec3 color = mix(vec3(0.025, 0.34, 0.3), vec3(0.22, 1.0, 0.76), surface * 0.34 + rim * 0.55);
-  color += bubbles * vec3(0.24, 0.52, 0.42);
-  out_color = vec4(color, shape * u_alpha * (0.72 + rim * 0.25));
-}`;
 
 const QUAD = new Float32Array([
   -0.5, -0.5, 0.5, -0.5, -0.5, 0.5,
@@ -372,7 +116,7 @@ export function createWebGLArenaRenderer(deps) {
   glyph.color = uniform(gl, glyph.program, 'u_color');
   const solid = worldProgram(device, SOLID_FRAGMENT);
   solid.color = uniform(gl, solid.program, 'u_color');
-  const lighting = worldProgram(device, LIGHT_FRAGMENT);
+  const lighting = worldProgram(device, createLightFragment(MAX_DYNAMIC_LIGHTS));
   lighting.count = uniform(gl, lighting.program, 'u_light_count');
   lighting.lights = uniform(gl, lighting.program, 'u_lights[0]');
   lighting.colors = uniform(gl, lighting.program, 'u_light_colors[0]');
