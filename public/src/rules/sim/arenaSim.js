@@ -41,6 +41,7 @@ import {
   spawnLegendarySword,
   spawnFuryRune,
   spawnHasteRune,
+  spawnManaPotion,
   spawnManaSurge,
   spawnMelee,
   spawnPlayer,
@@ -703,6 +704,7 @@ function installEventJournal(world, history, nextIdentity) {
 function spawnDrop(world, drop, x, y) {
   if (!drop || drop.type === 'nothing') return null;
   if (drop.type === 'potion') return spawnPotion(world, x, y, drop.potency);
+  if (drop.type === 'mana_potion') return spawnManaPotion(world, x, y, drop.potency);
   if (drop.type === 'bow') return spawnBow(world, x, y, drop.rarity);
   if (drop.type === 'sword') return spawnSword(world, x, y, drop.tier, drop.rarity);
   if (drop.type === 'arrows') return spawnArrows(world, x, y, drop.count);
@@ -1046,6 +1048,7 @@ function replicaItemLight(effect, rarity = '') {
   if (rarity === 'epic') return { radius: 80, r: 200, g: 80, b: 255 };
   if (rarity === 'legendary') return { radius: 95, r: 255, g: 200, b: 50 };
   if (effect === 'heal') return { radius: 60, r: 255, g: 50, b: 80 };
+  if (effect === 'mana') return { radius: 72, r: 55, g: 145, b: 255 };
   if (effect === 'mana_regen') return { radius: 95, r: 65, g: 145, b: 255 };
   if (effect === 'haste') return { radius: 90, r: 55, g: 245, b: 190 };
   if (effect === 'fury') return { radius: 100, r: 255, g: 80, b: 35 };

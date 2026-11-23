@@ -2,7 +2,7 @@
 // intent from their comparison card. Replaced equipment is dropped nearby.
 import {
   ArrowAmmo, BowWeapon, Collider, Consumable, Facing, GroundItem, Health,
-  Input, ItemInfo, ItemSlot, MeleeWeapon, PickupLock, Position, Powerups,
+  Input, ItemInfo, ItemSlot, Mana, MeleeWeapon, PickupLock, Position, Powerups,
   Spellbook, SpellId, WeaponPickup,
 } from '../components/index.js';
 import { findOpenNear, spawnWeaponPickup } from '../spawner.js';
@@ -145,6 +145,15 @@ function consumeItem(world, player, itemId, position, info, consumable) {
       x: player.pos.x, y: player.pos.y,
     });
     world.emit('item.pickup', { entity: id, item: info?.name, healed, x: player.pos.x, y: player.pos.y });
+    return true;
+  }
+
+  if (consumable.effect === 'mana' && world.has(id, Mana)) {
+    const mana = world.get(id, Mana);
+    if (mana.mana >= mana.maxMana) return false;
+    const restored = Math.min(consumable.potency, mana.maxMana - mana.mana);
+    mana.mana += restored;
+    world.emit('item.pickup', { entity: id, item: info?.name, restoredMana: restored, x: player.pos.x, y: player.pos.y });
     return true;
   }
 

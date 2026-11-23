@@ -194,7 +194,19 @@ export function spawnPotion(world, x, y, potency = 30) {
   world.add(id, Consumable, { effect: 'heal', potency });
   world.add(id, GroundItem);
   world.add(id, Collider, { radius: 10 });
-  world.add(id, PointLight, { radius: 60, r: 255, g: 50, b: 80 });
+  world.add(id, PointLight, { radius: 72, r: 255, g: 50, b: 80 });
+  return id;
+}
+
+/** Spawn a mana potion on the ground. */
+export function spawnManaPotion(world, x, y, potency = 30) {
+  const id = world.create();
+  world.add(id, Position, { x, y });
+  world.add(id, ItemInfo, { name: 'Mana Potion', glyph: '!', slot: 'none', count: 1 });
+  world.add(id, Consumable, { effect: 'mana', potency });
+  world.add(id, GroundItem);
+  world.add(id, Collider, { radius: 10 });
+  world.add(id, PointLight, { radius: 72, r: 55, g: 145, b: 255 });
   return id;
 }
 

@@ -28,6 +28,22 @@ function rarityColor(rarity) {
   ];
 }
 
+function lootGlowColor(info, effect) {
+  if (effect === 'heal') return [1, 0.12, 0.28, 1];
+  if (effect === 'mana') return [0.18, 0.58, 1, 1];
+  const rarity = String(info?.rarity || 'common').toLowerCase();
+  if (rarity === 'legendary') return [1, 0.72, 0.12, 1];
+  if (rarity === 'epic') return [0.78, 0.24, 1, 1];
+  if (rarity === 'rare') return [0.24, 0.5, 1, 1];
+  if (rarity === 'uncommon') return [0.22, 1, 0.42, 1];
+  return [0.75, 0.82, 0.9, 1];
+}
+
+function lootShaftHeight(info, effect) {
+  if (effect === 'heal' || effect === 'mana') return 30;
+  return { common: 20, uncommon: 30, rare: 44, epic: 62, legendary: 84 }[String(info?.rarity || 'common')] || 20;
+}
+
 const WORLD_VERTEX = `#version 300 es
 layout(location=0) in vec2 a_position;
 uniform vec4 u_view;
@@ -428,10 +444,10 @@ export function createWebGLArenaRenderer(deps) {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  function drawGlyph(character, x, y, size, color) {
+  function drawGlyph(character, x, y, size, color, flipY = false) {
     gl.useProgram(glyph.program);
     gl.bindVertexArray(quadVao);
-    setWorld(glyph, x, y, size, size);
+    setWorld(glyph, x, y, size, flipY ? -size : size);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, atlas.texture);
     gl.uniform1i(glyph.atlas, 0);
@@ -966,15 +982,6 @@ export function createWebGLArenaRenderer(deps) {
       drawDisc(decal.x, decal.y, decal.radius, [0.24, 0.008, 0.018, alpha], [0.38, 0.015, 0.025, alpha]);
     }
 
-    for (const [id, position, _item, info] of world.query(Position, GroundItem, ItemInfo)) {
-      const consumable = world.get(id, Consumable);
-      const isPowerup = ['mana_regen', 'haste', 'fury', 'ward'].includes(consumable?.effect);
-      if (isPowerup) continue;
-      const itemColor = world.has(id, WeaponPickup)
-        ? rarityColor(info.rarity)
-        : consumable?.effect === 'add_arrows' ? [1, 0.78, 0.40, 1] : [1, 0.32, 0.5, 1];
-      drawGlyph(info.glyph, position.x, position.y, 20, itemColor);
-    }
     for (const [id, _playerTag, position, collider] of world.query(PlayerTag, Position, Collider)) {
       const shown = displayPosition(id, position);
       const local = id === playerId;
@@ -1024,6 +1031,29 @@ export function createWebGLArenaRenderer(deps) {
     // intentionally luminous VFX and HUD participates in darkness and color.
     drawLighting(collectLights(now, shownPlayer));
     drawTorchEmission(now);
+
+    // Loot signals are intentionally emissive: shafts remain readable through
+    // dungeon darkness, with height and color communicating rarity.
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    for (const [id, position, _item, info] of world.query(Position, GroundItem, ItemInfo)) {
+      const consumable = world.get(id, Consumable);
+      if (['mana_regen', 'haste', 'fury', 'ward'].includes(consumable?.effect)) continue;
+      const shown = displayPosition(id, position);
+      const glow = lootGlowColor(info, consumable?.effect);
+      const pulse = 0.5 + 0.5 * Math.sin(now * 2.4 + id * 0.73);
+      const shaft = lootShaftHeight(info, consumable?.effect);
+      drawDisc(shown.x, shown.y, 12 + pulse * 2, [glow[0], glow[1], glow[2], 0.05 + pulse * 0.04], [glow[0], glow[1], glow[2], 0.13 + pulse * 0.08]);
+      drawLines(new Float32Array([
+        shown.x - 3, shown.y - 5, shown.x - 1, shown.y - shaft,
+        shown.x + 3, shown.y - 5, shown.x + 1, shown.y - shaft,
+      ]), [glow[0], glow[1], glow[2], 0.06 + pulse * 0.045], 2.5);
+      const itemColor = world.has(id, WeaponPickup)
+        ? rarityColor(info.rarity)
+        : consumable?.effect === 'add_arrows' ? [1, 0.78, 0.40, 1]
+          : consumable?.effect === 'mana' ? [0.34, 0.72, 1, 1] : [1, 0.32, 0.5, 1];
+      drawGlyph(info.glyph, shown.x, shown.y, 20, itemColor, consumable?.effect === 'heal' || consumable?.effect === 'mana');
+    }
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     // Ground powerups use clean rings rather than the elemental status shader.
     // The animated shader remains reserved for meaningful active effects.

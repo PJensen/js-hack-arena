@@ -6,7 +6,7 @@ import {
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { AI, Actor, Auras, Facing, Health, Input, ItemInfo, Mana, Position, Powerups, Projectile, Spellbook, Collider } from '../public/src/rules/components/index.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
-import { spawnFuryRune, spawnHasteRune, spawnManaSurge, spawnPotion, spawnSpellbook, spawnWardRune } from '../public/src/rules/spawner.js';
+import { spawnFuryRune, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnPotion, spawnSpellbook, spawnWardRune } from '../public/src/rules/spawner.js';
 import { applyAura, applyDamage, getStatMultiplier } from '../public/src/rules/effects.js';
 import { SpellCastMode, spells as spellCatalog } from '../public/src/rules/data/spellCatalog.js';
 import {
@@ -450,6 +450,21 @@ Deno.test("arena sim: health pickups heal injuries and wait when health is full"
   health.hp = 60;
   sim.step();
   assertEquals(health.hp, 85);
+  assertEquals(sim.world.alive.has(potionId), false);
+});
+
+Deno.test("arena sim: mana potions restore mana and wait when mana is full", () => {
+  const sim = makeOpenSim(903, { enemyCount: 0 });
+  const playerId = sim.addPlayer('peer-a');
+  const position = sim.world.get(playerId, Position);
+  const mana = sim.world.get(playerId, Mana);
+  const potionId = spawnManaPotion(sim.world, position.x, position.y, 30);
+
+  sim.step();
+  assert(sim.world.alive.has(potionId));
+  mana.mana = 60;
+  sim.step();
+  assertAlmostEquals(mana.mana, 90, 0.3);
   assertEquals(sim.world.alive.has(potionId), false);
 });
 
