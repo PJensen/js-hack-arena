@@ -1,3 +1,9 @@
+# Repository workflow
+
+- The owner authorizes agents to stage, commit, and push in-scope work to the repository's normal remote and branch, including `origin/main` when it is the intended target. Treat this as standing authorization. Use judgment about when to commit or push without asking for routine confirmation.
+- Review the exact diff and run checks appropriate to the change before pushing. Include only work you own or that the user explicitly asked you to include. Preserve unrelated work and keep commits focused.
+- Follow branch protections and explicit instructions for the task. Ask before force-pushing, rewriting shared history, deleting shared refs, or publishing to an unrelated remote or branch. Report failed checks or a rejected push instead of bypassing safeguards.
+
 # Rendering guidance
 
 ## WebGL shaders
