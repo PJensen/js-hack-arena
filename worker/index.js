@@ -278,6 +278,9 @@ export class GameRoom {
         seed: this.seed,
         grid: caveData.grid,
         spawns: caveData.spawns,
+        enemyCount: 3,
+        enemyGroupSize: 3,
+        patrolRoutes: caveData.routes,
       });
     }
     return this.sim;

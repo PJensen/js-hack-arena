@@ -548,6 +548,21 @@ Deno.test("arena sim: authored enemy population includes caster, melee, and tank
   assertEquals(mobs.find((mob) => mob.actor.name === 'Gelatinous Cube').actor.glyph, '■');
 });
 
+Deno.test("arena sim: unalerted patrol mobs stay dormant and dead mobs stay dead", () => {
+  const sim = makeOpenSim(907, {
+    enemyCount: 1,
+    enemyGroupSize: 1,
+    patrolRoutes: [{ points: [{ x: 1000, y: 100 }] }],
+  });
+  const playerId = sim.addPlayer('peer-a');
+  const mobId = [...sim.world.query(AI)][0][0];
+  assertEquals(sim.world.get(mobId, AI).target, null);
+  assertEquals(sim.world.get(playerId, Position).x, 100);
+  sim.world.get(mobId, Health).hp = 0;
+  sim.step();
+  assertEquals([...sim.world.query(AI)].length, 0);
+});
+
 Deno.test("arena sim: haste, fury, and ward pickups author distinct timed boosts", () => {
   const sim = makeOpenSim(906, { enemyCount: 0 });
   const playerId = sim.addPlayer('peer-a');

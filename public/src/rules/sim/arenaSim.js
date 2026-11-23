@@ -97,7 +97,6 @@ export function createArenaSimulation({
   spawns = [],
   mode = SIM_MODE.AUTHORITY,
   enemyCount = 1,
-  respawnEnemies = false,
   enemyGroupSize = 1,
   patrolRoutes = [],
 } = {}) {
@@ -116,7 +115,6 @@ export function createArenaSimulation({
   let lastAppliedRevision = -1;
   let lastAppliedEventSequence = -1;
   let populationStarted = false;
-  let respawnSerial = 0;
 
   if (mode === SIM_MODE.AUTHORITY) {
     installAuthoritativeRules(world, grid);
@@ -143,7 +141,11 @@ export function createArenaSimulation({
         const route = patrolRoutes[i % Math.max(1, patrolRoutes.length)];
         const points = route?.points?.length ? route.points : null;
         const angle = (i / Math.max(1, enemyCount)) * Math.PI * 2;
-        const origin = points?.[0] || {
+        const origin = points?.reduce((farthest, point) => {
+          const pointDistance = Math.hypot(point.x - spawn.x, point.y - spawn.y);
+          const farthestDistance = farthest ? Math.hypot(farthest.x - spawn.x, farthest.y - spawn.y) : -Infinity;
+          return pointDistance > farthestDistance ? point : farthest;
+        }, null) || {
           x: spawn.x + Math.cos(angle) * (180 + i * 30),
           y: spawn.y + Math.sin(angle) * (180 + i * 30),
         };
@@ -605,12 +607,7 @@ export function createArenaSimulation({
   }
 
   function retargetEnemies() {
-    let target = null;
-    for (const candidate of playerByPeer.values()) {
-      const health = world.get(candidate, Health);
-      if (world.alive.has(candidate) && health && !health.dead && health.hp > 0) { target = candidate; break; }
-    }
-    for (const [, ai] of world.query(AI)) ai.target = target;
+    for (const [, ai] of world.query(AI)) ai.target = null;
   }
 
   function installLootRules(targetWorld) {
@@ -621,15 +618,6 @@ export function createArenaSimulation({
       const drop = rollTable(mobDropTable, mobDropTotalWeight, targetWorld.rand);
       const itemId = spawnDrop(targetWorld, drop, event.x + targetWorld.rand() * 12 - 6, event.y + targetWorld.rand() * 12 - 6);
       if (itemId != null) ensureNetworkId(itemId, 'item');
-      if (respawnEnemies && patrolRoutes.length > 0) {
-        const route = patrolRoutes[respawnSerial % patrolRoutes.length];
-        const points = route?.points?.length ? route.points : [];
-        const origin = points.at(-1);
-        if (origin) {
-          const mobId = spawnEnemy(targetWorld, grid, origin.x, origin.y, null, respawnSerial++, points);
-          ensureNetworkId(mobId, 'mob');
-        }
-      }
       revision += 1;
     });
   }
