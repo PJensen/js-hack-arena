@@ -553,14 +553,14 @@ Deno.test("arena sim: unalerted patrol mobs stay dormant and dead mobs stay dead
     enemyCount: 1,
     enemyGroupSize: 1,
     patrolRoutes: [{ points: [{ x: 1000, y: 100 }] }],
-    enemySpawnExclusionRadius: 520,
+    enemySpawnExclusionRadius: 320,
   });
   const playerId = sim.addPlayer('peer-a');
   const mobId = [...sim.world.query(AI)][0][0];
   assertEquals(sim.world.get(mobId, AI).target, null);
   assertEquals(sim.world.get(playerId, Position).x, 100);
   const mobPosition = sim.world.get(mobId, Position);
-  assert(Math.hypot(mobPosition.x - 100, mobPosition.y - 100) > 520);
+  assert(Math.hypot(mobPosition.x - 100, mobPosition.y - 100) > 320);
   sim.world.get(mobId, Health).hp = 0;
   sim.step();
   assertEquals([...sim.world.query(AI)].length, 0);
