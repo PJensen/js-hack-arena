@@ -96,6 +96,20 @@ function worldProgram(device, fragment) {
   };
 }
 
+function directionalProgram(device, fragment) {
+  const { gl } = device;
+  const program = device.program(PROJECTILE_VERTEX, fragment);
+  return {
+    program,
+    view: uniform(gl, program, 'u_view'),
+    position: uniform(gl, program, 'u_position'),
+    size: uniform(gl, program, 'u_size'),
+    angle: uniform(gl, program, 'u_angle'),
+    time: uniform(gl, program, 'u_time'),
+    alpha: uniform(gl, program, 'u_alpha'),
+  };
+}
+
 export function createWebGLArenaRenderer(deps) {
   const { canvas, overlayCanvas, cam, grid, bounds, decorations, world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars } = deps;
   const device = createWebGLDevice(canvas);
@@ -136,16 +150,7 @@ export function createWebGLArenaRenderer(deps) {
   const cube = worldProgram(device, CUBE_FRAGMENT);
   cube.time = uniform(gl, cube.program, 'u_time');
   cube.alpha = uniform(gl, cube.program, 'u_alpha');
-  const frostBoltProgram = device.program(PROJECTILE_VERTEX, FROST_BOLT_FRAGMENT);
-  const frostBolt = {
-    program: frostBoltProgram,
-    view: uniform(gl, frostBoltProgram, 'u_view'),
-    position: uniform(gl, frostBoltProgram, 'u_position'),
-    size: uniform(gl, frostBoltProgram, 'u_size'),
-    angle: uniform(gl, frostBoltProgram, 'u_angle'),
-    time: uniform(gl, frostBoltProgram, 'u_time'),
-    alpha: uniform(gl, frostBoltProgram, 'u_alpha'),
-  };
+  const frostBolt = directionalProgram(device, FROST_BOLT_FRAGMENT);
 
   const lineProgram = device.program(LINE_VERTEX, SOLID_FRAGMENT);
   const lineLocations = {
