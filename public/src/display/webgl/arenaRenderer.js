@@ -12,6 +12,9 @@ import { createWebGLDevice } from './device.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
 import { createCampfireMesh } from './campfireMesh.js';
 import { createGhostPipeMesh } from './ghostPipeMesh.js';
+import { createLootMeshes } from './lootMesh.js';
+import { LOOT_VERTEX } from './shaders/loot.vert.js';
+import { LOOT_FRAGMENT } from './shaders/loot.frag.js';
 import { WORLD_VERTEX } from './shaders/world.vert.js';
 import { CAVE_VERTEX } from './shaders/cave.vert.js';
 import { CAVE_FRAGMENT } from './shaders/cave.frag.js';
@@ -57,6 +60,7 @@ function rarityColor(rarity) {
 function lootGlowColor(info, effect) {
   if (effect === 'heal') return [1, 0.12, 0.28, 1];
   if (effect === 'mana') return [0.18, 0.58, 1, 1];
+  if (effect === 'epic_chest') return [0.78, 0.24, 1, 1];
   const rarity = String(info?.rarity || 'common').toLowerCase();
   if (rarity === 'legendary') return [1, 0.72, 0.12, 1];
   if (rarity === 'epic') return [0.78, 0.24, 1, 1];
@@ -67,6 +71,7 @@ function lootGlowColor(info, effect) {
 
 function lootShaftHeight(info, effect) {
   if (effect === 'heal' || effect === 'mana') return 30;
+  if (effect === 'epic_chest') return 62;
   return { common: 20, uncommon: 30, rare: 44, epic: 62, legendary: 84 }[String(info?.rarity || 'common')] || 20;
 }
 
@@ -207,6 +212,18 @@ export function createWebGLArenaRenderer(deps) {
   cube.time = uniform(gl, cube.program, 'u_time');
   cube.alpha = uniform(gl, cube.program, 'u_alpha');
   const cubeMesh = uploadCubeMesh(device, createCubeMesh());
+  const lootProgram = device.program(LOOT_VERTEX, LOOT_FRAGMENT);
+  const loot = {
+    view: uniform(gl, lootProgram, 'u_view'),
+    position: uniform(gl, lootProgram, 'u_position'),
+    angle: uniform(gl, lootProgram, 'u_angle'),
+    lean: uniform(gl, lootProgram, 'u_lean'),
+    body: uniform(gl, lootProgram, 'u_body'),
+    trim: uniform(gl, lootProgram, 'u_trim'),
+    detail: uniform(gl, lootProgram, 'u_detail'),
+  };
+  const lootMeshes = Object.fromEntries(Object.entries(createLootMeshes())
+    .map(([name, vertices]) => [name, uploadPropMesh(device, vertices)]));
   const frostBolt = directionalProgram(device, FROST_BOLT_FRAGMENT);
   const charge = worldProgram(device, CHARGE_FRAGMENT);
   charge.theme = uniform(gl, charge.program, 'u_theme');
@@ -418,6 +435,34 @@ export function createWebGLArenaRenderer(deps) {
     gl.uniform1f(cube.time, time);
     gl.uniform1f(cube.alpha, alpha);
     gl.drawArrays(gl.TRIANGLES, 0, cubeMesh.count);
+  }
+
+  function drawLootModel(model, id, shown, info, effect, now) {
+    const angle = now * 0.85 + id * 1.7;
+    const bob = Math.sin(now * 2.8 + id) * 1.5;
+    const potion = model === 'potion';
+    const mesh = lootMeshes[model];
+    gl.bindVertexArray(mesh.vao);
+    gl.uniform2f(loot.position, shown.x, shown.y + 5 + (model === 'chest' ? 0 : bob));
+    gl.uniform1f(loot.angle, model === 'chest' ? -0.52 : angle);
+    gl.uniform1f(loot.lean, model === 'sword' ? -0.48 : 0);
+    if (potion) {
+      const blue = effect === 'mana';
+      gl.uniform3f(loot.body, blue ? 0.2 : 0.95, blue ? 0.58 : 0.12, blue ? 1 : 0.34);
+      gl.uniform3f(loot.trim, 0.77, 0.9, 0.94);
+      gl.uniform3f(loot.detail, 0.57, 0.31, 0.16);
+    } else if (model === 'chest') {
+      gl.uniform3f(loot.body, 0.37, 0.17, 0.48);
+      gl.uniform3f(loot.trim, 0.96, 0.71, 0.28);
+      gl.uniform3f(loot.detail, 0.14, 0.07, 0.18);
+    } else {
+      const [r, g, b] = rarityColor(info.rarity);
+      if (model === 'sword') gl.uniform3f(loot.body, r, g, b);
+      else gl.uniform3f(loot.body, 0.42 + r * 0.28, 0.17 + g * 0.18, 0.07 + b * 0.2);
+      gl.uniform3f(loot.trim, 0.92, 0.78, 0.49);
+      gl.uniform3f(loot.detail, 0.34, 0.2, 0.14);
+    }
+    gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
   }
 
   function drawLines(points, color, width = 1) {
@@ -1039,15 +1084,23 @@ export function createWebGLArenaRenderer(deps) {
 
     // Loot signals are intentionally emissive: shafts remain readable through
     // dungeon darkness, with height and color communicating rarity.
+    const models = [];
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     for (const [id, position, _item, info] of world.query(Position, GroundItem, ItemInfo)) {
       const consumable = world.get(id, Consumable);
       if (['mana_regen', 'haste', 'fury', 'ward'].includes(consumable?.effect)) continue;
       const shown = displayPosition(id, position);
+      if (!inView(shown.x, shown.y, 90)) continue;
+      const weapon = world.get(id, WeaponPickup);
+      const effect = consumable?.effect;
+      const potion = effect === 'heal' || effect === 'mana';
+      const model = weapon ? (weapon.slot === 'ranged' ? 'bow' : 'sword')
+        : effect === 'epic_chest' ? 'chest' : potion ? 'potion' : null;
+      if (model) models.push({ model, id, shown, info, effect });
       const glow = lootGlowColor(info, consumable?.effect);
       const pulse = 0.5 + 0.5 * Math.sin(now * 2.4 + id * 0.73);
       const shaft = lootShaftHeight(info, consumable?.effect);
-      if (consumable) {
+      if (consumable && effect !== 'epic_chest') {
         const potionTheme = consumable.effect === 'mana' ? 'electric' : 'fire';
         const swirl = consumable.effect === 'heal' ? 0 : 1;
         drawPotionGlow(potionTheme, shown.x, shown.y, 16 + pulse * 2, now + id * 0.13, 0.9, swirl);
@@ -1060,9 +1113,19 @@ export function createWebGLArenaRenderer(deps) {
         ? rarityColor(info.rarity)
         : consumable?.effect === 'add_arrows' ? [1, 0.78, 0.40, 1]
           : consumable?.effect === 'mana' ? [0.34, 0.72, 1, 1] : [1, 0.32, 0.5, 1];
-      drawGlyph(info.glyph, shown.x, shown.y, 20, itemColor, consumable?.effect === 'heal' || consumable?.effect === 'mana');
+      if (!model) drawGlyph(info.glyph, shown.x, shown.y, 20, itemColor);
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    if (models.length) {
+      gl.clear(gl.DEPTH_BUFFER_BIT);
+      gl.enable(gl.DEPTH_TEST);
+      gl.useProgram(lootProgram);
+      gl.uniform4fv(loot.view, view);
+      for (const { model, id, shown, info, effect } of models) {
+        drawLootModel(model, id, shown, info, effect, now);
+      }
+      gl.disable(gl.DEPTH_TEST);
+    }
 
     // Ground powerups use a filled GPU aura. Keep this additive and behind the
     // glyph so the potion reads as luminous energy, not a 2D canvas ring.
