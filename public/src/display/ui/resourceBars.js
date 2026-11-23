@@ -1,9 +1,9 @@
 // Small DOM resource bars for the canonical arena HUD.
 
-export function createResourceBar(root, { label, color, gradient, boostedClass = '' } = {}) {
+export function createResourceBar(root, { key = 'resource', label, color, gradient, boostedClass = '' } = {}) {
   if (!root) throw new Error('createResourceBar(root): root is required');
   root.classList.add('hud-resource');
-  root.dataset.resource = label?.toLowerCase() || 'resource';
+  root.dataset.resource = key;
   root.setAttribute('role', 'progressbar');
   root.setAttribute('aria-label', label || 'Resource');
 

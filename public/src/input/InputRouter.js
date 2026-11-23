@@ -220,7 +220,8 @@ export function createInputRouter({
 
   on(window, 'keydown', (e) => {
     const k = e.key.toLowerCase();
-    if (/^[1-9]$/.test(k)) spellSlot = Number(k) - 1;
+    const digit = /^[1-9]$/.test(k) ? k : e.code?.match(/^(?:Digit|Numpad)([1-9])$/)?.[1];
+    if (digit) spellSlot = Number(digit) - 1;
     else if (k === 'q' || k === 'tab') { spellCycle += 1; e.preventDefault(); }
   });
 

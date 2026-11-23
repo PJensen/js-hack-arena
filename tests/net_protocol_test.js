@@ -48,5 +48,6 @@ Deno.test("makeInputFrame: clamps analog values", () => {
     aimY: 0,
     fire: true,
     spellSlot: null,
+    spellCycle: 0,
   });
 });

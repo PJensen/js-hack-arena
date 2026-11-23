@@ -74,8 +74,8 @@
                            background:rgba(255,255,255,.92); opacity:0; pointer-events:none; }
     .hud-resource-value { position:relative; z-index:1; color:#fff8ea; font-weight:900;
                           font-variant-numeric:tabular-nums; text-shadow:0 1px 2px #000; white-space:nowrap; }
-    .hud-resource[data-resource="♥"] .hud-resource-fill { background:linear-gradient(90deg,#c71942,#ff4164 58%,#ff6b7f); }
-    .hud-resource[data-resource="◆"] .hud-resource-fill { background:linear-gradient(90deg,#1d68c5,#4aa3ff 58%,#72c2ff); }
+    .hud-resource[data-resource="health"] .hud-resource-fill { background:linear-gradient(90deg,#c71942,#ff4164 58%,#ff6b7f); }
+    .hud-resource[data-resource="mana"] .hud-resource-fill { background:linear-gradient(90deg,#1d68c5,#4aa3ff 58%,#72c2ff); }
     .hud-resource[data-state="critical"] .hud-resource-fill { filter:saturate(1.35); animation:resource-critical .7s ease-in-out infinite alternate; }
     .hud-resource.mana-boosted { border-color:rgba(100,210,255,.75); animation:mana-surge .8s ease-in-out infinite alternate; }
     @keyframes resource-critical { to { opacity:.72; filter:saturate(1.5) brightness(1.25); } }
@@ -315,6 +315,8 @@ const sim = createArenaSimulation({
 });
 let renderer = null;
 let pendingWeaponPickup = null;
+let pendingSpellSlot = null;
+let pendingSpellCycle = 0;
 sim.world.on('terrain.carved', (event) => {
   carve(event.x, event.y, event.radius);
   renderer?.terrainChanged();
@@ -399,8 +401,8 @@ const itemTooltip = createItemTooltip({
   root: document.getElementById('arena-ui'),
   onActivate(target) { pendingWeaponPickup = target; },
 });
-const healthBar = createResourceBar(document.getElementById('hud-hp-bar'), { label: '♥', color: '#ff4164' });
-const manaBar = createResourceBar(document.getElementById('hud-mana-bar'), { label: '◆', color: '#55aaff', boostedClass: 'mana-boosted' });
+const healthBar = createResourceBar(document.getElementById('hud-hp-bar'), { key: 'health', label: '♥', color: '#ff4164' });
+const manaBar = createResourceBar(document.getElementById('hud-mana-bar'), { key: 'mana', label: '◆', color: '#55aaff', boostedClass: 'mana-boosted' });
 renderer = createWebGLArenaRenderer({
   canvas, overlayCanvas, cam, grid, bounds, decorations, fx, world, SEED, runtimeEvents,
   net: netClient, playerId,
@@ -440,6 +442,10 @@ const loop = createFixedTickLoop({
       cam.targetScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, cam.targetScale + o.zoomDelta * ZOOM_STEP));
     }
     if (isNetworked) {
+      // The network client is intentionally send-rate limited. Keep discrete
+      // spell selections queued until an input frame actually carries them.
+      if (o.spellSlot != null) pendingSpellSlot = o.spellSlot;
+      if (o.spellCycle) pendingSpellCycle += o.spellCycle;
       const snapshot = netClient.getLatestSnapshot();
       if (snapshot && interpolation.applySnapshot(snapshot)) localPrediction.reconcile();
       localPrediction.step(o, dt);
@@ -455,8 +461,13 @@ const loop = createFixedTickLoop({
     }
     cameraSystem(world, dt);
     projectileFx.step(dt);
-    if (isNetworked && netClient.update(++netTick, o, pendingWeaponPickup)) {
+    const networkInput = isNetworked
+      ? { ...o, spellSlot: pendingSpellSlot, spellCycle: pendingSpellSlot == null ? Math.sign(pendingSpellCycle) : 0 }
+      : o;
+    if (isNetworked && netClient.update(++netTick, networkInput, pendingWeaponPickup)) {
       pendingWeaponPickup = null;
+      pendingSpellSlot = null;
+      pendingSpellCycle = 0;
     }
   },
   render() {

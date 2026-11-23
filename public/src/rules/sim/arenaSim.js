@@ -191,6 +191,11 @@ export function createArenaSimulation({
         book.activeIndex = command.spellSlot;
       }
     }
+    if (Number.isInteger(command.spellCycle) && command.spellCycle !== 0 && world.has(entityId, Spellbook)) {
+      const book = world.get(entityId, Spellbook);
+      const count = book.spells.length;
+      if (count > 0) book.activeIndex = (book.activeIndex + command.spellCycle + count) % count;
+    }
     if (seq != null) lastInputSeqByPeer.set(owner, seq);
     return true;
   }

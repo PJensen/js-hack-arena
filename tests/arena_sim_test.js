@@ -288,6 +288,17 @@ Deno.test("arena sim: charged spells spend mana and mana regenerates", () => {
   assert(mana.mana > afterCast);
 });
 
+Deno.test("arena sim: spell cycle advances the active spell", () => {
+  const sim = makeOpenSim(904, { enemyCount: 0 });
+  const playerId = sim.addPlayer('peer-a');
+  const book = sim.world.get(playerId, Spellbook);
+  assertEquals(book.activeIndex, 0);
+  sim.setPlayerInput('peer-a', { seq: 1, spellCycle: 1 });
+  assertEquals(book.activeIndex, 1);
+  sim.setPlayerInput('peer-a', { seq: 2, spellCycle: 1 });
+  assertEquals(book.activeIndex, 0);
+});
+
 Deno.test("arena sim: generic aura effects modify rules and expire", () => {
   const sim = makeOpenSim(905, { enemyCount: 0 });
   const playerId = sim.addPlayer('peer-a');

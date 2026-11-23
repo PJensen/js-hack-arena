@@ -77,6 +77,7 @@ export function makeInputFrame({
   aimY = 0,
   fire = false,
   spellSlot = null,
+  spellCycle = 0,
   pickupX = null,
   pickupY = null,
 } = {}) {
@@ -89,6 +90,7 @@ export function makeInputFrame({
     aimY: clampUnit(aimY),
     fire: Boolean(fire),
     spellSlot: Number.isInteger(spellSlot) ? spellSlot : null,
+    spellCycle: Number.isInteger(spellCycle) ? Math.max(-1, Math.min(1, spellCycle)) : 0,
   };
   if (Number.isFinite(pickupX) && Number.isFinite(pickupY)) {
     frame.pickupX = pickupX;

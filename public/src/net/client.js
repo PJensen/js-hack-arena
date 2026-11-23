@@ -98,6 +98,7 @@ export function createNetClient({
         aimY: sampledInput?.intent?.aimY,
         fire: sampledInput?.intent?.fire,
         spellSlot: sampledInput?.spellSlot,
+        spellCycle: sampledInput?.spellCycle,
         pickupX: pickupIntent?.x,
         pickupY: pickupIntent?.y,
       }),
