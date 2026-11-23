@@ -34,7 +34,22 @@ export function createDungeonDecorations({ grid, routes = [], spawns = [], seed 
     findOpen(grid, start.x, start.y + farSide * 133, 24, 24)
   );
   const mushroom = patch ? Object.freeze({ ...patch, phase: rng() * Math.PI * 2 }) : null;
-  return Object.freeze({ torches: Object.freeze(torches), campfire, mushroom });
+  let ghostPipe = null;
+  if (start) {
+    const candidates = [
+      [152, 32], [-152, 32], [104, farSide * 108], [-104, farSide * 108], [0, farSide * 133],
+      [112, -farSide * 75], [-112, -farSide * 75],
+    ];
+    for (const [dx, dy] of candidates) {
+      const open = findOpen(grid, start.x + dx, start.y + dy, 24, 24);
+      if (!open) continue;
+      if (patch && Math.hypot(patch.x - open.x, patch.y - open.y) < 120) continue;
+      if (hearth && Math.hypot(hearth.x - open.x, hearth.y - open.y) < 108) continue;
+      ghostPipe = Object.freeze({ ...open, phase: rng() * Math.PI * 2 });
+      break;
+    }
+  }
+  return Object.freeze({ torches: Object.freeze(torches), campfire, mushroom, ghostPipe });
 }
 
 function findOpen(grid, x, y, radius, clearance = 20) {

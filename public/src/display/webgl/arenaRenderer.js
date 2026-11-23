@@ -27,6 +27,7 @@ import { FLAME_FRAGMENT } from './shaders/flame.frag.js';
 import { CAMPFIRE_VERTEX } from './shaders/campfire.vert.js';
 import { CAMPFIRE_FRAGMENT } from './shaders/campfire.frag.js';
 import { MUSHROOM_FRAGMENT } from './shaders/mushroom.frag.js';
+import { GHOST_PIPE_FRAGMENT } from './shaders/ghostPipe.frag.js';
 import { CUBE_FRAGMENT } from './shaders/cube.frag.js';
 import { PROJECTILE_VERTEX } from './shaders/projectile.vert.js';
 import { FROST_BOLT_FRAGMENT } from './shaders/frostBolt.frag.js';
@@ -116,6 +117,15 @@ function directionalProgram(device, fragment) {
   };
 }
 
+function biolumProgram(device, fragment) {
+  const shader = worldProgram(device, fragment);
+  return {
+    ...shader,
+    glow: uniform(device.gl, shader.program, 'u_glow'),
+    intensity: uniform(device.gl, shader.program, 'u_intensity'),
+  };
+}
+
 export function createWebGLArenaRenderer(deps) {
   const { canvas, overlayCanvas, cam, grid, bounds, decorations, world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars } = deps;
   const device = createWebGLDevice(canvas);
@@ -153,9 +163,10 @@ export function createWebGLArenaRenderer(deps) {
   const flame = worldProgram(device, FLAME_FRAGMENT);
   flame.time = uniform(gl, flame.program, 'u_time');
   flame.alpha = uniform(gl, flame.program, 'u_alpha');
-  const fungus = worldProgram(device, MUSHROOM_FRAGMENT);
-  fungus.glow = uniform(gl, fungus.program, 'u_glow');
-  fungus.intensity = uniform(gl, fungus.program, 'u_intensity');
+  const bioluminescentProps = [
+    { prop: decorations?.mushroom, shader: biolumProgram(device, MUSHROOM_FRAGMENT), width: 52, height: 48, lift: 6 },
+    { prop: decorations?.ghostPipe, shader: biolumProgram(device, GHOST_PIPE_FRAGMENT), width: 64, height: 60, lift: 8 },
+  ].filter(({ prop }) => prop);
   const campfireProgram = device.program(CAMPFIRE_VERTEX, CAMPFIRE_FRAGMENT);
   const campfireLocations = {
     view: uniform(gl, campfireProgram, 'u_view'),
@@ -481,12 +492,11 @@ export function createWebGLArenaRenderer(deps) {
         });
       }
     }
-    const mushroom = decorations?.mushroom;
-    if (mushroom) {
-      const glow = biolum(now, mushroom.phase);
-      const radius = 125 + 56 * glow.intensity;
-      if (inView(mushroom.x, mushroom.y, radius)) {
-        candidates.push({ x: mushroom.x, y: mushroom.y, radius, ...glow });
+    for (const { prop } of bioluminescentProps) {
+      const glow = biolum(now, prop.phase);
+      const radius = 80 + 32 * glow.intensity;
+      if (inView(prop.x, prop.y, radius)) {
+        candidates.push({ x: prop.x, y: prop.y, radius, ...glow, intensity: 0.84 * glow.intensity });
       }
     }
     for (const bolt of bolts) {
@@ -745,14 +755,14 @@ export function createWebGLArenaRenderer(deps) {
       drawFlame(torch.x, torch.y - 15, 28 + intensity * 6, 28 + intensity * 18, now + torch.phase, 0.83 * intensity);
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    const mushroom = decorations?.mushroom;
-    if (mushroom && inView(mushroom.x, mushroom.y, 32)) {
-      const glow = biolum(now, mushroom.phase);
-      gl.useProgram(fungus.program);
+    for (const { prop, shader, width, height, lift } of bioluminescentProps) {
+      if (!inView(prop.x, prop.y, width * 0.5)) continue;
+      const glow = biolum(now, prop.phase);
+      gl.useProgram(shader.program);
       gl.bindVertexArray(quadVao);
-      setWorld(fungus, mushroom.x, mushroom.y - 6, 52, 48);
-      gl.uniform3f(fungus.glow, glow.r, glow.g, glow.b);
-      gl.uniform1f(fungus.intensity, glow.intensity);
+      setWorld(shader, prop.x, prop.y - lift, width, height);
+      gl.uniform3f(shader.glow, glow.r, glow.g, glow.b);
+      gl.uniform1f(shader.intensity, glow.intensity);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
   }

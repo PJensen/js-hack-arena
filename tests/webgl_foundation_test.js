@@ -25,12 +25,14 @@ Deno.test('webgl foundation: expanded cave routes remain open and navigable', ()
 Deno.test('webgl foundation: starting campfire is clear of the player and nearby torches', () => {
   const spawns = [{ x: 200, y: 200 }, { x: 600, y: 250 }];
   const routes = [{ points: [{ x: 200, y: 100 }, { x: 950, y: 250 }] }];
-  const { campfire, torches, mushroom } = createDungeonDecorations({
+  const { campfire, torches, mushroom, ghostPipe } = createDungeonDecorations({
     grid: { distanceMove: () => 100 }, spawns, routes,
   });
   assert(Math.hypot(campfire.x - spawns[0].x, campfire.y - spawns[0].y) >= 52);
   assertEquals(torches.map(torch => torch.x), [600, 950]);
   assert(Math.hypot(mushroom.x - campfire.x, mushroom.y - campfire.y) > 130);
+  assert(Math.hypot(ghostPipe.x - mushroom.x, ghostPipe.y - mushroom.y) >= 120);
+  assert(Math.hypot(ghostPipe.x - campfire.x, ghostPipe.y - campfire.y) >= 108);
 });
 
 Deno.test('webgl foundation: fire and bioluminescence have distinct, repeatable rhythms', () => {
