@@ -448,9 +448,9 @@ export function createWebGLArenaRenderer(deps) {
       const distance = Math.hypot(campfire.x - shownPlayer.x, campfire.y - shownPlayer.y);
       if (distance <= 520 + Math.max(view[2], view[3]) * 0.75) {
         candidates.push({
-          x: campfire.x, y: campfire.y - 14, radius: 470,
-          intensity: 1.72 + 0.38 * torchFlicker(now, campfire.phase),
-          r: 1, g: 0.42, b: 0.1, distance,
+          x: campfire.x, y: campfire.y - 8, radius: 300,
+          intensity: 1.12 + 0.22 * torchFlicker(now, campfire.phase),
+          r: 1, g: 0.34, b: 0.08, distance,
         });
       }
     }
@@ -667,11 +667,20 @@ export function createWebGLArenaRenderer(deps) {
     const campfire = decorations?.campfire;
     if (campfire && inView(campfire.x, campfire.y, 90)) {
       const pulse = 0.5 + 0.5 * torchFlicker(now, campfire.phase);
-      drawDisc(campfire.x, campfire.y + 4, 31 + pulse * 2, [0.08, 0.045, 0.025, 1], [0.28, 0.14, 0.06, 1]);
+      const stones = 8;
+      for (let i = 0; i < stones; i++) {
+        const angle = (i / stones) * Math.PI * 2;
+        const stoneX = campfire.x + Math.cos(angle) * 22;
+        const stoneY = campfire.y + 5 + Math.sin(angle) * 13;
+        drawDisc(stoneX, stoneY, 5.5, [0.18, 0.16, 0.15, 1], [0.42, 0.34, 0.25, 1]);
+      }
       drawLines(new Float32Array([
-        campfire.x - 22, campfire.y + 8, campfire.x + 22, campfire.y - 8,
-        campfire.x - 22, campfire.y - 8, campfire.x + 22, campfire.y + 8,
-      ]), [0.34, 0.16, 0.055, 1], 7);
+        campfire.x - 18, campfire.y + 8, campfire.x + 18, campfire.y - 5,
+        campfire.x - 18, campfire.y - 5, campfire.x + 18, campfire.y + 8,
+      ]), [0.38, 0.16, 0.045, 1], 5);
+      drawLines(new Float32Array([
+        campfire.x - 13, campfire.y + 4, campfire.x + 13, campfire.y + 4,
+      ]), [0.58, 0.25, 0.07, 1], 3);
       if (emitParticles) {
         spawnTorchParticle(campfire, now, true);
         spawnTorchParticle(campfire, now, false);
@@ -694,7 +703,7 @@ export function createWebGLArenaRenderer(deps) {
     const campfire = decorations?.campfire;
     if (campfire && inView(campfire.x, campfire.y, 120)) {
       const flicker = 0.5 + 0.5 * torchFlicker(now, campfire.phase);
-      drawFlame(campfire.x, campfire.y - 19, 48 + flicker * 8, 64 + flicker * 10, now + campfire.phase, 0.9);
+      drawFlame(campfire.x, campfire.y - 12, 25 + flicker * 5, 34 + flicker * 7, now + campfire.phase, 0.88);
     }
     for (const torch of decorations?.torches || []) {
       if (!inView(torch.x, torch.y, 90)) continue;
