@@ -692,9 +692,9 @@ export function createWebGLArenaRenderer(deps) {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     if (book.castPhase === 'channeling') {
       drawLines(new Float32Array([position.x, position.y, book.castTargetX, book.castTargetY]), [0.55, 0.9, 1, 0.3], 2);
-      drawChargeField(theme, book.castTargetX, book.castTargetY, spell.targeting.areaRadius, now, charge, 0.22);
+      drawChargeField(theme, book.castTargetX, book.castTargetY, spell.targeting.areaRadius, now, charge, 0.42);
     }
-    drawChargeField(theme, position.x, position.y, collider.radius + 6 + charge * 8, now, charge, 0.18 + charge * 0.32);
+    drawChargeField(theme, position.x, position.y, collider.radius + 8 + charge * 10, now, charge, 0.52 + charge * 0.28);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
