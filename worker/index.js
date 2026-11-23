@@ -15,6 +15,7 @@ import {
 } from '../public/src/rules/sim/arenaSim.js';
 import {
   authCallback,
+  authConfigStatus,
   authLogin,
   authLogout,
   authMe,
@@ -52,6 +53,7 @@ export default {
         ok: true,
         service: 'js-hack-arena',
         runtime: 'cloudflare-worker',
+        auth: authConfigStatus(env),
       });
     }
 

@@ -6,6 +6,19 @@ compatibility_date = "2026-07-07"
 # Cloudflare account before deployment can attach this route.
 routes = [{ pattern = "arena.hairylogic.com", custom_domain = true }]
 
+[vars]
+BASEMENT_ISSUER = "https://auth.hairylogic.com"
+BASEMENT_CLIENT_ID = "arena"
+BASEMENT_REDIRECT_URI = "https://arena.hairylogic.com/auth/callback"
+BASEMENT_SCOPES = "openid profile"
+
+[secrets]
+required = ["BASEMENT_CLIENT_SECRET", "ARENA_SESSION_SECRET"]
+
+[[services]]
+binding = "BASEMENT"
+service = "basement"
+
 # The browser client is still a static site. Cloudflare serves these assets,
 # while the Worker handles server routes such as /api/* and /ws/*.
 [assets]

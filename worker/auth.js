@@ -5,7 +5,7 @@ const SESSION_TTL_SECONDS = 60 * 60 * 8;
 
 export async function authLogin(request, env) {
   const config = requireAuthConfig(env);
-  const discovery = await fetchDiscovery(config.issuer);
+  const discovery = await fetchDiscovery(config.issuer, env);
   const state = randomToken(32);
   const nonce = randomToken(32);
   const verifier = randomToken(48);
@@ -34,8 +34,8 @@ export async function authCallback(request, env) {
   const state = await verifyPayload(env.ARENA_SESSION_SECRET, stateCookie);
   if (!state || state.exp < nowSeconds() || state.state !== returnedState) return authError('invalid login state', 400);
 
-  const discovery = await fetchDiscovery(config.issuer);
-  const tokenResponse = await fetch(discovery.token_endpoint, {
+  const discovery = await fetchDiscovery(config.issuer, env);
+  const tokenResponse = await basementFetch(env, discovery.token_endpoint, {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type: 'authorization_code', code, client_id: config.clientId,
       client_secret: config.clientSecret, redirect_uri: config.redirectUri, code_verifier: state.verifier }),
@@ -44,10 +44,10 @@ export async function authCallback(request, env) {
   const tokens = await tokenResponse.json();
   if (!tokens.id_token || !tokens.access_token) return authError('Basement token response incomplete', 502);
 
-  const claims = await verifyIdToken(tokens.id_token, discovery, config, state.nonce);
+  const claims = await verifyIdToken(tokens.id_token, discovery, config, state.nonce, env);
   let profile = claims;
   if (discovery.userinfo_endpoint) {
-    const userinfoResponse = await fetch(discovery.userinfo_endpoint, { headers: { authorization: `Bearer ${tokens.access_token}` } });
+    const userinfoResponse = await basementFetch(env, discovery.userinfo_endpoint, { headers: { authorization: `Bearer ${tokens.access_token}` } });
     if (!userinfoResponse.ok) return authError('Basement user info failed', 502);
     profile = await userinfoResponse.json();
     if (profile.sub !== claims.sub) return authError('Basement subject mismatch', 502);
@@ -74,6 +74,16 @@ export async function authLogout() {
   return new Response(null, { status: 302, headers: {
     location: '/', 'set-cookie': cookieHeader(SESSION_COOKIE, '', 0), 'cache-control': 'no-store',
   } });
+}
+
+export function authConfigStatus(env) {
+  return {
+    issuer: Boolean(env.BASEMENT_ISSUER),
+    clientId: Boolean(env.BASEMENT_CLIENT_ID),
+    redirectUri: Boolean(env.BASEMENT_REDIRECT_URI),
+    clientSecret: Boolean(env.BASEMENT_CLIENT_SECRET),
+    sessionSecret: Boolean(env.ARENA_SESSION_SECRET),
+  };
 }
 
 export async function readSession(request, env) {
@@ -106,8 +116,8 @@ function requireAuthConfig(env) {
   return config;
 }
 
-async function fetchDiscovery(issuer) {
-  const response = await fetch(`${issuer}/.well-known/openid-configuration`);
+async function fetchDiscovery(issuer, env) {
+  const response = await basementFetch(env, `${issuer}/.well-known/openid-configuration`);
   if (!response.ok) throw new Error(`Basement discovery failed: ${response.status}`);
   const discovery = await response.json();
   if (discovery.issuer && normalizeIssuer(discovery.issuer) !== normalizeIssuer(issuer)) throw new Error('Basement issuer mismatch');
@@ -115,7 +125,7 @@ async function fetchDiscovery(issuer) {
   return discovery;
 }
 
-async function verifyIdToken(rawToken, discovery, config, nonce) {
+async function verifyIdToken(rawToken, discovery, config, nonce, env) {
   const [encodedHeader, encodedPayload, encodedSignature] = String(rawToken).split('.');
   if (!encodedHeader || !encodedPayload || !encodedSignature) throw new Error('invalid Basement id token');
   const header = JSON.parse(decodeBase64Url(encodedHeader));
@@ -124,7 +134,7 @@ async function verifyIdToken(rawToken, discovery, config, nonce) {
   if (claims.exp < nowSeconds() || (claims.iat && claims.iat > nowSeconds() + 60)) throw new Error('expired Basement id token');
   const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
   if (!audiences.includes(config.clientId)) throw new Error('Basement id token audience mismatch');
-  const jwksResponse = await fetch(discovery.jwks_uri);
+  const jwksResponse = await basementFetch(env, discovery.jwks_uri);
   if (!jwksResponse.ok) throw new Error('Basement JWKS lookup failed');
   const jwks = await jwksResponse.json();
   const jwk = jwks.keys?.find((key) => key.kid === header.kid && key.kty === 'RSA');
@@ -133,6 +143,11 @@ async function verifyIdToken(rawToken, discovery, config, nonce) {
   const valid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, decodeBase64UrlBytes(encodedSignature), new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`));
   if (!valid) throw new Error('Basement id token signature invalid');
   return claims;
+}
+
+function basementFetch(env, url, options) {
+  if (env.BASEMENT) return env.BASEMENT.fetch(new Request(url, options));
+  return fetch(url, options);
 }
 
 async function signPayload(secret, payload) {
