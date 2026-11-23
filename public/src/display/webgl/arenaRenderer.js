@@ -125,7 +125,6 @@ export function createWebGLArenaRenderer(deps) {
     view: uniform(gl, caveProgram, 'u_view'),
     field: uniform(gl, caveProgram, 'u_field'),
     gridSize: uniform(gl, caveProgram, 'u_grid_size'),
-    light: uniform(gl, caveProgram, 'u_light'),
   };
   const disc = worldProgram(device, DISC_FRAGMENT);
   disc.color = uniform(gl, disc.program, 'u_color');
@@ -429,13 +428,12 @@ export function createWebGLArenaRenderer(deps) {
     return new Float32Array(points);
   }
 
-  function collectLights(now, shownPlayer) {
+  function collectLights(now) {
     const candidates = [];
     for (const [id, position, source] of world.query(Position, PointLight)) {
       if (!source.enabled) continue;
       const shown = displayPosition(id, position);
-      const distance = Math.hypot(shown.x - shownPlayer.x, shown.y - shownPlayer.y);
-      if (distance > source.radius + Math.max(view[2], view[3]) * 0.75) continue;
+      if (!inView(shown.x, shown.y, source.radius)) continue;
       let intensity = 0.82;
       if (world.has(id, PlayerTag)) {
         intensity = world.get(id, Health)?.dead
@@ -451,26 +449,27 @@ export function createWebGLArenaRenderer(deps) {
       candidates.push({
         x: shown.x, y: shown.y, radius: source.radius, intensity,
         r: source.r / 255, g: source.g / 255, b: source.b / 255,
-        distance,
       });
     }
     for (const torch of decorations?.torches || []) {
-      const distance = Math.hypot(torch.x - shownPlayer.x, torch.y - shownPlayer.y);
-      if (distance > 520 + Math.max(view[2], view[3]) * 0.75) continue;
+      const y = torch.y - 12;
+      const radius = 205;
+      if (!inView(torch.x, y, radius)) continue;
       candidates.push({
-        x: torch.x, y: torch.y - 12, radius: 390,
-        intensity: 1.48 + 0.34 * torchFlicker(now, torch.phase),
-        r: 1, g: 0.48, b: 0.14, distance,
+        x: torch.x, y, radius,
+        intensity: 1.08 + 0.20 * torchFlicker(now, torch.phase),
+        r: 1, g: 0.48, b: 0.18,
       });
     }
     const campfire = decorations?.campfire;
     if (campfire) {
-      const distance = Math.hypot(campfire.x - shownPlayer.x, campfire.y - shownPlayer.y);
-      if (distance <= 520 + Math.max(view[2], view[3]) * 0.75) {
+      const y = campfire.y - 8;
+      const radius = 245;
+      if (inView(campfire.x, y, radius)) {
         candidates.push({
-          x: campfire.x, y: campfire.y - 8, radius: 300,
-          intensity: 1.15 + 0.19 * torchFlicker(now, campfire.phase),
-          r: 1, g: 0.54, b: 0.26, distance,
+          x: campfire.x, y, radius,
+          intensity: 1.25 + 0.18 * torchFlicker(now, campfire.phase),
+          r: 1, g: 0.44, b: 0.20,
         });
       }
     }
@@ -485,16 +484,19 @@ export function createWebGLArenaRenderer(deps) {
         radius: Math.max(100, Math.hypot(dx, dy) * 0.72),
         intensity: 2.2 * alpha,
         r: 0.42, g: 0.8, b: 1,
-        distance: Math.hypot(midX - shownPlayer.x, midY - shownPlayer.y),
       });
       candidates.push({
         x: bolt.toX, y: bolt.toY, radius: 125,
         intensity: 1.8 * alpha,
         r: 0.68, g: 0.92, b: 1,
-        distance: Math.hypot(bolt.toX - shownPlayer.x, bolt.toY - shownPlayer.y),
       });
     }
-    candidates.sort((a, b) => a.distance - b.distance);
+    if (candidates.length > MAX_DYNAMIC_LIGHTS) {
+      for (const source of candidates) {
+        source.distance = Math.hypot(source.x - view[0], source.y - view[1]);
+      }
+      candidates.sort((a, b) => a.distance - b.distance);
+    }
     const count = Math.min(MAX_DYNAMIC_LIGHTS, candidates.length);
     for (let i = 0; i < count; i++) {
       const source = candidates[i];
@@ -893,7 +895,6 @@ export function createWebGLArenaRenderer(deps) {
     gl.bindTexture(gl.TEXTURE_2D, fieldTexture);
     gl.uniform1i(caveLocations.field, 0);
     gl.uniform2i(caveLocations.gridSize, grid.cols, grid.rows);
-    gl.uniform2f(caveLocations.light, shownPlayer.x, shownPlayer.y);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 
     const now = performance.now() * 0.001;
@@ -965,7 +966,7 @@ export function createWebGLArenaRenderer(deps) {
 
     // Lighting is a full-world GPU composition pass. Everything except the
     // intentionally luminous VFX and HUD participates in darkness and color.
-    drawLighting(collectLights(now, shownPlayer));
+    drawLighting(collectLights(now));
     drawTorchEmission(now);
 
     // Loot signals are intentionally emissive: shafts remain readable through
