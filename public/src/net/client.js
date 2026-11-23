@@ -44,7 +44,7 @@ export function createNetClient({
       url.searchParams.set('room', room);
       const response = await fetch(url);
       if (response.status === 401) {
-        setStatus('auth', 'Basement login required');
+        setStatus('auth', 'Hairylogic account required');
         return null;
       }
       if (!response.ok) throw new Error(`room lookup failed: ${response.status}`);
