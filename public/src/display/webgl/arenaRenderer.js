@@ -136,13 +136,16 @@ export function createWebGLArenaRenderer(deps) {
   const cube = worldProgram(device, CUBE_FRAGMENT);
   cube.time = uniform(gl, cube.program, 'u_time');
   cube.alpha = uniform(gl, cube.program, 'u_alpha');
-  const frostBolt = device.program(PROJECTILE_VERTEX, FROST_BOLT_FRAGMENT);
-  frostBolt.view = uniform(gl, frostBolt.program, 'u_view');
-  frostBolt.position = uniform(gl, frostBolt.program, 'u_position');
-  frostBolt.size = uniform(gl, frostBolt.program, 'u_size');
-  frostBolt.angle = uniform(gl, frostBolt.program, 'u_angle');
-  frostBolt.time = uniform(gl, frostBolt.program, 'u_time');
-  frostBolt.alpha = uniform(gl, frostBolt.program, 'u_alpha');
+  const frostBoltProgram = device.program(PROJECTILE_VERTEX, FROST_BOLT_FRAGMENT);
+  const frostBolt = {
+    program: frostBoltProgram,
+    view: uniform(gl, frostBoltProgram, 'u_view'),
+    position: uniform(gl, frostBoltProgram, 'u_position'),
+    size: uniform(gl, frostBoltProgram, 'u_size'),
+    angle: uniform(gl, frostBoltProgram, 'u_angle'),
+    time: uniform(gl, frostBoltProgram, 'u_time'),
+    alpha: uniform(gl, frostBoltProgram, 'u_alpha'),
+  };
 
   const lineProgram = device.program(LINE_VERTEX, SOLID_FRAGMENT);
   const lineLocations = {
