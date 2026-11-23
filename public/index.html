@@ -46,6 +46,10 @@
                   box-shadow:0 24px 80px rgba(0,0,0,.58),inset 0 0 35px rgba(60,180,230,.05); }
     #entry-card h1 { font-size:23px; letter-spacing:.16em; color:#e9fbff; text-shadow:0 0 18px rgba(112,230,255,.62); }
     #entry-card p { margin:10px 0 20px; color:rgba(210,228,242,.62); font-size:13px; }
+    #entry-status { margin:-8px 0 16px; color:#8af0ff; font:700 11px ui-monospace,monospace;
+                    letter-spacing:.08em; text-transform:uppercase; }
+    #entry-status[data-state="signed-out"] { color:#ffd58a; }
+    #entry-status[data-state="offline"] { color:rgba(210,228,242,.58); }
     #player-name { width:100%; padding:12px 14px; color:#fff; background:rgba(1,6,12,.72);
                    border:1px solid rgba(112,230,255,.3); border-radius:8px; outline:none;
                    font:700 16px ui-monospace,monospace; text-align:center; user-select:text; }
@@ -53,9 +57,6 @@
     #enter-dungeon { width:100%; margin-top:12px; padding:12px; border:1px solid rgba(112,230,255,.55);
                      border-radius:8px; color:#061019; background:linear-gradient(135deg,#8af0ff,#5da8ff);
                      font-weight:900; letter-spacing:.1em; cursor:pointer; }
-    #login-link { display:inline-block; margin:-4px 0 14px; color:#8af0ff; font:700 11px ui-monospace,monospace;
-                  letter-spacing:.08em; text-decoration:none; }
-    #login-link:hover { color:#fff; text-decoration:underline; }
     #hud { position:fixed; top:max(10px,env(safe-area-inset-top)); left:max(10px,env(safe-area-inset-left));
            right:max(10px,env(safe-area-inset-right)); max-width:1100px; margin:0 auto;
            display:grid; grid-template-columns:auto minmax(150px,1fr) minmax(150px,1fr) auto;
@@ -139,10 +140,10 @@
   <div id="entry-gate">
     <form id="entry-card">
       <h1>HACK//ARENA</h1>
-      <p>Sign in with your Hairylogic account to join the shared dungeon. Offline play remains available.</p>
-      <a id="login-link" href="/auth/login?return=/">SIGN IN WITH HAIRYLOGIC</a>
+      <p>Enter the shared dungeon with your Hairylogic identity. Offline play remains available at <code>?offline</code>.</p>
+      <div id="entry-status" aria-live="polite">CHECKING SIGN-IN STATUS…</div>
       <input id="player-name" maxlength="20" autocomplete="nickname" placeholder="Adventurer" aria-label="Player name" />
-      <button id="enter-dungeon" type="submit">ENTER THE DUNGEON</button>
+      <button id="enter-dungeon" type="submit">Enter the Dungeon</button>
     </form>
   </div>
   <div id="hud">
@@ -225,14 +226,35 @@ import { SIM_MODE, SIM_TICK_HZ, createArenaSimulation } from './src/rules/sim/ar
 const canvas = document.getElementById('game');
 const overlayCanvas = document.getElementById('world-overlay');
 
+const pageParams = new URLSearchParams(location.search);
+const forceOffline = pageParams.has('offline');
+const authState = await fetch('/auth/me', { credentials: 'same-origin', cache: 'no-store' })
+  .then(async (response) => response.ok ? response.json() : ({ authenticated: false }))
+  .catch(() => ({ authenticated: false, unavailable: true }));
+
 const playerName = await new Promise((resolve) => {
   const gate = document.getElementById('entry-gate');
   const form = document.getElementById('entry-card');
   const field = document.getElementById('player-name');
+  const status = document.getElementById('entry-status');
+  if (forceOffline) {
+    status.dataset.state = 'offline';
+    status.textContent = 'OFFLINE MODE';
+  } else if (authState.authenticated) {
+    status.dataset.state = 'signed-in';
+    status.textContent = `SIGNED IN · ${authState.user?.name || 'HAIRYLOGIC ACCOUNT'}`;
+  } else {
+    status.dataset.state = 'signed-out';
+    status.textContent = authState.unavailable ? 'SIGN-IN STATUS UNAVAILABLE' : 'NOT SIGNED IN · ENTER TO SIGN IN';
+  }
   field.value = localStorage.getItem('hack-arena.player-name') || '';
   requestAnimationFrame(() => field.focus());
   form.addEventListener('submit', (event) => {
     event.preventDefault();
+    if (!forceOffline && !authState.authenticated) {
+      window.location.assign('/auth/login?return=/');
+      return;
+    }
     // Unlock Web Audio while this is still a browser user gesture.
     unlockArenaAudio();
     const name = field.value.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 20) || 'Adventurer';
@@ -243,9 +265,7 @@ const playerName = await new Promise((resolve) => {
 });
 
 // -- Ultra-basic multiplayer location sync ----------------------
-const pageParams = new URLSearchParams(location.search);
 const roomId = pageParams.get('room') || 'lobby';
-const forceOffline = pageParams.has('offline');
 const netClient = createNetClient({
   roomId,
   playerName,
