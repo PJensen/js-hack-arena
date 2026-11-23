@@ -10,6 +10,18 @@ function normalizeVector(x, y) {
   return { x: nx * mag, y: ny * mag, mag, angle: Math.atan2(ny, nx) };
 }
 
+// Return a zero-based spell slot for the top-row or numeric keypad keys.
+// Prefer `code` because some browsers report a non-numeric `key` while the
+// physical number key is still available (for example with an IME/mobile
+// keyboard).
+export function spellSlotFromKeyboardEvent(event = {}) {
+  const code = String(event.code || '');
+  const codeDigit = code.match(/^(?:Digit|Numpad)([1-9])$/)?.[1];
+  if (codeDigit) return Number(codeDigit) - 1;
+  const key = typeof event.key === 'string' ? event.key : '';
+  return /^[1-9]$/.test(key) ? Number(key) - 1 : null;
+}
+
 class Joystick {
   constructor(baseEl, knobEl, markerEl) {
     this.base = baseEl;
@@ -150,6 +162,10 @@ export function createInputRouter({
     for (const k of Object.keys(keys)) keys[k] = false;
     mouse.active = false;
     mouse.down = false;
+    // Discrete actions are input state too; never replay a queued spell pick
+    // after a blur/visibility pause.
+    spellSlot = null;
+    spellCycle = 0;
   };
 
   on(document, 'touchstart', (e) => {
@@ -219,10 +235,14 @@ export function createInputRouter({
   let spellCycle = 0;     // +1 forward, -1 back, 0 none
 
   on(window, 'keydown', (e) => {
-    const k = e.key.toLowerCase();
-    const digit = /^[1-9]$/.test(k) ? k : e.code?.match(/^(?:Digit|Numpad)([1-9])$/)?.[1];
-    if (digit) spellSlot = Number(digit) - 1;
-    else if (k === 'q' || k === 'tab') { spellCycle += 1; e.preventDefault(); }
+    const slot = spellSlotFromKeyboardEvent(e);
+    if (slot != null) {
+      spellSlot = slot;
+      e.preventDefault();
+      return;
+    }
+    const k = String(e.key || '').toLowerCase();
+    if (k === 'q' || k === 'tab') { spellCycle += 1; e.preventDefault(); }
   });
 
   // Zoom via +/- keys and mouse wheel
@@ -335,7 +355,8 @@ export function createInputRouter({
   }
 
   function setSpellSlot(slot) {
-    spellSlot = slot;
+    const normalized = Number(slot);
+    if (Number.isInteger(normalized) && normalized >= 0) spellSlot = normalized;
   }
 
   return {
@@ -343,6 +364,7 @@ export function createInputRouter({
     destroy,
     pulse,
     reset: resetAll,
+    setSpellSlot,
     _setSpellSlot: setSpellSlot,
     getOutput: () => ({ ...output, left: { ...output.left }, right: { ...output.right }, intent: { ...output.intent } }),
   };

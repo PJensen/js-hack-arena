@@ -315,7 +315,7 @@ spellBar.addEventListener('touchstart', (e) => {
   const btn = e.target.closest('.spell-btn');
   if (!btn) return;
   const slot = Number(btn.dataset.slot);
-  inputRouter._setSpellSlot(slot);
+  inputRouter.setSpellSlot(slot);
   spellBar.querySelectorAll('.spell-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 }, { capture: true });
@@ -325,7 +325,7 @@ spellBar.addEventListener('pointerdown', (e) => {
   const btn = e.target.closest('.spell-btn');
   if (!btn) return;
   const slot = Number(btn.dataset.slot);
-  inputRouter._setSpellSlot(slot);
+  inputRouter.setSpellSlot(slot);
   spellBar.querySelectorAll('.spell-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 });
@@ -401,11 +401,11 @@ function rebuildSpellBar() {
   bar.querySelectorAll('.spell-btn').forEach(btn => {
     btn.addEventListener('touchstart', (e) => {
       e.preventDefault(); e.stopPropagation();
-      inputRouter._setSpellSlot(Number(btn.dataset.slot));
+      inputRouter.setSpellSlot(Number(btn.dataset.slot));
     }, { capture: true });
     btn.addEventListener('pointerdown', (e) => {
       e.preventDefault(); e.stopPropagation();
-      inputRouter._setSpellSlot(Number(btn.dataset.slot));
+      inputRouter.setSpellSlot(Number(btn.dataset.slot));
     });
   });
 }
