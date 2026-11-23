@@ -231,6 +231,43 @@ void main() {
   out_color = vec4(color + rim * 0.16, alpha * u_alpha);
 }`;
 
+// Potion auras are deliberately a filled, shader-generated glow rather than
+// a pair of geometric rings. The radial falloff, animated wisps, and edge
+// bloom all come from the fragment shader so the effect stays soft at any
+// zoom level and never reads as a canvas outline.
+const POTION_GLOW_FRAGMENT = `#version 300 es
+precision highp float;
+uniform int u_theme;
+uniform float u_time;
+uniform float u_alpha;
+in vec2 v_uv;
+out vec4 out_color;
+
+vec3 theme_color() {
+  if (u_theme == 0) return vec3(1.0, 0.20, 0.045);
+  if (u_theme == 1) return vec3(0.68, 0.24, 1.0);
+  if (u_theme == 2) return vec3(0.20, 1.0, 0.76);
+  return vec3(0.22, 0.64, 1.0);
+}
+
+void main() {
+  vec2 p = (v_uv - 0.5) * 2.0;
+  float radius = length(p);
+  if (radius > 1.0) discard;
+
+  vec3 base = theme_color();
+  float angle = atan(p.y, p.x);
+  float pulse = 0.92 + 0.08 * sin(u_time * 4.0);
+  float core = pow(max(0.0, 1.0 - radius), 1.8);
+  float halo = pow(max(0.0, 1.0 - radius), 0.42);
+  float swirl = 0.5 + 0.5 * sin(angle * 5.0 - u_time * 2.6 + radius * 8.0);
+  float wisps = pow(swirl, 3.0) * (1.0 - radius * 0.35);
+  float rimBloom = pow(max(0.0, 1.0 - abs(radius - 0.72) / 0.30), 2.0);
+  vec3 color = base * (0.32 * halo + 0.72 * core + 0.30 * wisps + 0.22 * rimBloom);
+  float alpha = (0.10 * halo + 0.34 * core + 0.12 * wisps + 0.08 * rimBloom) * pulse * u_alpha;
+  out_color = vec4(color, alpha);
+}`;
+
 const CUBE_FRAGMENT = `#version 300 es
 precision highp float;
 uniform float u_time;
@@ -325,6 +362,10 @@ export function createWebGLArenaRenderer(deps) {
   element.theme = uniform(gl, element.program, 'u_theme');
   element.time = uniform(gl, element.program, 'u_time');
   element.alpha = uniform(gl, element.program, 'u_alpha');
+  const potionGlow = worldProgram(device, POTION_GLOW_FRAGMENT);
+  potionGlow.theme = uniform(gl, potionGlow.program, 'u_theme');
+  potionGlow.time = uniform(gl, potionGlow.program, 'u_time');
+  potionGlow.alpha = uniform(gl, potionGlow.program, 'u_alpha');
   const cube = worldProgram(device, CUBE_FRAGMENT);
   cube.time = uniform(gl, cube.program, 'u_time');
   cube.alpha = uniform(gl, cube.program, 'u_alpha');
@@ -471,6 +512,16 @@ export function createWebGLArenaRenderer(deps) {
     gl.uniform1i(element.theme, themeIndex(theme));
     gl.uniform1f(element.time, time);
     gl.uniform1f(element.alpha, alpha);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  function drawPotionGlow(theme, x, y, radius, time, alpha = 1) {
+    gl.useProgram(potionGlow.program);
+    gl.bindVertexArray(quadVao);
+    setWorld(potionGlow, x, y, radius * 2, radius * 2);
+    gl.uniform1i(potionGlow.theme, themeIndex(theme));
+    gl.uniform1f(potionGlow.time, time);
+    gl.uniform1f(potionGlow.alpha, alpha);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
@@ -1055,23 +1106,19 @@ export function createWebGLArenaRenderer(deps) {
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    // Ground powerups use clean rings rather than the elemental status shader.
-    // The animated shader remains reserved for meaningful active effects.
+    // Ground powerups use a filled GPU aura. Keep this additive and behind the
+    // glyph so the potion reads as luminous energy, not a 2D canvas ring.
     for (const [id, position, _item, info] of world.query(Position, GroundItem, ItemInfo)) {
       const effect = world.get(id, Consumable)?.effect;
       if (!['mana_regen', 'haste', 'fury', 'ward'].includes(effect)) continue;
+      const shown = displayPosition(id, position);
       const bob = Math.sin(now * 3 + id) * 2.5;
       const pulse = 0.5 + 0.5 * Math.sin(now * 4.5 + id);
       const theme = themeForPowerup(effect);
-      const ringColor = theme === 'fire' ? [1, 0.34, 0.08, 0.7]
-        : theme === 'shadow' ? [0.7, 0.28, 1, 0.7]
-        : theme === 'frost' ? [0.32, 1, 0.78, 0.7]
-        : [0.34, 0.72, 1, 0.7];
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-      drawDisc(position.x, position.y + bob, 12, [0.02, 0.04, 0.07, 0.58], ringColor);
-      drawDisc(position.x, position.y + bob, 16 + pulse * 1.5, [0, 0, 0, 0], [...ringColor.slice(0, 3), 0.16 + pulse * 0.18]);
+      drawPotionGlow(theme, shown.x, shown.y + bob, 18 + pulse * 2.5, now + id * 0.13, 1);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-      drawGlyph(info.glyph, position.x, position.y + bob, 18, [0.96, 1, 1, 1]);
+      drawGlyph(info.glyph, shown.x, shown.y + bob, 18, [0.96, 1, 1, 1]);
     }
 
     const activePowerups = world.get(playerId, Powerups);
