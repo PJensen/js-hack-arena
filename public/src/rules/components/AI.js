@@ -13,9 +13,8 @@ export const AI = defineComponent('AI', {
   castCooldown:   0,
   castRate:       1.2,
   projSpeed:      250,
-  sightRadius:    300,
-  leashRadius:    520,
-  sight:          false,
+  aggroRange:     300,
+  sight:          true,
   patrolPoints:   [],
   patrolIndex:    0,
 });

@@ -39,7 +39,7 @@ export function createAISystem(ctx) {
         for (const [candidate, candidatePosition, candidateHealth] of players) {
           if (candidateHealth.dead || candidateHealth.hp <= 0) continue;
           const distance = Math.hypot(candidatePosition.x - pos.x, candidatePosition.y - pos.y);
-          if (distance > ai.sightRadius || distance >= nearestDistance) continue;
+          if (distance > ai.aggroRange || distance >= nearestDistance) continue;
           if (!hasLOS(grid, pos.x, pos.y, candidatePosition.x, candidatePosition.y)) continue;
           nearest = candidate;
           nearestDistance = distance;
@@ -58,15 +58,8 @@ export function createAISystem(ctx) {
       const dx = tpos.x - pos.x, dy = tpos.y - pos.y;
       const dist = Math.hypot(dx, dy);
 
-      if (dist > ai.leashRadius) {
-        ai.target = null;
-        ai.sight = false;
-        patrol(grid, pos, vel, ai, movementSpeed, moveLocked, dt, col.radius);
-        continue;
-      }
-
       // LOS check
-      ai.sight = dist < ai.sightRadius && hasLOS(grid, pos.x, pos.y, tpos.x, tpos.y);
+      ai.sight = dist < ai.aggroRange && hasLOS(grid, pos.x, pos.y, tpos.x, tpos.y);
 
       if (ai.sight) {
         // ── Has LOS — tactical behaviour ──
