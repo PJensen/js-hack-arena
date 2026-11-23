@@ -280,7 +280,7 @@ function worldProgram(device, fragment) {
 }
 
 export function createWebGLArenaRenderer(deps) {
-  const { canvas, overlayCanvas, cam, grid, bounds, decorations, world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents } = deps;
+  const { canvas, overlayCanvas, cam, grid, bounds, decorations, world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip } = deps;
   const device = createWebGLDevice(canvas);
   const { gl } = device;
   const overlay = overlayCanvas?.getContext('2d') || null;
@@ -381,7 +381,6 @@ export function createWebGLArenaRenderer(deps) {
   const lightColors = new Float32Array(MAX_DYNAMIC_LIGHTS * 3);
   let fieldDirty = false;
   let disposed = false;
-  let weaponCardHitbox = null;
   const bolts = [];
   const meleeSwings = [];
   const bloodDecals = [];
@@ -869,11 +868,10 @@ export function createWebGLArenaRenderer(deps) {
     }
     overlay.textAlign = 'left'; overlay.textBaseline = 'bottom'; overlay.font = `800 ${Math.round(9 * ratio)}px ui-monospace,monospace`;
     overlay.fillStyle = 'rgba(210,240,255,.68)'; overlay.fillText('THE DEEP', left + 7 * ratio, top - 4 * ratio);
-    drawNearbyWeaponCard(width, height, ratio, shownPlayer);
+    updateNearbyWeaponTooltip(width, height, ratio, shownPlayer);
   }
 
-  function drawNearbyWeaponCard(width, height, ratio, shownPlayer) {
-    weaponCardHitbox = null;
+  function updateNearbyWeaponTooltip(width, height, ratio, shownPlayer) {
     const previewRadius = 132;
     let candidate = null;
     for (const [id, position, _ground, info, pickup] of world.query(Position, GroundItem, ItemInfo, WeaponPickup)) {
@@ -881,9 +879,12 @@ export function createWebGLArenaRenderer(deps) {
       if (lock?.owner === playerId && lock.remaining > 0) continue;
       const distance = Math.hypot(position.x - shownPlayer.x, position.y - shownPlayer.y);
       if (distance > previewRadius || !inView(position.x, position.y, 20)) continue;
-      if (!candidate || distance < candidate.distance) candidate = { position, info, pickup, distance };
+      if (!candidate || distance < candidate.distance) candidate = { id, position, info, pickup, distance };
     }
-    if (!candidate) return;
+    if (!candidate) {
+      itemTooltip?.hide();
+      return;
+    }
 
     const currentMelee = world.get(playerId, MeleeWeapon);
     const currentBow = world.get(playerId, BowWeapon);
@@ -904,60 +905,16 @@ export function createWebGLArenaRenderer(deps) {
         change: compareDirection(candidate.pickup.damage, currentMelee?.damage || 0),
       }];
 
-    const cardWidth = Math.min(222 * ratio, width - 16 * ratio);
-    const cardHeight = (42 + rows.length * 16) * ratio;
     const sx = ((candidate.position.x - view[0]) / view[2] + 0.5) * width;
     const sy = ((candidate.position.y - view[1]) / view[3] + 0.5) * height;
-    const gap = 14 * ratio;
-    let cardX = sx + gap;
-    if (cardX + cardWidth > width - 8 * ratio) cardX = sx - cardWidth - gap;
-    cardX = Math.max(8 * ratio, Math.min(width - cardWidth - 8 * ratio, cardX));
-    const cardY = Math.max(8 * ratio, Math.min(height - cardHeight - 8 * ratio, sy - cardHeight * 0.5));
-    const color = rarityTextColors[candidate.info.rarity] || '#e8f1fa';
-    weaponCardHitbox = {
-      x: cardX, y: cardY, width: cardWidth, height: cardHeight,
+    const rect = canvas.getBoundingClientRect();
+    itemTooltip?.update({
+      info: candidate.info,
+      rows,
       target: { x: candidate.position.x, y: candidate.position.y },
-    };
-
-    overlay.fillStyle = 'rgba(4,8,15,.92)';
-    overlay.fillRect(cardX, cardY, cardWidth, cardHeight);
-    overlay.strokeStyle = color;
-    overlay.lineWidth = Math.max(1, ratio);
-    overlay.strokeRect(cardX, cardY, cardWidth, cardHeight);
-    overlay.textAlign = 'left';
-    overlay.textBaseline = 'top';
-    overlay.font = `800 ${Math.round(12 * ratio)}px ui-monospace,monospace`;
-    overlay.fillStyle = color;
-    overlay.fillText(candidate.info.name, cardX + 9 * ratio, cardY + 6 * ratio, cardWidth - 18 * ratio);
-    overlay.font = `700 ${Math.round(11 * ratio)}px ui-monospace,monospace`;
-    rows.forEach((row, index) => {
-      const y = cardY + (25 + index * 16) * ratio;
-      overlay.textAlign = 'left';
-      overlay.fillStyle = 'rgba(222,234,247,.88)';
-      overlay.fillText(row.label, cardX + 9 * ratio, y);
-      overlay.textAlign = 'right';
-      overlay.fillStyle = 'rgba(246,249,255,.96)';
-      overlay.fillText(String(row.value), cardX + cardWidth - 27 * ratio, y);
-      if (row.change) {
-        overlay.fillStyle = row.change === 'up' ? '#6ff08c' : '#ff7777';
-        overlay.fillText(row.change === 'up' ? '↑' : '↓', cardX + cardWidth - 8 * ratio, y);
-      }
+      anchorX: rect.left + sx * rect.width / width,
+      anchorY: rect.top + sy * rect.height / height,
     });
-    overlay.textAlign = 'left';
-    overlay.fillStyle = 'rgba(190,210,229,.6)';
-    overlay.font = `700 ${Math.round(8 * ratio)}px ui-monospace,monospace`;
-    overlay.fillText('CLICK / TAP TO EQUIP', cardX + 9 * ratio, cardY + (29 + rows.length * 16) * ratio);
-  }
-
-  function weaponPickupAtPointer(clientX, clientY) {
-    if (!weaponCardHitbox || !overlayCanvas) return null;
-    const rect = overlayCanvas.getBoundingClientRect();
-    if (!rect.width || !rect.height) return null;
-    const x = (clientX - rect.left) * overlayCanvas.width / rect.width;
-    const y = (clientY - rect.top) * overlayCanvas.height / rect.height;
-    const card = weaponCardHitbox;
-    if (x < card.x || x > card.x + card.width || y < card.y || y > card.y + card.height) return null;
-    return { ...card.target };
   }
 
   function renderFrame() {
@@ -1197,7 +1154,6 @@ export function createWebGLArenaRenderer(deps) {
 
   return Object.freeze({
     renderFrame,
-    weaponPickupAtPointer,
     terrainChanged() { fieldDirty = true; },
     dispose() { if (!disposed) { disposed = true; overlay?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height); device.dispose(); } },
   });
