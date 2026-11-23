@@ -17,9 +17,9 @@ Deno.test('game room: every connected socket receives both players immediately',
   const first = new FakeSocket();
   const second = new FakeSocket();
 
-  room.accept(first);
+  room.accept(first, { userId: 'user-1', displayName: 'First' });
   const beforeJoin = latestSnapshot(first);
-  room.accept(second);
+  room.accept(second, { userId: 'user-2', displayName: 'Second' });
   const firstView = latestSnapshot(first);
   const secondView = latestSnapshot(second);
 

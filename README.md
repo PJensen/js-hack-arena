@@ -54,6 +54,28 @@ Useful routes once running under Wrangler:
 - `/api/rooms/default?room=lobby` - returns the room seed and WebSocket URL.
 - `/ws/lobby` - upgrades to a room WebSocket.
 
+## Basement authentication
+
+Server-backed rooms require an Arena session issued after Basement OIDC login.
+The Worker exposes `/auth/login`, `/auth/callback`, `/auth/me`, and `/auth/logout`.
+Basement access and ID tokens stay server-side; the browser receives only an
+Arena-owned `HttpOnly` session cookie. The Worker turns that session into a
+short-lived signed handoff before admitting a socket to `GameRoom`.
+
+Configure these values for the Worker environment. The first four non-secret
+values may be Wrangler vars; the last two must be Worker secrets:
+
+- `BASEMENT_ISSUER`
+- `BASEMENT_CLIENT_ID`
+- `BASEMENT_REDIRECT_URI` (`https://arena.hairylogic.com/auth/callback` in production)
+- `BASEMENT_SCOPES` (defaults to `openid profile`)
+- `BASEMENT_CLIENT_SECRET`
+- `ARENA_SESSION_SECRET`
+
+Set the secret values with Wrangler rather than committing them to the repo.
+Offline play remains available with `?offline`, but the shared room requires a
+valid Arena session.
+
 Rooms are server-seeded. On a Worker-backed connection, `WELCOME` includes the
 authoritative room seed and the browser generates cave geometry from that seed.
 Static/offline play still falls back to the local seed resolver.

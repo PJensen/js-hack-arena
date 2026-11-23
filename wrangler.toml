@@ -2,6 +2,10 @@ name = "js-hack-arena"
 main = "worker/index.js"
 compatibility_date = "2026-07-07"
 
+# Production custom hostname. The DNS zone must be present in the target
+# Cloudflare account before deployment can attach this route.
+routes = [{ pattern = "arena.hairylogic.com", custom_domain = true }]
+
 # The browser client is still a static site. Cloudflare serves these assets,
 # while the Worker handles server routes such as /api/* and /ws/*.
 [assets]

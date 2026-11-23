@@ -5,7 +5,6 @@ import {
   encodeMessage,
   makeInputFrame,
   makeRoomSeed,
-  normalizePlayerName,
   normalizeRoomId,
 } from '../public/src/shared/net/protocol.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
@@ -14,6 +13,15 @@ import {
   SIM_TICK_HZ,
   createArenaSimulation,
 } from '../public/src/rules/sim/arenaSim.js';
+import {
+  authCallback,
+  authLogin,
+  authLogout,
+  authMe,
+  createRoomHandoff,
+  readSession,
+  verifyRoomHandoff,
+} from './auth.js';
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -28,6 +36,17 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    if (url.pathname === '/auth/login') {
+      try { return await authLogin(request, env); }
+      catch (error) { return json({ ok: false, error: error.message }, { status: 503 }); }
+    }
+    if (url.pathname === '/auth/callback') {
+      try { return await authCallback(request, env); }
+      catch (error) { return json({ ok: false, error: error.message }, { status: 502 }); }
+    }
+    if (url.pathname === '/auth/me') return authMe(request, env);
+    if (url.pathname === '/auth/logout' && (request.method === 'POST' || request.method === 'GET')) return authLogout();
+
     if (url.pathname === '/api/health') {
       return json({
         ok: true,
@@ -37,6 +56,8 @@ export default {
     }
 
     if (url.pathname === '/api/rooms/default') {
+      const session = await readSession(request, env);
+      if (!session) return json({ ok: false, error: 'login required' }, { status: 401 });
       const roomId = normalizeRoomId(url.searchParams.get('room') || DEFAULT_ROOM_ID);
       return json({
         roomId,
@@ -47,8 +68,13 @@ export default {
 
     if (url.pathname.startsWith('/ws/')) {
       const roomId = normalizeRoomId(url.pathname.slice('/ws/'.length));
+      const session = await readSession(request, env);
+      if (!session) return json({ ok: false, error: 'login required' }, { status: 401 });
       const id = env.GAME_ROOM.idFromName(roomId);
-      return env.GAME_ROOM.get(id).fetch(request);
+      const handoff = await createRoomHandoff(session, roomId, env);
+      const headers = new Headers(request.headers);
+      headers.set('x-arena-room-auth', handoff);
+      return env.GAME_ROOM.get(id).fetch(new Request(request, { headers }));
     }
 
     return env.ASSETS.fetch(request);
@@ -85,9 +111,12 @@ export class GameRoom {
       });
     }
 
+    const identity = await verifyRoomHandoff(request.headers.get('x-arena-room-auth'), this.roomId, this.env);
+    if (!identity) return json({ ok: false, error: 'room authentication required' }, { status: 401 });
+
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-    this.accept(server, normalizePlayerName(url.searchParams.get('name')));
+    if (!this.accept(server, identity)) return json({ ok: false, error: 'user already connected to room' }, { status: 409 });
 
     return new Response(null, {
       status: 101,
@@ -95,7 +124,10 @@ export class GameRoom {
     });
   }
 
-  accept(socket, playerName) {
+  accept(socket, identity) {
+    if ([...this.sessions.values()].some((session) => session.userId === identity.userId)) {
+      return false;
+    }
     socket.accept();
 
     const peerId = crypto.randomUUID();
@@ -105,10 +137,11 @@ export class GameRoom {
       joinedAt: Date.now(),
       lastSeenAt: Date.now(),
       input: makeInputFrame(),
-      name: playerName,
+      name: identity.displayName,
+      userId: identity.userId,
     };
 
-    this.ensureSim().addPlayer(peerId, this.sessions.size, null, playerName);
+    this.ensureSim().addPlayer(peerId, this.sessions.size, null, identity.displayName);
     this.sessions.set(socket, session);
     this.startTicking();
     this.send(socket, MESSAGE.WELCOME, {
@@ -132,6 +165,7 @@ export class GameRoom {
     socket.addEventListener('error', () => {
       this.leave(socket);
     });
+    return true;
   }
 
   handleMessage(socket, raw) {

@@ -28,6 +28,9 @@
     #enter-dungeon { width:100%; margin-top:12px; padding:12px; border:1px solid rgba(112,230,255,.55);
                      border-radius:8px; color:#061019; background:linear-gradient(135deg,#8af0ff,#5da8ff);
                      font-weight:900; letter-spacing:.1em; cursor:pointer; }
+    #login-link { display:inline-block; margin:-4px 0 14px; color:#8af0ff; font:700 11px ui-monospace,monospace;
+                  letter-spacing:.08em; text-decoration:none; }
+    #login-link:hover { color:#fff; text-decoration:underline; }
     #hud { position:fixed; top:max(12px,env(safe-area-inset-top)); left:50%; transform:translateX(-50%);
            display:flex; align-items:center; gap:10px; min-height:38px; padding:7px 12px;
            font-size:12px; color:rgba(224,240,255,.78); text-align:center; z-index:40;
@@ -99,7 +102,8 @@
   <div id="entry-gate">
     <form id="entry-card">
       <h1>HACK//ARENA</h1>
-      <p>Choose the name that will follow you into the deep.</p>
+      <p>Sign in with Basement to join the shared dungeon. Offline play remains available.</p>
+      <a id="login-link" href="/auth/login?return=/">SIGN IN WITH BASEMENT</a>
       <input id="player-name" maxlength="20" autocomplete="nickname" placeholder="Adventurer" aria-label="Player name" />
       <button id="enter-dungeon" type="submit">ENTER THE DUNGEON</button>
     </form>

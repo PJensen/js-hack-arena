@@ -43,10 +43,13 @@ export function createNetClient({
       const url = new URL('/api/rooms/default', location.href);
       url.searchParams.set('room', room);
       const response = await fetch(url);
+      if (response.status === 401) {
+        setStatus('auth', 'Basement login required');
+        return null;
+      }
       if (!response.ok) throw new Error(`room lookup failed: ${response.status}`);
       const info = await response.json();
       const socketUrl = new URL(info.ws);
-      socketUrl.searchParams.set('name', normalizePlayerName(playerName));
       socket = new WebSocket(socketUrl);
       connectPromise = new Promise((resolve) => {
         resolveConnect = resolve;
