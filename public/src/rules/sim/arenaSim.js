@@ -99,6 +99,7 @@ export function createArenaSimulation({
   enemyCount = 1,
   enemyGroupSize = 1,
   patrolRoutes = [],
+  enemySpawnExclusionRadius = 0,
 } = {}) {
   if (!grid) throw new Error('arena simulation requires a collision grid');
   if (!Object.values(SIM_MODE).includes(mode)) throw new Error(`invalid arena simulation mode: ${mode}`);
@@ -137,20 +138,30 @@ export function createArenaSimulation({
 
     if (mode === SIM_MODE.AUTHORITY && !populationStarted) {
       populationStarted = true;
+      const groupSize = Math.max(1, enemyGroupSize);
+      const spawnBuffer = 400 + groupSize * 24;
       for (let i = 0; i < enemyCount; i++) {
         const route = patrolRoutes[i % Math.max(1, patrolRoutes.length)];
-        const points = route?.points?.length ? route.points : null;
+        const points = route?.points?.filter((point) =>
+          Math.hypot(point.x - spawn.x, point.y - spawn.y) > enemySpawnExclusionRadius
+        );
+        const safePoints = points?.filter((point) =>
+          Math.hypot(point.x - spawn.x, point.y - spawn.y) > enemySpawnExclusionRadius + spawnBuffer
+        );
         const angle = (i / Math.max(1, enemyCount)) * Math.PI * 2;
-        const origin = points?.reduce((farthest, point) => {
+        const fallbackDistance = enemySpawnExclusionRadius > 0
+          ? enemySpawnExclusionRadius + spawnBuffer
+          : 180;
+        const origin = safePoints?.reduce((farthest, point) => {
           const pointDistance = Math.hypot(point.x - spawn.x, point.y - spawn.y);
           const farthestDistance = farthest ? Math.hypot(farthest.x - spawn.x, farthest.y - spawn.y) : -Infinity;
           return pointDistance > farthestDistance ? point : farthest;
         }, null) || {
-          x: spawn.x + Math.cos(angle) * (180 + i * 30),
-          y: spawn.y + Math.sin(angle) * (180 + i * 30),
+          x: spawn.x + Math.cos(angle) * (fallbackDistance + i * 30),
+          y: spawn.y + Math.sin(angle) * (fallbackDistance + i * 30),
         };
-        for (let member = 0; member < Math.max(1, enemyGroupSize); member++) {
-          const mobId = spawnEnemy(world, grid, origin.x + member * 24, origin.y + member * 24, null, i, points || [origin]);
+        for (let member = 0; member < groupSize; member++) {
+          const mobId = spawnEnemy(world, grid, origin.x + member * 24, origin.y + member * 24, null, i, points?.length ? points : [origin]);
           ensureNetworkId(mobId, 'mob');
         }
       }

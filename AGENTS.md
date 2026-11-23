@@ -26,7 +26,7 @@
 - Keep rules that affect combat, spawning, targeting, safe areas, loot, and lifecycle deterministic and covered by simulation tests. Do not rely on a client-only guard for a server-authoritative rule.
 - Preserve existing component and field contracts when extending behavior. In particular, retain `AI.aggroRange` semantics when adding patrols or other unalerted behavior; do not rename or retune an existing gameplay parameter without an explicit design reason.
 - Unalerted enemies should remain in authored encounter state (for example, patrol routes or idle groups). Combat initiation must be gated by the existing aggro/sight rules and line of sight, rather than assigning every enemy a player target globally.
-- The opening area is map geometry, not an AI-system argument. Guarantee it in cave generation and keep encounter placement outside it; future NPC services such as merchants or trainers should be placed there through the same map/spawn data.
+- Keep opening-area protection as a simple encounter-placement exclusion radius around the starting spawn. Do not add safe-area arguments to unrelated AI systems; future NPC services such as merchants or trainers can share the starting spawn location without coupling to combat AI.
 - Room progression should be finite by default: killing an enemy must not implicitly create another enemy. Any future respawn or encounter director must be explicit, tested, and use authored locations rather than placing enemies beside players.
 
 ### General lessons from gameplay changes
@@ -35,4 +35,5 @@
 - Authority mismatch: when a rule is changed, trace every authoritative construction path. The Worker room simulation, not only the browser/offline simulation, must receive the same world configuration.
 - Lifecycle regression: never leave an implicit respawn or replacement path active when the intended encounter is finite. Add a regression test that kills an entity and asserts the population remains reduced.
 - Architecture overreach: do not add ad hoc arguments to unrelated systems for one map rule. Prefer the existing domain owner—map geometry for safe rooms, encounter data for placement, and AI fields for AI behavior.
+- Simplicity failure: when the requirement is “do not place entities within X radius,” implement that direct distance check before adding map carving, route rewriting, or cross-system state.
 - Verification gap: before commit, test the real authority path and inspect runtime population/target state, not just static checks or client behavior. New gameplay behavior needs focused tests for initial state, transition, and terminal state.

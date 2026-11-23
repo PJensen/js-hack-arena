@@ -269,22 +269,6 @@ function bakeGrid(seed, width, height, topology, cellSize) {
   };
 }
 
-function carveOpeningZone(grid, x, y, radius) {
-  const { moveGrid, cols, rows, cellSize } = grid;
-  const radiusSquared = radius * radius;
-  const gx0 = Math.max(0, Math.floor((x - radius) / cellSize));
-  const gy0 = Math.max(0, Math.floor((y - radius) / cellSize));
-  const gx1 = Math.min(cols - 1, Math.ceil((x + radius) / cellSize));
-  const gy1 = Math.min(rows - 1, Math.ceil((y + radius) / cellSize));
-  for (let gy = gy0; gy <= gy1; gy++) {
-    for (let gx = gx0; gx <= gx1; gx++) {
-      const dx = gx * cellSize - x;
-      const dy = gy * cellSize - y;
-      if (dx * dx + dy * dy <= radiusSquared) moveGrid[gy * cols + gx] = 40;
-    }
-  }
-}
-
 export function generateCave(opts = {}) {
   const {
     seed = 42,
@@ -294,7 +278,6 @@ export function generateCave(opts = {}) {
     cellSize = 4,
     spawnCount = 4,
     spawnSpacing = 400,
-    startingZoneRadius = 520,
   } = opts;
   const topology = growTopology(seed, width, height, profile);
   const grid = bakeGrid(seed, width, height, topology, cellSize);
@@ -312,15 +295,13 @@ export function generateCave(opts = {}) {
   if (!spawns.length) {
     spawns.push({ x: topology.chambers[0].x, y: topology.chambers[0].y });
   }
-  carveOpeningZone(grid, spawns[0].x, spawns[0].y, startingZoneRadius);
   // Decoration landmarks are sparse samples; the complete curved route remains
   // encoded by the floor itself.
   const routes = topology.routes.map((route) => ({
     ...route,
-    points: route.points.filter((point, i) =>
-      Math.hypot(point.x - spawns[0].x, point.y - spawns[0].y) >= startingZoneRadius &&
-      (i === 0 || i === route.points.length - 1 || i % 6 === 0)
+    points: route.points.filter((_, i) =>
+      i === 0 || i === route.points.length - 1 || i % 6 === 0
     ),
-  })).filter((route) => route.points.length > 0);
+  }));
   return { grid, bounds: { w: width, h: height }, spawns, routes };
 }
