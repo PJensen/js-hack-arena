@@ -280,7 +280,7 @@ function worldProgram(device, fragment) {
 }
 
 export function createWebGLArenaRenderer(deps) {
-  const { canvas, overlayCanvas, cam, grid, bounds, decorations, world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip } = deps;
+  const { canvas, overlayCanvas, cam, grid, bounds, decorations, world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars } = deps;
   const device = createWebGLDevice(canvas);
   const { gl } = device;
   const overlay = overlayCanvas?.getContext('2d') || null;
@@ -1133,14 +1133,11 @@ export function createWebGLArenaRenderer(deps) {
     const router = input.leftStick.getOutput();
     const mana = world.get(playerId, Mana);
     const meleeWeapon = world.get(playerId, MeleeWeapon);
-    hud.hp.textContent = `♥ ${Math.ceil(hp?.hp ?? 0)}/${hp?.maxHp ?? 0}`;
+    resourceBars?.health?.set(hp?.hp ?? 0, hp?.maxHp ?? 1);
     hud.weapon.textContent = `⚔ ${meleeWeapon?.damage ?? 5}`;
     hud.weapon.title = `${meleeWeapon?.name || 'Fists'} · ${meleeWeapon?.damage ?? 5} physical damage per hit`;
     const boosted = activePowerups?.manaRegenSeconds > 0;
-    hud.mana.textContent = boosted
-      ? `◆ ${Math.floor(mana?.mana ?? 0)}/${mana?.maxMana ?? 0} · SURGE ${Math.ceil(activePowerups.manaRegenSeconds)}s`
-      : `◆ ${Math.floor(mana?.mana ?? 0)}/${mana?.maxMana ?? 0}`;
-    hud.mana.classList.toggle('boosted', boosted);
+    resourceBars?.mana?.set(mana?.mana ?? 0, mana?.maxMana ?? 1, { boosted });
     const activeLabels = [...activePowerupLabels(activePowerups), ...activeConditionLabels(world.get(playerId, Conditions))];
     hud.meta.textContent = hp?.dead
       ? 'YOU DIED · refresh to re-enter'
