@@ -23,6 +23,8 @@ import { ELEMENT_FRAGMENT } from './shaders/element.frag.js';
 import { POTION_GLOW_FRAGMENT } from './shaders/potionGlow.frag.js';
 import { FLAME_FRAGMENT } from './shaders/flame.frag.js';
 import { CUBE_FRAGMENT } from './shaders/cube.frag.js';
+import { PROJECTILE_VERTEX } from './shaders/projectile.vert.js';
+import { FROST_BOLT_FRAGMENT } from './shaders/frostBolt.frag.js';
 
 // Lighting is a core gameplay/readability layer. Keep enough simultaneous
 // sources for actors, loot, projectiles, and transient spell illumination.
@@ -134,6 +136,13 @@ export function createWebGLArenaRenderer(deps) {
   const cube = worldProgram(device, CUBE_FRAGMENT);
   cube.time = uniform(gl, cube.program, 'u_time');
   cube.alpha = uniform(gl, cube.program, 'u_alpha');
+  const frostBolt = device.program(PROJECTILE_VERTEX, FROST_BOLT_FRAGMENT);
+  frostBolt.view = uniform(gl, frostBolt.program, 'u_view');
+  frostBolt.position = uniform(gl, frostBolt.program, 'u_position');
+  frostBolt.size = uniform(gl, frostBolt.program, 'u_size');
+  frostBolt.angle = uniform(gl, frostBolt.program, 'u_angle');
+  frostBolt.time = uniform(gl, frostBolt.program, 'u_time');
+  frostBolt.alpha = uniform(gl, frostBolt.program, 'u_alpha');
 
   const lineProgram = device.program(LINE_VERTEX, SOLID_FRAGMENT);
   const lineLocations = {
@@ -296,6 +305,18 @@ export function createWebGLArenaRenderer(deps) {
     setWorld(flame, x, y, width, height);
     gl.uniform1f(flame.time, time);
     gl.uniform1f(flame.alpha, alpha);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  function drawFrostBolt(x, y, angle, length, time, alpha = 1) {
+    gl.useProgram(frostBolt.program);
+    gl.bindVertexArray(quadVao);
+    gl.uniform4fv(frostBolt.view, view);
+    gl.uniform2f(frostBolt.position, x, y);
+    gl.uniform2f(frostBolt.size, length, Math.max(7, length * 0.42));
+    gl.uniform1f(frostBolt.angle, angle);
+    gl.uniform1f(frostBolt.time, time);
+    gl.uniform1f(frostBolt.alpha, alpha);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
@@ -841,6 +862,14 @@ export function createWebGLArenaRenderer(deps) {
       if (projectile.style === 'arrow') {
         const velocity = world.get(id, Velocity);
         drawArrow(shown.x, shown.y, velocity?.vx || 1, velocity?.vy || 0, projectile.power || 1);
+        continue;
+      }
+      if (projectile.style === 'frost' || projectile.trailColor === '#8cd8ff') {
+        const velocity = world.get(id, Velocity);
+        const angle = Math.atan2(velocity?.vy || 0, velocity?.vx || 1);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+        drawFrostBolt(shown.x, shown.y, angle, Math.max(24, collider.radius * 5.8), now + id * 0.07, 0.96);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         continue;
       }
       drawElementOrb(projectile.style || (enemy ? 'shadow' : 'frost'), shown.x, shown.y, Math.max(4, collider.radius), now + id, 0.95);
