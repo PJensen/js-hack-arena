@@ -30,7 +30,9 @@ export function createResourceBar(root, { key = 'resource', label, color, gradie
     value.textContent = `${label || ''} ${Math.ceil(amount)}/${Math.ceil(max)}`;
     fill.style.width = width;
     root.dataset.state = ratio <= 0 ? 'empty' : ratio <= 0.2 ? 'critical' : ratio >= 1 ? 'full' : 'partial';
-    root.classList.toggle(boostedClass, Boolean(options.boosted));
+    // `boostedClass` is optional (health has no boost state). DOMTokenList
+    // rejects an empty token, so never pass the default empty string through.
+    if (boostedClass) root.classList.toggle(boostedClass, Boolean(options.boosted));
     if (ratio < previousRatio && previousAmount != null) {
       cancelAnimationFrame(animationId);
       clearTimeout(drainTimer);
