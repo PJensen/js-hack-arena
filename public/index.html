@@ -72,14 +72,19 @@
     .hud-resource-fill { position:absolute; inset:0 auto 0 0; width:0%; border-radius:999px 0 0 999px;
                          transition:width 220ms ease-out,filter 180ms ease-out,box-shadow 180ms ease-out; }
     .hud-resource-recent { position:absolute; inset:0 auto 0 0; width:0%; border-radius:0 999px 999px 0;
-                           background:rgba(255,255,255,.92); opacity:0; pointer-events:none; }
+                           background:rgba(255,255,255,.92); opacity:0; pointer-events:none;
+                           box-shadow:0 0 12px rgba(255,255,255,.75); mix-blend-mode:screen; }
     .hud-resource-value { position:relative; z-index:1; color:#fff8ea; font-weight:900;
                           font-variant-numeric:tabular-nums; text-shadow:0 1px 2px #000; white-space:nowrap; }
     .hud-resource[data-resource="health"] .hud-resource-fill { background:linear-gradient(90deg,#c71942,#ff4164 58%,#ff6b7f); }
     .hud-resource[data-resource="mana"] .hud-resource-fill { background:linear-gradient(90deg,#1d68c5,#4aa3ff 58%,#72c2ff); }
+    .hud-resource[data-resource="health"] .hud-resource-recent { background:linear-gradient(90deg,rgba(255,112,132,.95),rgba(255,235,212,.98)); }
+    .hud-resource[data-resource="mana"] .hud-resource-recent { background:linear-gradient(90deg,rgba(106,198,255,.95),rgba(226,250,255,.98)); }
+    .hud-resource.resource-draining { animation:resource-drain-flash .56s ease-out; }
     .hud-resource[data-state="critical"] .hud-resource-fill { filter:saturate(1.35); animation:resource-critical .7s ease-in-out infinite alternate; }
     .hud-resource.mana-boosted { border-color:rgba(100,210,255,.75); animation:mana-surge .8s ease-in-out infinite alternate; }
     @keyframes resource-critical { to { opacity:.72; filter:saturate(1.5) brightness(1.25); } }
+    @keyframes resource-drain-flash { 0% { filter:brightness(1.5); } 100% { filter:brightness(1); } }
     @keyframes mana-surge { to { box-shadow:inset 0 2px 4px rgba(0,0,0,.5),0 0 16px rgba(75,175,255,.42); } }
     .hud-meta { color:rgba(203,220,235,.48); }
 
@@ -217,7 +222,7 @@ import { createProjectileFxController } from './src/display/passes/projectileFx.
 import { createArenaAudio, unlockArenaAudio } from './src/display/audio/arenaAudio.js';
 import { createItemTooltip } from './src/display/ui/itemTooltip.js';
 import { createResourceBar } from './src/display/ui/resourceBars.js';
-import { ArrowAmmo, BowWeapon, MeleeWeapon, Spellbook, Position } from './src/rules/components/index.js';
+import { ArrowAmmo, BowWeapon, Health, Mana, MeleeWeapon, Powerups, Spellbook, Position } from './src/rules/components/index.js';
 import { createNetClient } from './src/net/client.js';
 import { samplePlayerCommand } from './src/input/samplePlayerCommand.js';
 import { SIM_MODE, SIM_TICK_HZ, createArenaSimulation } from './src/rules/sim/arenaSim.js';
@@ -423,6 +428,16 @@ const itemTooltip = createItemTooltip({
 });
 const healthBar = createResourceBar(document.getElementById('hud-hp-bar'), { key: 'health', label: '♥', color: '#ff4164' });
 const manaBar = createResourceBar(document.getElementById('hud-mana-bar'), { key: 'mana', label: '◆', color: '#55aaff', boostedClass: 'mana-boosted' });
+function syncHudResources() {
+  const health = world.get(playerId, Health);
+  const mana = world.get(playerId, Mana);
+  const powerups = world.get(playerId, Powerups);
+  healthBar.set(health?.hp ?? 0, health?.maxHp ?? 1);
+  manaBar.set(mana?.mana ?? 0, mana?.maxMana ?? 1, {
+    boosted: (powerups?.manaRegenSeconds || 0) > 0,
+  });
+}
+syncHudResources();
 renderer = createWebGLArenaRenderer({
   canvas, overlayCanvas, cam, grid, bounds, decorations, fx, world, SEED, runtimeEvents,
   net: netClient, playerId,
@@ -491,6 +506,9 @@ const loop = createFixedTickLoop({
     }
   },
   render() {
+    // Keep the DOM HUD independent from the WebGL pass. A renderer error or
+    // a delayed first frame must not leave resource bars at their placeholders.
+    syncHudResources();
     renderer.renderFrame();
     // Sync spell bar UI with active spell
     if (world.has(playerId, Spellbook)) {
