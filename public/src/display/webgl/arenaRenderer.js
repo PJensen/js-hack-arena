@@ -262,9 +262,27 @@ void main() {
   float halo = pow(max(0.0, 1.0 - radius), 0.42);
   float swirl = 0.5 + 0.5 * sin(angle * 5.0 - u_time * 2.6 + radius * 8.0);
   float wisps = pow(swirl, 3.0) * (1.0 - radius * 0.35);
-  float rimBloom = pow(max(0.0, 1.0 - abs(radius - 0.72) / 0.30), 2.0);
-  vec3 color = base * (0.32 * halo + 0.72 * core + 0.30 * wisps + 0.22 * rimBloom);
-  float alpha = (0.10 * halo + 0.34 * core + 0.12 * wisps + 0.08 * rimBloom) * pulse * u_alpha;
+  vec3 color = base * (0.32 * halo + 0.72 * core + 0.30 * wisps);
+  float alpha = (0.10 * halo + 0.34 * core + 0.12 * wisps) * pulse * u_alpha;
+  out_color = vec4(color, alpha);
+}`;
+
+const FLAME_FRAGMENT = `#version 300 es
+precision highp float;
+uniform float u_time;
+uniform float u_alpha;
+in vec2 v_uv;
+out vec4 out_color;
+void main() {
+  vec2 p = (v_uv - 0.5) * 2.0;
+  float wobble = sin(u_time * 5.0 + p.y * 7.0) * 0.07 + sin(u_time * 8.3 - p.y * 4.0) * 0.035;
+  p.x -= wobble * (0.35 + p.y * 0.25);
+  float body = 1.0 - smoothstep(0.12, 0.92, length(vec2(p.x * 1.12, p.y * 0.82)));
+  float flameTip = smoothstep(0.80, 0.12, p.y) * smoothstep(-0.15, 0.42, p.y);
+  float core = 1.0 - smoothstep(0.02, 0.58, length(vec2(p.x * 1.7, (p.y + 0.18) * 1.25)));
+  float glow = pow(max(0.0, 1.0 - length(p)), 0.55);
+  float alpha = (glow * 0.18 + body * 0.48 + flameTip * 0.24 + core * 0.24) * u_alpha;
+  vec3 color = mix(vec3(1.0, 0.12, 0.01), vec3(1.0, 0.92, 0.42), core);
   out_color = vec4(color, alpha);
 }`;
 
@@ -366,6 +384,9 @@ export function createWebGLArenaRenderer(deps) {
   potionGlow.theme = uniform(gl, potionGlow.program, 'u_theme');
   potionGlow.time = uniform(gl, potionGlow.program, 'u_time');
   potionGlow.alpha = uniform(gl, potionGlow.program, 'u_alpha');
+  const flame = worldProgram(device, FLAME_FRAGMENT);
+  flame.time = uniform(gl, flame.program, 'u_time');
+  flame.alpha = uniform(gl, flame.program, 'u_alpha');
   const cube = worldProgram(device, CUBE_FRAGMENT);
   cube.time = uniform(gl, cube.program, 'u_time');
   cube.alpha = uniform(gl, cube.program, 'u_alpha');
@@ -522,6 +543,15 @@ export function createWebGLArenaRenderer(deps) {
     gl.uniform1i(potionGlow.theme, themeIndex(theme));
     gl.uniform1f(potionGlow.time, time);
     gl.uniform1f(potionGlow.alpha, alpha);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  function drawFlame(x, y, width, height, time, alpha = 1) {
+    gl.useProgram(flame.program);
+    gl.bindVertexArray(quadVao);
+    setWorld(flame, x, y, width, height);
+    gl.uniform1f(flame.time, time);
+    gl.uniform1f(flame.alpha, alpha);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
@@ -844,9 +874,7 @@ export function createWebGLArenaRenderer(deps) {
     for (const torch of decorations?.torches || []) {
       if (!inView(torch.x, torch.y, 90)) continue;
       const flicker = 0.5 + 0.5 * torchFlicker(now, torch.phase);
-      drawDisc(torch.x, torch.y - 12, 30 + flicker * 5, [1, 0.18, 0.015, 0.018], [1, 0.38, 0.035, 0.035]);
-      drawDisc(torch.x, torch.y - 12, 10 + flicker * 2, [1, 0.2, 0.02, 0.16], [1, 0.58, 0.08, 0.36]);
-      drawDisc(torch.x, torch.y - 13, 3.5 + flicker, [1, 0.88, 0.38, 0.98], [1, 1, 0.74, 1]);
+      drawFlame(torch.x, torch.y - 15, 30 + flicker * 6, 42 + flicker * 8, now + torch.phase, 0.72);
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
@@ -1093,7 +1121,10 @@ export function createWebGLArenaRenderer(deps) {
       const glow = lootGlowColor(info, consumable?.effect);
       const pulse = 0.5 + 0.5 * Math.sin(now * 2.4 + id * 0.73);
       const shaft = lootShaftHeight(info, consumable?.effect);
-      drawDisc(shown.x, shown.y, 12 + pulse * 2, [glow[0], glow[1], glow[2], 0.05 + pulse * 0.04], [glow[0], glow[1], glow[2], 0.13 + pulse * 0.08]);
+      if (consumable) {
+        const potionTheme = consumable.effect === 'mana' ? 'electric' : 'fire';
+        drawPotionGlow(potionTheme, shown.x, shown.y, 16 + pulse * 2, now + id * 0.13, 0.9);
+      }
       drawLines(new Float32Array([
         shown.x - 3, shown.y - 5, shown.x - 1, shown.y - shaft,
         shown.x + 3, shown.y - 5, shown.x + 1, shown.y - shaft,
