@@ -3,6 +3,7 @@ import { multiply, perspective } from '../public/src/display/webgl/math.js';
 import { ParticleFX, ParticlePool } from '../public/src/display/webgl/particles.js';
 import { MAX_DYNAMIC_LIGHTS } from '../public/src/display/webgl/arenaRenderer.js';
 import { buildTerrainMesh } from '../public/src/display/webgl/terrainMesh.js';
+import { createDungeonDecorations } from '../public/src/display/worldDecorations.js';
 import { generateCave } from '../public/src/rules/geometry/caveGen.js';
 
 Deno.test('webgl foundation: cave generation retains signed visual density', () => {
@@ -18,6 +19,16 @@ Deno.test('webgl foundation: expanded cave routes remain open and navigable', ()
   for (const route of cave.routes) {
     for (const point of route.points) assert(cave.grid.distanceMove(point.x, point.y) >= 20);
   }
+});
+
+Deno.test('webgl foundation: starting campfire is clear of the player and nearby torches', () => {
+  const spawns = [{ x: 200, y: 200 }, { x: 600, y: 250 }];
+  const routes = [{ points: [{ x: 200, y: 100 }, { x: 950, y: 250 }] }];
+  const { campfire, torches } = createDungeonDecorations({
+    grid: { distanceMove: () => 100 }, spawns, routes,
+  });
+  assert(Math.hypot(campfire.x - spawns[0].x, campfire.y - spawns[0].y) >= 52);
+  assertEquals(torches.map(torch => torch.x), [600, 950]);
 });
 
 Deno.test('webgl foundation: terrain mesh retains open floor and raises solid density', () => {

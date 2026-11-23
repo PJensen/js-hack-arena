@@ -9,6 +9,7 @@ import { spells as spellCatalog } from '../../rules/data/spellCatalog.js';
 import { rarityTextColors } from '../../rules/data/lootTable.js';
 import { createWebGLDevice } from './device.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
+import { createCampfireMesh } from './campfireMesh.js';
 import { WORLD_VERTEX } from './shaders/world.vert.js';
 import { CAVE_VERTEX } from './shaders/cave.vert.js';
 import { CAVE_FRAGMENT } from './shaders/cave.frag.js';
@@ -22,6 +23,8 @@ import { createLightFragment } from './shaders/light.frag.js';
 import { ELEMENT_FRAGMENT } from './shaders/element.frag.js';
 import { POTION_GLOW_FRAGMENT } from './shaders/potionGlow.frag.js';
 import { FLAME_FRAGMENT } from './shaders/flame.frag.js';
+import { CAMPFIRE_VERTEX } from './shaders/campfire.vert.js';
+import { CAMPFIRE_FRAGMENT } from './shaders/campfire.frag.js';
 import { CUBE_FRAGMENT } from './shaders/cube.frag.js';
 import { PROJECTILE_VERTEX } from './shaders/projectile.vert.js';
 import { FROST_BOLT_FRAGMENT } from './shaders/frostBolt.frag.js';
@@ -149,6 +152,12 @@ export function createWebGLArenaRenderer(deps) {
   const flame = worldProgram(device, FLAME_FRAGMENT);
   flame.time = uniform(gl, flame.program, 'u_time');
   flame.alpha = uniform(gl, flame.program, 'u_alpha');
+  const campfireProgram = device.program(CAMPFIRE_VERTEX, CAMPFIRE_FRAGMENT);
+  const campfireLocations = {
+    view: uniform(gl, campfireProgram, 'u_view'),
+    position: uniform(gl, campfireProgram, 'u_position'),
+    time: uniform(gl, campfireProgram, 'u_time'),
+  };
   const cube = worldProgram(device, CUBE_FRAGMENT);
   cube.time = uniform(gl, cube.program, 'u_time');
   cube.alpha = uniform(gl, cube.program, 'u_alpha');
@@ -181,6 +190,17 @@ export function createWebGLArenaRenderer(deps) {
   gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+  const campfireVertices = createCampfireMesh();
+  const campfireVao = device.vertexArray();
+  gl.bindVertexArray(campfireVao);
+  device.buffer(gl.ARRAY_BUFFER, campfireVertices);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 28, 0);
+  gl.enableVertexAttribArray(1);
+  gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 28, 12);
+  gl.enableVertexAttribArray(2);
+  gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 28, 24);
 
   const caveWidth = (grid.cols - 1) * grid.cellSize;
   const caveHeight = (grid.rows - 1) * grid.cellSize;
@@ -449,8 +469,8 @@ export function createWebGLArenaRenderer(deps) {
       if (distance <= 520 + Math.max(view[2], view[3]) * 0.75) {
         candidates.push({
           x: campfire.x, y: campfire.y - 8, radius: 300,
-          intensity: 1.12 + 0.22 * torchFlicker(now, campfire.phase),
-          r: 1, g: 0.34, b: 0.08, distance,
+          intensity: 1.15 + 0.19 * torchFlicker(now, campfire.phase),
+          r: 1, g: 0.54, b: 0.26, distance,
         });
       }
     }
@@ -666,24 +686,33 @@ export function createWebGLArenaRenderer(deps) {
     if (emitParticles) torchParticleAccumulator %= 0.055;
     const campfire = decorations?.campfire;
     if (campfire && inView(campfire.x, campfire.y, 90)) {
-      const pulse = 0.5 + 0.5 * torchFlicker(now, campfire.phase);
-      const stones = 8;
-      for (let i = 0; i < stones; i++) {
-        const angle = (i / stones) * Math.PI * 2;
-        const stoneX = campfire.x + Math.cos(angle) * 22;
-        const stoneY = campfire.y + 5 + Math.sin(angle) * 13;
-        drawDisc(stoneX, stoneY, 5.5, [0.18, 0.16, 0.15, 1], [0.42, 0.34, 0.25, 1]);
-      }
-      drawLines(new Float32Array([
-        campfire.x - 18, campfire.y + 8, campfire.x + 18, campfire.y - 5,
-        campfire.x - 18, campfire.y - 5, campfire.x + 18, campfire.y + 8,
-      ]), [0.38, 0.16, 0.045, 1], 5);
-      drawLines(new Float32Array([
-        campfire.x - 13, campfire.y + 4, campfire.x + 13, campfire.y + 4,
-      ]), [0.58, 0.25, 0.07, 1], 3);
+      gl.useProgram(campfireProgram);
+      gl.bindVertexArray(campfireVao);
+      gl.uniform4fv(campfireLocations.view, view);
+      gl.uniform2f(campfireLocations.position, campfire.x, campfire.y);
+      gl.uniform1f(campfireLocations.time, now + campfire.phase);
+      gl.clear(gl.DEPTH_BUFFER_BIT);
+      gl.enable(gl.DEPTH_TEST);
+      gl.drawArrays(gl.TRIANGLES, 0, campfireVertices.length / 7);
+      gl.disable(gl.DEPTH_TEST);
       if (emitParticles) {
-        spawnTorchParticle(campfire, now, true);
-        spawnTorchParticle(campfire, now, false);
+        const drift = Math.sin(now * 112.7 + campfire.phase);
+        fx.pool.spawn({
+          x: campfire.x + drift * 12,
+          y: campfire.y - 12,
+          vx: drift * 17,
+          vy: -40 - 12 * Math.abs(drift),
+          ax: 2,
+          ay: -13,
+          life: 0.36 + 0.24 * Math.abs(drift),
+          size0: 2,
+          size1: 0.4,
+          r: 1,
+          g: 0.48,
+          b: 0.10,
+          a0: 0.85,
+          a1: 0,
+        });
       }
     }
     for (const torch of decorations?.torches || []) {
@@ -700,11 +729,6 @@ export function createWebGLArenaRenderer(deps) {
   // low-alpha halo visually joins the flame to its actual dynamic light pool.
   function drawTorchEmission(now) {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-    const campfire = decorations?.campfire;
-    if (campfire && inView(campfire.x, campfire.y, 120)) {
-      const flicker = 0.5 + 0.5 * torchFlicker(now, campfire.phase);
-      drawFlame(campfire.x, campfire.y - 12, 25 + flicker * 5, 34 + flicker * 7, now + campfire.phase, 0.88);
-    }
     for (const torch of decorations?.torches || []) {
       if (!inView(torch.x, torch.y, 90)) continue;
       const flicker = 0.5 + 0.5 * torchFlicker(now, torch.phase);
