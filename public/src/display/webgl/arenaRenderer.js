@@ -1164,8 +1164,10 @@ export function createWebGLArenaRenderer(deps) {
     const mana = world.get(playerId, Mana);
     const meleeWeapon = world.get(playerId, MeleeWeapon);
     resourceBars?.health?.set(hp?.hp ?? 0, hp?.maxHp ?? 1);
-    hud.weapon.textContent = `⚔ ${meleeWeapon?.damage ?? 5}`;
-    hud.weapon.title = `${meleeWeapon?.name || 'Fists'} · ${meleeWeapon?.damage ?? 5} physical damage per hit`;
+    if (hud.weapon) {
+      hud.weapon.textContent = `⚔ ${meleeWeapon?.damage ?? 5}`;
+      hud.weapon.title = `${meleeWeapon?.name || 'Fists'} · ${meleeWeapon?.damage ?? 5} physical damage per hit`;
+    }
     const boosted = activePowerups?.manaRegenSeconds > 0;
     resourceBars?.mana?.set(mana?.mana ?? 0, mana?.maxMana ?? 1, { boosted });
     const activeLabels = [...activePowerupLabels(activePowerups), ...activeConditionLabels(world.get(playerId, Conditions))];
