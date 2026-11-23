@@ -4,6 +4,9 @@
 
 import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, Mana, Powerups, FOV, PointLight, AI, AIBehavior, Projectile, Lifetime, Spellbook, SpellId, ItemInfo, ItemSlot, Consumable, GroundItem, MeleeWeapon, WeaponPickup, BowWeapon, ArrowAmmo, RecoverableArrows, Conditions, AuraEmitter } from './components/index.js';
 import { auras as auraCatalog } from './data/auraCatalog.js';
+import { Gold } from './components/Gold.js';
+
+export const GOLD_LIGHT = Object.freeze({ radius: 36, r: 255, g: 190, b: 45 });
 
 /**
  * Find open ground near a point using the grid.
@@ -90,6 +93,7 @@ export function spawnPlayer(world, x, y, name = 'Player') {
   world.add(id, MeleeWeapon, { damage: 5, name: 'Fists', glyph: '\u270A', rarity: '' });
   world.add(id, BowWeapon);
   world.add(id, ArrowAmmo, { count: 10 });
+  world.add(id, Gold);
   world.add(id, Spellbook, {
     spells: [SpellId.FROST_BOLT, SpellId.LIGHTNING],
     activeIndex: 0,
@@ -212,6 +216,17 @@ export function spawnManaPotion(world, x, y, potency = 30) {
   world.add(id, GroundItem);
   world.add(id, Collider, { radius: 10 });
   world.add(id, PointLight, { radius: 72, r: 55, g: 145, b: 255 });
+  return id;
+}
+
+export function spawnGold(world, x, y) {
+  const id = world.create();
+  world.add(id, Position, { x, y });
+  world.add(id, ItemInfo, { name: 'Gold', glyph: '$', count: 1 });
+  world.add(id, Consumable, { effect: 'gold', potency: 1 });
+  world.add(id, GroundItem);
+  world.add(id, Collider, { radius: 7 });
+  world.add(id, PointLight, { ...GOLD_LIGHT });
   return id;
 }
 

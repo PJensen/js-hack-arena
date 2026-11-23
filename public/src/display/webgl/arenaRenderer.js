@@ -1,6 +1,6 @@
 import {
   Actor, ActorKind, BowWeapon, Conditions, AuraEmitter, Collider,
-  Consumable, Facing, GroundItem, Health, Input, ItemInfo, Mana, MeleeWeapon,
+  Consumable, Facing, Gold, GroundItem, Health, Input, ItemInfo, Mana, MeleeWeapon,
   PickupLock, PlayerTag, PointLight, Position, Powerups, Projectile, Spellbook,
   Velocity, WeaponPickup,
 } from '../../rules/components/index.js';
@@ -1093,6 +1093,11 @@ export function createWebGLArenaRenderer(deps) {
       if (!inView(shown.x, shown.y, 90)) continue;
       const weapon = world.get(id, WeaponPickup);
       const effect = consumable?.effect;
+      if (effect === 'gold') {
+        const bob = Math.sin(now * 3 + id) * 1.5;
+        drawGlyph('$', shown.x, shown.y - 2 + bob, 19, [1, 0.78, 0.25, 0.95]);
+        continue;
+      }
       const potion = effect === 'heal' || effect === 'mana';
       const model = weapon ? (weapon.slot === 'ranged' ? 'bow' : 'sword')
         : effect === 'epic_chest' ? 'chest' : potion ? 'potion' : null;
@@ -1241,7 +1246,7 @@ export function createWebGLArenaRenderer(deps) {
     const activeLabels = [...activePowerupLabels(activePowerups), ...activeConditionLabels(world.get(playerId, Conditions))];
     hud.meta.textContent = hp?.dead
       ? 'YOU DIED · refresh to re-enter'
-      : `${activeLabels.length ? activeLabels.join(' · ') + ' · ' : ''}casts ${runtimeEvents.casts}${net ? ` · ${net.getStatusText()}` : ''}`;
+      : `$ ${world.get(playerId, Gold)?.count ?? 0} · ${activeLabels.length ? activeLabels.join(' · ') + ' · ' : ''}casts ${runtimeEvents.casts}${net ? ` · ${net.getStatusText()}` : ''}`;
     document.body.classList.toggle('player-dead', Boolean(hp?.dead));
     hud.zoomReadout.textContent = `zoom: ${cam.scale.toFixed(2)}x  particles:${fx.pool.count}`;
     hud.readL.textContent = router.left.active ? `L x:${playerInput.moveX.toFixed(2)} y:${playerInput.moveY.toFixed(2)}` : (Math.abs(keyboard.mx) + Math.abs(keyboard.my) ? `KB ${keyboard.mx},${keyboard.my}` : 'L stick idle');

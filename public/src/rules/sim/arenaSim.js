@@ -11,6 +11,7 @@ import {
   Consumable,
   Facing,
   GroundItem,
+  Gold,
   Health,
   Input,
   ItemInfo,
@@ -27,7 +28,7 @@ import {
   Spellbook,
   Velocity,
 } from '../components/index.js';
-import { mobDropTable, mobDropTotalWeight, rollTable } from '../data/lootTable.js';
+import { epicChestTable, epicChestTotalWeight, mobDropTable, mobDropTotalWeight, rollTable } from '../data/lootTable.js';
 import { effectSystem, projectConditions, projectAuraEmitter } from '../effects.js';
 import { createGridCarver } from '../geometry/carve.js';
 import {
@@ -37,6 +38,9 @@ import {
   spawnEpicBow,
   spawnEpicChest,
   spawnEpicSword,
+  spawnGold,
+  GOLD_LIGHT,
+  findOpenNear,
   spawnLegendaryBow,
   spawnLegendarySword,
   spawnFuryRune,
@@ -345,6 +349,7 @@ export function createArenaSimulation({
           rarity: bow.rarity, damage: bow.damage, infiniteArrows: bow.infiniteArrows,
         },
         arrowCount: ammo.count,
+        gold: world.get(entityId, Gold).count,
         conditions: projectConditions(world, entityId),
         auraEmitter: projectAuraEmitter(world, entityId),
       },
@@ -546,6 +551,7 @@ export function createArenaSimulation({
       Object.assign(weapon, state.weapon);
       Object.assign(world.get(entityId, BowWeapon), state.rangedWeapon);
       world.get(entityId, ArrowAmmo).count = state.arrowCount;
+      world.get(entityId, Gold).count = state.gold;
       world.get(entityId, Conditions).active = state.conditions.map(replicaCondition);
     } else if (record.kind === 'item') {
       const lock = state.pickupLock;
@@ -629,7 +635,16 @@ export function createArenaSimulation({
       const drop = rollTable(mobDropTable, mobDropTotalWeight, targetWorld.rand);
       const itemId = spawnDrop(targetWorld, drop, event.x + targetWorld.rand() * 12 - 6, event.y + targetWorld.rand() * 12 - 6);
       if (itemId != null) ensureNetworkId(itemId, 'item');
+      const goldPosition = findOpenNear(grid, event.x + 16, event.y);
+      const gold = grid.distanceMove(goldPosition.x, goldPosition.y) >= 7
+        ? goldPosition : event;
+      ensureNetworkId(spawnGold(targetWorld, gold.x, gold.y), 'item');
       revision += 1;
+    });
+    targetWorld.on('chest.opened', ({ x, y }) => {
+      const drop = rollTable(epicChestTable, epicChestTotalWeight, targetWorld.rand);
+      const itemId = spawnDrop(targetWorld, drop, x, y);
+      if (itemId != null) ensureNetworkId(itemId, 'item');
     });
   }
 
@@ -789,6 +804,7 @@ function normalizePlayerState(id, state) {
     },
     rangedWeapon: normalizeBowState(id, state.rangedWeapon),
     arrowCount: nonNegativeInteger(state.arrowCount ?? 10, `${id}.arrowCount`),
+    gold: nonNegativeInteger(state.gold ?? 0, `${id}.gold`),
   };
 }
 
@@ -1042,6 +1058,7 @@ function clampColor(value) {
 }
 
 function replicaItemLight(effect, rarity = '') {
+  if (effect === 'gold') return { ...GOLD_LIGHT };
   if (rarity === 'common') return { radius: 55, r: 160, g: 160, b: 160 };
   if (rarity === 'uncommon') return { radius: 65, r: 100, g: 220, b: 100 };
   if (rarity === 'rare') return { radius: 70, r: 80, g: 140, b: 255 };

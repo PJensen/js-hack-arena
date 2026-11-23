@@ -4,9 +4,9 @@ import {
   assertEquals,
   assertThrows,
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
-import { AI, Actor, Auras, Facing, Health, Input, ItemInfo, Mana, Position, Powerups, Projectile, Spellbook, Collider } from '../public/src/rules/components/index.js';
+import { AI, Actor, Auras, Facing, Gold, Health, Input, ItemInfo, Mana, PointLight, Position, Powerups, Projectile, Spellbook, Collider } from '../public/src/rules/components/index.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
-import { spawnFuryRune, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnPotion, spawnSpellbook, spawnWardRune } from '../public/src/rules/spawner.js';
+import { GOLD_LIGHT, spawnEpicChest, spawnFuryRune, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnPotion, spawnSpellbook, spawnWardRune } from '../public/src/rules/spawner.js';
 import { applyAura, applyDamage, getStatMultiplier } from '../public/src/rules/effects.js';
 import { SpellCastMode, spells as spellCatalog } from '../public/src/rules/data/spellCatalog.js';
 import {
@@ -200,6 +200,43 @@ Deno.test("arena sim: combat, projectiles, deaths, and loot are authoritative", 
   assertEquals(afterDeath.entities.some((entity) => entity.kind === 'mob'), false);
   assert(afterDeath.entities.some((entity) => entity.kind === 'item'));
   assert(afterDeath.events.some((event) => event.type === 'entity.died'));
+});
+
+Deno.test('arena sim: gold drops once, lights replicas and credits the collecting player', () => {
+  const sim = makeOpenSim(123, { enemyCount: 1 });
+  const player = sim.addPlayer('peer-a');
+  const [[mob, , mobPosition]] = sim.world.query(AI, Position);
+  Object.assign(mobPosition, { x: 300, y: 300 });
+  sim.world.get(mob, Health).hp = 0;
+  sim.step();
+  sim.step();
+  const snapshot = sim.captureSnapshot();
+  const drops = snapshot.entities.filter(record => record.state.effect === 'gold');
+  assertEquals(drops.length, 1);
+  assertEquals(drops[0].state.glyph, '$');
+
+  const replica = makeOpenSim(123, { mode: SIM_MODE.REPLICA });
+  replica.applySnapshot(snapshot);
+  const [, , light] = [...replica.world.query(ItemInfo, PointLight)].find(([, info]) => info.glyph === '$');
+  assertEquals({ radius: light.radius, r: light.r, g: light.g, b: light.b }, GOLD_LIGHT);
+
+  const { x, y } = drops[0].state;
+  Object.assign(sim.world.get(player, Position), { x, y });
+  sim.step();
+  const collected = sim.captureSnapshot();
+  assert(!collected.entities.some(record => record.state.effect === 'gold'));
+  replica.applySnapshot(collected);
+  assertEquals(replica.world.get(replica.getPlayerEntity('peer-a'), Gold).count, 1);
+});
+
+Deno.test('arena sim: opening an epic chest replaces it with rolled loot', () => {
+  const sim = makeOpenSim(123, { enemyCount: 0 });
+  sim.addPlayer('peer-a');
+  spawnEpicChest(sim.world, 100, 100);
+  sim.step();
+  const items = sim.captureSnapshot().entities.filter(record => record.kind === 'item');
+  assertEquals(items.length, 1);
+  assert(items[0].state.effect !== 'epic_chest');
 });
 
 Deno.test("arena sim: replica re-emits new presentation events once", () => {
