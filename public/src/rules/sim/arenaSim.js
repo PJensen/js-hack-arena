@@ -139,7 +139,7 @@ export function createArenaSimulation({
     if (mode === SIM_MODE.AUTHORITY && !populationStarted) {
       populationStarted = true;
       const groupSize = Math.max(1, enemyGroupSize);
-      const spawnBuffer = 400 + groupSize * 24;
+      const spawnBuffer = 64 + groupSize * 24;
       for (let i = 0; i < enemyCount; i++) {
         const route = patrolRoutes[i % Math.max(1, patrolRoutes.length)];
         const points = route?.points?.filter((point) =>

@@ -443,6 +443,17 @@ export function createWebGLArenaRenderer(deps) {
         r: 1, g: 0.48, b: 0.14, distance,
       });
     }
+    const campfire = decorations?.campfire;
+    if (campfire) {
+      const distance = Math.hypot(campfire.x - shownPlayer.x, campfire.y - shownPlayer.y);
+      if (distance <= 520 + Math.max(view[2], view[3]) * 0.75) {
+        candidates.push({
+          x: campfire.x, y: campfire.y - 14, radius: 470,
+          intensity: 1.72 + 0.38 * torchFlicker(now, campfire.phase),
+          r: 1, g: 0.42, b: 0.1, distance,
+        });
+      }
+    }
     for (const bolt of bolts) {
       const alpha = Math.max(0, 1 - bolt.age / bolt.duration);
       const dx = bolt.toX - bolt.fromX;
@@ -653,6 +664,19 @@ export function createWebGLArenaRenderer(deps) {
     torchParticleAccumulator += renderDt;
     const emitParticles = torchParticleAccumulator >= 0.055;
     if (emitParticles) torchParticleAccumulator %= 0.055;
+    const campfire = decorations?.campfire;
+    if (campfire && inView(campfire.x, campfire.y, 90)) {
+      const pulse = 0.5 + 0.5 * torchFlicker(now, campfire.phase);
+      drawDisc(campfire.x, campfire.y + 4, 31 + pulse * 2, [0.08, 0.045, 0.025, 1], [0.28, 0.14, 0.06, 1]);
+      drawLines(new Float32Array([
+        campfire.x - 22, campfire.y + 8, campfire.x + 22, campfire.y - 8,
+        campfire.x - 22, campfire.y - 8, campfire.x + 22, campfire.y + 8,
+      ]), [0.34, 0.16, 0.055, 1], 7);
+      if (emitParticles) {
+        spawnTorchParticle(campfire, now, true);
+        spawnTorchParticle(campfire, now, false);
+      }
+    }
     for (const torch of decorations?.torches || []) {
       if (!inView(torch.x, torch.y, 45)) continue;
       drawLines(new Float32Array([torch.x, torch.y + 10, torch.x, torch.y - 7]), [0.34, 0.19, 0.08, 1], 4);
@@ -667,6 +691,11 @@ export function createWebGLArenaRenderer(deps) {
   // low-alpha halo visually joins the flame to its actual dynamic light pool.
   function drawTorchEmission(now) {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    const campfire = decorations?.campfire;
+    if (campfire && inView(campfire.x, campfire.y, 120)) {
+      const flicker = 0.5 + 0.5 * torchFlicker(now, campfire.phase);
+      drawFlame(campfire.x, campfire.y - 19, 48 + flicker * 8, 64 + flicker * 10, now + campfire.phase, 0.9);
+    }
     for (const torch of decorations?.torches || []) {
       if (!inView(torch.x, torch.y, 90)) continue;
       const flicker = 0.5 + 0.5 * torchFlicker(now, torch.phase);
@@ -737,6 +766,12 @@ export function createWebGLArenaRenderer(deps) {
     const mapPoint = (x, y) => [left + 7 * ratio + x / bounds.w * (size - 14 * ratio), top + 7 * ratio + y / bounds.h * (size - 14 * ratio)];
     overlay.fillStyle = 'rgba(255,151,48,.75)';
     for (const torch of decorations?.torches || []) { const [x, y] = mapPoint(torch.x, torch.y); overlay.fillRect(x - ratio, y - ratio, ratio * 2, ratio * 2); }
+    const campfire = decorations?.campfire;
+    if (campfire) {
+      const [x, y] = mapPoint(campfire.x, campfire.y);
+      overlay.fillStyle = 'rgba(255,190,72,.95)';
+      overlay.fillRect(x - 2 * ratio, y - 2 * ratio, ratio * 4, ratio * 4);
+    }
     for (const [id, position, actor] of world.query(Position, Actor)) {
       const [x, y] = mapPoint(position.x, position.y);
       overlay.beginPath(); overlay.arc(x, y, (id === playerId ? 3.2 : 2) * ratio, 0, Math.PI * 2);

@@ -113,7 +113,7 @@ export function spawnCaster(world, grid, nearX, nearY, targetId, patrolPoints = 
     light: { radius: 105, r: 145, g: 70, b: 220 },
     behavior: AIBehavior.CASTER, preferredDist: 140, castRate: 1.5,
     projSpeed: 220, meleeDamage: 10, weapon: 'Claws', aggroRange: 300,
-    patrolPoints,
+    patrolPoints, searchRadius: 64,
   });
 }
 
@@ -124,7 +124,7 @@ export function spawnMelee(world, grid, nearX, nearY, targetId, patrolPoints = [
     light: { radius: 70, r: 255, g: 105, b: 35 },
     behavior: AIBehavior.MELEE, preferredDist: 10, castRate: 99,
     projSpeed: 0, meleeDamage: 14, weapon: 'Jagged Blade', aggroRange: 340,
-    patrolPoints,
+    patrolPoints, searchRadius: 64,
   });
 }
 
@@ -135,12 +135,12 @@ export function spawnTank(world, grid, nearX, nearY, targetId, patrolPoints = []
     light: { radius: 125, r: 40, g: 225, b: 190 },
     behavior: AIBehavior.MELEE, preferredDist: 14, castRate: 99,
     projSpeed: 0, meleeDamage: 18, weapon: 'Engulf', aggroRange: 260,
-    patrolPoints,
+    patrolPoints, searchRadius: 64,
   });
 }
 
 function spawnMob(world, grid, nearX, nearY, targetId, config) {
-  const pos = findOpenNear(grid, nearX, nearY, 400);
+  const pos = findOpenNear(grid, nearX, nearY, config.searchRadius ?? 400);
   const rare = world.rand() < 0.09;
   const healthScale = rare ? 1.65 : 1;
   const damageScale = rare ? 1.35 : 1;

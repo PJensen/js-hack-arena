@@ -18,7 +18,10 @@ export function createDungeonDecorations({ grid, routes = [], spawns = [], seed 
     route.points.forEach((point) => placeTorch(point.x, point.y, routeIndex));
   });
 
-  return Object.freeze({ torches: Object.freeze(torches) });
+  const campfire = spawns[0]
+    ? Object.freeze({ x: spawns[0].x, y: spawns[0].y, phase: rng() * Math.PI * 2 })
+    : null;
+  return Object.freeze({ torches: Object.freeze(torches), campfire });
 }
 
 function findOpen(grid, x, y, radius) {
