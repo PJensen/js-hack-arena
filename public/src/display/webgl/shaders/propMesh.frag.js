@@ -1,4 +1,4 @@
-export const CAMPFIRE_FRAGMENT = `#version 300 es
+export const PROP_MESH_FRAGMENT = `#version 300 es
 precision highp float;
 in vec3 v_color;
 out vec4 out_color;

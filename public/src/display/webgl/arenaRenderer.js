@@ -11,6 +11,7 @@ import { biolum, emberLight, torchLight } from '../lightPatterns.js';
 import { createWebGLDevice } from './device.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
 import { createCampfireMesh } from './campfireMesh.js';
+import { createGhostPipeMesh } from './ghostPipeMesh.js';
 import { WORLD_VERTEX } from './shaders/world.vert.js';
 import { CAVE_VERTEX } from './shaders/cave.vert.js';
 import { CAVE_FRAGMENT } from './shaders/cave.frag.js';
@@ -25,9 +26,9 @@ import { ELEMENT_FRAGMENT } from './shaders/element.frag.js';
 import { POTION_GLOW_FRAGMENT } from './shaders/potionGlow.frag.js';
 import { FLAME_FRAGMENT } from './shaders/flame.frag.js';
 import { CAMPFIRE_VERTEX } from './shaders/campfire.vert.js';
-import { CAMPFIRE_FRAGMENT } from './shaders/campfire.frag.js';
+import { PROP_MESH_FRAGMENT } from './shaders/propMesh.frag.js';
 import { MUSHROOM_FRAGMENT } from './shaders/mushroom.frag.js';
-import { GHOST_PIPE_FRAGMENT } from './shaders/ghostPipe.frag.js';
+import { GHOST_PIPE_VERTEX } from './shaders/ghostPipe.vert.js';
 import { CUBE_FRAGMENT } from './shaders/cube.frag.js';
 import { PROJECTILE_VERTEX } from './shaders/projectile.vert.js';
 import { FROST_BOLT_FRAGMENT } from './shaders/frostBolt.frag.js';
@@ -117,13 +118,18 @@ function directionalProgram(device, fragment) {
   };
 }
 
-function biolumProgram(device, fragment) {
-  const shader = worldProgram(device, fragment);
-  return {
-    ...shader,
-    glow: uniform(device.gl, shader.program, 'u_glow'),
-    intensity: uniform(device.gl, shader.program, 'u_intensity'),
-  };
+function uploadPropMesh(device, vertices) {
+  const { gl } = device;
+  const vao = device.vertexArray();
+  gl.bindVertexArray(vao);
+  device.buffer(gl.ARRAY_BUFFER, vertices);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 28, 0);
+  gl.enableVertexAttribArray(1);
+  gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 28, 12);
+  gl.enableVertexAttribArray(2);
+  gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 28, 24);
+  return { vao, count: vertices.length / 7 };
 }
 
 export function createWebGLArenaRenderer(deps) {
@@ -163,11 +169,18 @@ export function createWebGLArenaRenderer(deps) {
   const flame = worldProgram(device, FLAME_FRAGMENT);
   flame.time = uniform(gl, flame.program, 'u_time');
   flame.alpha = uniform(gl, flame.program, 'u_alpha');
-  const bioluminescentProps = [
-    { prop: decorations?.mushroom, shader: biolumProgram(device, MUSHROOM_FRAGMENT), width: 52, height: 48, lift: 6 },
-    { prop: decorations?.ghostPipe, shader: biolumProgram(device, GHOST_PIPE_FRAGMENT), width: 64, height: 60, lift: 8 },
-  ].filter(({ prop }) => prop);
-  const campfireProgram = device.program(CAMPFIRE_VERTEX, CAMPFIRE_FRAGMENT);
+  const mushroom = worldProgram(device, MUSHROOM_FRAGMENT);
+  mushroom.glow = uniform(gl, mushroom.program, 'u_glow');
+  mushroom.intensity = uniform(gl, mushroom.program, 'u_intensity');
+  const bioluminescentProps = [decorations?.mushroom, decorations?.ghostPipe].filter(Boolean);
+  const ghostPipeProgram = device.program(GHOST_PIPE_VERTEX, PROP_MESH_FRAGMENT);
+  const ghostPipeLocations = {
+    view: uniform(gl, ghostPipeProgram, 'u_view'),
+    position: uniform(gl, ghostPipeProgram, 'u_position'),
+    glow: uniform(gl, ghostPipeProgram, 'u_glow'),
+    intensity: uniform(gl, ghostPipeProgram, 'u_intensity'),
+  };
+  const campfireProgram = device.program(CAMPFIRE_VERTEX, PROP_MESH_FRAGMENT);
   const campfireLocations = {
     view: uniform(gl, campfireProgram, 'u_view'),
     position: uniform(gl, campfireProgram, 'u_position'),
@@ -207,16 +220,8 @@ export function createWebGLArenaRenderer(deps) {
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
-  const campfireVertices = createCampfireMesh();
-  const campfireVao = device.vertexArray();
-  gl.bindVertexArray(campfireVao);
-  device.buffer(gl.ARRAY_BUFFER, campfireVertices);
-  gl.enableVertexAttribArray(0);
-  gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 28, 0);
-  gl.enableVertexAttribArray(1);
-  gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 28, 12);
-  gl.enableVertexAttribArray(2);
-  gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 28, 24);
+  const campfireMesh = uploadPropMesh(device, createCampfireMesh());
+  const ghostPipeMesh = uploadPropMesh(device, createGhostPipeMesh());
 
   const caveWidth = (grid.cols - 1) * grid.cellSize;
   const caveHeight = (grid.rows - 1) * grid.cellSize;
@@ -492,7 +497,7 @@ export function createWebGLArenaRenderer(deps) {
         });
       }
     }
-    for (const { prop } of bioluminescentProps) {
+    for (const prop of bioluminescentProps) {
       const glow = biolum(now, prop.phase);
       const radius = 80 + 32 * glow.intensity;
       if (inView(prop.x, prop.y, radius)) {
@@ -677,6 +682,14 @@ export function createWebGLArenaRenderer(deps) {
     return Math.abs(x - view[0]) <= view[2] * 0.5 + margin && Math.abs(y - view[1]) <= view[3] * 0.5 + margin;
   }
 
+  function drawPropMesh({ vao, count }) {
+    gl.bindVertexArray(vao);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+    gl.drawArrays(gl.TRIANGLES, 0, count);
+    gl.disable(gl.DEPTH_TEST);
+  }
+
   function spawnTorchParticle(torch, now, hot) {
     const sequence = ++torchParticleSequence;
     const noise = Math.sin(sequence * 91.73 + torch.phase * 17.1) * 43758.5453;
@@ -707,15 +720,11 @@ export function createWebGLArenaRenderer(deps) {
     const campfire = decorations?.campfire;
     if (campfire && inView(campfire.x, campfire.y, 90)) {
       gl.useProgram(campfireProgram);
-      gl.bindVertexArray(campfireVao);
       gl.uniform4fv(campfireLocations.view, view);
       gl.uniform2f(campfireLocations.position, campfire.x, campfire.y);
       gl.uniform1f(campfireLocations.time, now + campfire.phase);
       gl.uniform1f(campfireLocations.intensity, emberLight(now, campfire.phase));
-      gl.clear(gl.DEPTH_BUFFER_BIT);
-      gl.enable(gl.DEPTH_TEST);
-      gl.drawArrays(gl.TRIANGLES, 0, campfireVertices.length / 7);
-      gl.disable(gl.DEPTH_TEST);
+      drawPropMesh(campfireMesh);
       if (emitParticles) {
         const drift = Math.sin(now * 112.7 + campfire.phase);
         fx.pool.spawn({
@@ -755,15 +764,25 @@ export function createWebGLArenaRenderer(deps) {
       drawFlame(torch.x, torch.y - 15, 28 + intensity * 6, 28 + intensity * 18, now + torch.phase, 0.83 * intensity);
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    for (const { prop, shader, width, height, lift } of bioluminescentProps) {
-      if (!inView(prop.x, prop.y, width * 0.5)) continue;
-      const glow = biolum(now, prop.phase);
-      gl.useProgram(shader.program);
+    const fungus = decorations?.mushroom;
+    if (fungus && inView(fungus.x, fungus.y, 26)) {
+      const glow = biolum(now, fungus.phase);
+      gl.useProgram(mushroom.program);
       gl.bindVertexArray(quadVao);
-      setWorld(shader, prop.x, prop.y - lift, width, height);
-      gl.uniform3f(shader.glow, glow.r, glow.g, glow.b);
-      gl.uniform1f(shader.intensity, glow.intensity);
+      setWorld(mushroom, fungus.x, fungus.y - 6, 52, 48);
+      gl.uniform3f(mushroom.glow, glow.r, glow.g, glow.b);
+      gl.uniform1f(mushroom.intensity, glow.intensity);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+    const ghostPipe = decorations?.ghostPipe;
+    if (ghostPipe && inView(ghostPipe.x, ghostPipe.y, 36)) {
+      const glow = biolum(now, ghostPipe.phase);
+      gl.useProgram(ghostPipeProgram);
+      gl.uniform4fv(ghostPipeLocations.view, view);
+      gl.uniform2f(ghostPipeLocations.position, ghostPipe.x, ghostPipe.y);
+      gl.uniform3f(ghostPipeLocations.glow, glow.r, glow.g, glow.b);
+      gl.uniform1f(ghostPipeLocations.intensity, glow.intensity);
+      drawPropMesh(ghostPipeMesh);
     }
   }
 
