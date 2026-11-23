@@ -128,6 +128,11 @@
     .spell-btn .spell-ammo.empty { color:#ff8c8c; }
     #zoom-readout { opacity:.45; transition:opacity .2s; }
     #zoom-readout:hover { opacity:1; }
+    #reset-dungeon { position:fixed; top:12px; right:12px; z-index:40; padding:7px 10px;
+                     border:1px solid rgba(126,232,194,.28); border-radius:6px; background:rgba(5,15,20,.76);
+                     color:rgba(220,255,242,.82); font:11px ui-monospace,monospace; letter-spacing:.04em;
+                     cursor:pointer; }
+    #reset-dungeon:hover { background:rgba(22,58,58,.9); color:#fff; }
     .player-dead .joystick, .player-dead #spell-bar { opacity:.2; filter:grayscale(1); pointer-events:none; }
     @media (max-width:620px) {
       #hud { grid-template-columns:auto 1fr 1fr; max-width:calc(100vw - 20px); gap:4px; padding:6px 7px; font-size:11px; }
@@ -162,6 +167,7 @@
     font:13px ui-monospace,monospace;color:rgba(255,255,255,0.5);z-index:40;
     background:rgba(0,0,0,0.4);padding:4px 12px;border-radius:6px;
     border:1px solid rgba(255,255,255,0.1)">zoom: —</div>
+  <button id="reset-dungeon" type="button" title="Leave this room and generate a fresh dungeon">New Dungeon</button>
   <div class="stick-readout" id="readout-left">L stick idle</div>
   <div class="stick-readout" id="readout-right">R stick idle</div>
   <div class="joystick joystick-left" id="joystick-left"><div class="joystick-knob" id="knob-left"></div></div>
@@ -233,6 +239,19 @@ const overlayCanvas = document.getElementById('world-overlay');
 
 const pageParams = new URLSearchParams(location.search);
 const forceOffline = pageParams.has('offline');
+document.getElementById('reset-dungeon').addEventListener('click', () => {
+  if (!window.confirm('Leave this dungeon and generate a new one?')) return;
+  const next = new URL(location.href);
+  if (forceOffline) {
+    const values = new Uint32Array(1);
+    crypto.getRandomValues(values);
+    next.searchParams.set('seed', String(values[0] || Date.now()));
+  } else {
+    const roomToken = crypto.randomUUID ? crypto.randomUUID().replaceAll('-', '').slice(0, 16) : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    next.searchParams.set('room', `dungeon-${roomToken}`);
+  }
+  location.assign(next);
+});
 const authState = await fetch('/auth/me', { credentials: 'same-origin', cache: 'no-store' })
   .then(async (response) => response.ok ? response.json() : ({ authenticated: false }))
   .catch(() => ({ authenticated: false, unavailable: true }));
