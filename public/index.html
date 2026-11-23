@@ -153,7 +153,7 @@
       <p>Enter the shared dungeon with your Hairylogic identity. Offline play remains available at <code>?offline</code>.</p>
       <div id="entry-status" aria-live="polite">CHECKING SIGN-IN STATUS…</div>
       <input id="player-name" maxlength="20" autocomplete="nickname" placeholder="Adventurer" aria-label="Player name" />
-      <button id="enter-dungeon" type="submit">Enter the Dungeon</button>
+      <button id="enter-dungeon" type="submit" disabled>Enter the Dungeon</button>
     </form>
   </div>
   <div id="hud">
@@ -181,6 +181,36 @@
 
 <script>
   const ENABLE_SW = true;
+  let arenaStarted = false;
+  const entryGate = document.getElementById('entry-gate');
+  const entryStatus = document.getElementById('entry-status');
+  const entryButton = document.getElementById('enter-dungeon');
+
+  function showArenaLoadError(message) {
+    if (!entryGate.isConnected) document.body.append(entryGate);
+    entryStatus.textContent = message;
+    entryStatus.dataset.state = 'signed-out';
+    entryButton.type = 'button';
+    entryButton.disabled = false;
+    entryButton.textContent = 'Reload Arena';
+    entryButton.onclick = () => {
+      const url = new URL(location.href);
+      url.searchParams.set('retry', String(Date.now()));
+      location.replace(url);
+    };
+  }
+
+  window.addEventListener('error', (event) => {
+    if (!arenaStarted && (event.target?.id === 'arena-boot' || event instanceof ErrorEvent)) {
+      showArenaLoadError('The arena could not load. Reload to try again.');
+    }
+  }, true);
+  window.addEventListener('unhandledrejection', () => {
+    if (!arenaStarted) showArenaLoadError('The arena could not start. Reload to try again.');
+  });
+  document.getElementById('game').addEventListener('webglcontextlost', () => {
+    showArenaLoadError('The graphics connection was lost. Reload to try again.');
+  });
 
   async function registerServiceWorker() {
     const isGithubPages = window.location.hostname.endsWith('github.io');
@@ -210,7 +240,7 @@
   window.addEventListener('load', () => registerServiceWorker());
 </script>
 
-<script type="module">
+<script type="module" id="arena-boot">
 // ── Boot: imports ───────────────────────────────────────────────
 import { generateArenaCave } from './src/rules/geometry/caveGen.js';
 import { resolveSeed } from './src/runtime/rng.js';
@@ -257,7 +287,6 @@ const authState = await fetch('/auth/me', { credentials: 'same-origin', cache: '
   .catch(() => ({ authenticated: false, unavailable: true }));
 
 const playerName = await new Promise((resolve) => {
-  const gate = document.getElementById('entry-gate');
   const form = document.getElementById('entry-card');
   const field = document.getElementById('player-name');
   const status = document.getElementById('entry-status');
@@ -272,6 +301,7 @@ const playerName = await new Promise((resolve) => {
     status.textContent = authState.unavailable ? 'SIGN-IN STATUS UNAVAILABLE' : 'NOT SIGNED IN · ENTER TO SIGN IN';
   }
   field.value = localStorage.getItem('hack-arena.player-name') || '';
+  entryButton.disabled = false;
   requestAnimationFrame(() => field.focus());
   form.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -283,7 +313,8 @@ const playerName = await new Promise((resolve) => {
     unlockArenaAudio();
     const name = field.value.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 20) || 'Adventurer';
     localStorage.setItem('hack-arena.player-name', name);
-    gate.remove();
+    status.textContent = 'LOADING DUNGEON…';
+    entryButton.disabled = true;
     resolve(name);
   }, { once: true });
 });
@@ -558,6 +589,10 @@ const loop = createFixedTickLoop({
           : sb.charge / castDuration;
         b.style.setProperty('--charge', charging ? Math.max(0, Math.min(1, castProgress)) : 0);
       });
+    }
+    if (!arenaStarted) {
+      arenaStarted = true;
+      entryGate.remove();
     }
   },
 });
