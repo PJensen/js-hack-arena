@@ -337,6 +337,9 @@ const sim = createArenaSimulation({
   spawns,
   mode: isNetworked ? SIM_MODE.REPLICA : SIM_MODE.AUTHORITY,
   enemyCount: 3,
+  enemyGroupSize: 3,
+  patrolRoutes: routes,
+  respawnEnemies: false,
 });
 let renderer = null;
 let pendingWeaponPickup = null;

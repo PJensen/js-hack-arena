@@ -97,7 +97,9 @@ export function createArenaSimulation({
   spawns = [],
   mode = SIM_MODE.AUTHORITY,
   enemyCount = 1,
-  respawnEnemies = true,
+  respawnEnemies = false,
+  enemyGroupSize = 1,
+  patrolRoutes = [],
 } = {}) {
   if (!grid) throw new Error('arena simulation requires a collision grid');
   if (!Object.values(SIM_MODE).includes(mode)) throw new Error(`invalid arena simulation mode: ${mode}`);
@@ -114,6 +116,7 @@ export function createArenaSimulation({
   let lastAppliedRevision = -1;
   let lastAppliedEventSequence = -1;
   let populationStarted = false;
+  let respawnSerial = 0;
 
   if (mode === SIM_MODE.AUTHORITY) {
     installAuthoritativeRules(world, grid);
@@ -137,16 +140,17 @@ export function createArenaSimulation({
     if (mode === SIM_MODE.AUTHORITY && !populationStarted) {
       populationStarted = true;
       for (let i = 0; i < enemyCount; i++) {
+        const route = patrolRoutes[i % Math.max(1, patrolRoutes.length)];
+        const points = route?.points?.length ? route.points : null;
         const angle = (i / Math.max(1, enemyCount)) * Math.PI * 2;
-        const mobId = spawnEnemy(
-          world,
-          grid,
-          spawn.x + Math.cos(angle) * (180 + i * 30),
-          spawn.y + Math.sin(angle) * (180 + i * 30),
-          entityId,
-          i,
-        );
-        ensureNetworkId(mobId, 'mob');
+        const origin = points?.[0] || {
+          x: spawn.x + Math.cos(angle) * (180 + i * 30),
+          y: spawn.y + Math.sin(angle) * (180 + i * 30),
+        };
+        for (let member = 0; member < Math.max(1, enemyGroupSize); member++) {
+          const mobId = spawnEnemy(world, grid, origin.x + member * 24, origin.y + member * 24, null, i, points || [origin]);
+          ensureNetworkId(mobId, 'mob');
+        }
       }
       if (enemyCount > 0) revision += 1;
     }
@@ -617,20 +621,12 @@ export function createArenaSimulation({
       const drop = rollTable(mobDropTable, mobDropTotalWeight, targetWorld.rand);
       const itemId = spawnDrop(targetWorld, drop, event.x + targetWorld.rand() * 12 - 6, event.y + targetWorld.rand() * 12 - 6);
       if (itemId != null) ensureNetworkId(itemId, 'item');
-      if (respawnEnemies) {
-        const target = playerByPeer.values().next().value ?? null;
-        const targetPosition = target == null ? null : targetWorld.get(target, Position);
-        if (targetPosition) {
-          const angle = targetWorld.rand() * Math.PI * 2;
-          const distance = 280 + targetWorld.rand() * 160;
-          const mobId = spawnEnemy(
-            targetWorld,
-            grid,
-            targetPosition.x + Math.cos(angle) * distance,
-            targetPosition.y + Math.sin(angle) * distance,
-            target,
-            Math.floor(targetWorld.rand() * 3),
-          );
+      if (respawnEnemies && patrolRoutes.length > 0) {
+        const route = patrolRoutes[respawnSerial % patrolRoutes.length];
+        const points = route?.points?.length ? route.points : [];
+        const origin = points.at(-1);
+        if (origin) {
+          const mobId = spawnEnemy(targetWorld, grid, origin.x, origin.y, null, respawnSerial++, points);
           ensureNetworkId(mobId, 'mob');
         }
       }
@@ -726,9 +722,9 @@ function spawnDrop(world, drop, x, y) {
   return null;
 }
 
-function spawnEnemy(world, grid, x, y, target, archetype) {
+function spawnEnemy(world, grid, x, y, target, archetype, patrolPoints = []) {
   const spawners = [spawnCaster, spawnMelee, spawnTank];
-  return spawners[positiveModulo(archetype, spawners.length)](world, grid, x, y, target);
+  return spawners[positiveModulo(archetype, spawners.length)](world, grid, x, y, target, patrolPoints);
 }
 
 function normalizeEntityRecord(entity) {

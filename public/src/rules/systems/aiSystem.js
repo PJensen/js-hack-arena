@@ -1,5 +1,5 @@
 // rules/systems/aiSystem.js — AI pathing, LOS, tactical behaviour, projectile spawning
-import { Position, Velocity, Speed, Facing, AI, AIBehavior, Collider, Health, Projectile, Lifetime, Mana } from '../components/index.js';
+import { Position, Velocity, Speed, Facing, AI, AIBehavior, Collider, Health, Projectile, Lifetime, Mana, Actor, ActorKind } from '../components/index.js';
 import { moveWithSlide } from '../geometry/sweep.js';
 import { astar } from '../ai/pathfind.js';
 import { getStatMultiplier, isActionLocked } from '../effects.js';
@@ -23,21 +23,50 @@ export function createAISystem(ctx) {
 
   return function aiSystem(world, dt) {
     for (const id of aiPaths.keys()) if (!world.alive.has(id)) aiPaths.delete(id);
+    const players = [...world.query(Position, Health, Actor)]
+      .filter(([, , , actor]) => actor.kind === ActorKind.PLAYER);
     for (const [id, pos, vel, spd, fac, ai, col] of world.query(Position, Velocity, Speed, Facing, AI, Collider)) {
       const movementSpeed = spd.max * getStatMultiplier(world, id, 'movementSpeed');
       const moveLocked = isActionLocked(world, id, 'move');
       const castLocked = isActionLocked(world, id, 'cast');
-      if (ai.target === null) continue;
-      if (!world.alive.has(ai.target)) { ai.target = null; continue; }
+      if (ai.target != null && !world.alive.has(ai.target)) ai.target = null;
       const targetHealth = world.get(ai.target, Health);
-      if (targetHealth?.dead || targetHealth?.hp <= 0) { ai.target = null; vel.vx = 0; vel.vy = 0; continue; }
+      if (targetHealth?.dead || targetHealth?.hp <= 0) ai.target = null;
+
+      if (ai.target == null) {
+        let nearest = null;
+        let nearestDistance = Infinity;
+        for (const [candidate, candidatePosition, candidateHealth] of players) {
+          if (candidateHealth.dead || candidateHealth.hp <= 0) continue;
+          const distance = Math.hypot(candidatePosition.x - pos.x, candidatePosition.y - pos.y);
+          if (distance > ai.sightRadius || distance >= nearestDistance) continue;
+          if (!hasLOS(grid, pos.x, pos.y, candidatePosition.x, candidatePosition.y)) continue;
+          nearest = candidate;
+          nearestDistance = distance;
+        }
+        if (nearest != null) ai.target = nearest;
+      }
+
+      if (ai.target == null) {
+        patrol(grid, pos, vel, ai, movementSpeed, moveLocked, dt, col.radius);
+        continue;
+      }
+
+      if (!world.has(ai.target, Position)) { ai.target = null; continue; }
 
       const tpos = world.get(ai.target, Position);
       const dx = tpos.x - pos.x, dy = tpos.y - pos.y;
       const dist = Math.hypot(dx, dy);
 
+      if (dist > ai.leashRadius) {
+        ai.target = null;
+        ai.sight = false;
+        patrol(grid, pos, vel, ai, movementSpeed, moveLocked, dt, col.radius);
+        continue;
+      }
+
       // LOS check
-      ai.sight = dist < ai.aggroRange && hasLOS(grid, pos.x, pos.y, tpos.x, tpos.y);
+      ai.sight = dist < ai.sightRadius && hasLOS(grid, pos.x, pos.y, tpos.x, tpos.y);
 
       if (ai.sight) {
         // ── Has LOS — tactical behaviour ──
@@ -122,4 +151,26 @@ export function createAISystem(ctx) {
       }
     }
   };
+}
+
+function patrol(grid, pos, vel, ai, movementSpeed, moveLocked, dt, radius) {
+  if (moveLocked || !ai.patrolPoints?.length) {
+    vel.vx = 0;
+    vel.vy = 0;
+    return;
+  }
+  const waypoint = ai.patrolPoints[ai.patrolIndex % ai.patrolPoints.length];
+  const dx = waypoint.x - pos.x, dy = waypoint.y - pos.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 18) {
+    ai.patrolIndex = (ai.patrolIndex + 1) % ai.patrolPoints.length;
+    vel.vx = 0;
+    vel.vy = 0;
+    return;
+  }
+  vel.vx = (dx / distance) * movementSpeed * 0.35;
+  vel.vy = (dy / distance) * movementSpeed * 0.35;
+  const moved = moveWithSlide(grid, pos.x, pos.y, vel.vx * dt, vel.vy * dt, radius);
+  pos.x = moved.x;
+  pos.y = moved.y;
 }

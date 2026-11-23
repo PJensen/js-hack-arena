@@ -7,12 +7,15 @@ export const AIBehavior = Object.freeze({
 });
 
 export const AI = defineComponent('AI', {
-  behavior:      AIBehavior.CASTER,
-  target:        null,       // entity ID to track
-  preferredDist: 140,        // ideal distance from target
-  castCooldown:  0,          // time until next cast
-  castRate:      1.2,        // seconds between casts
-  projSpeed:     250,
-  aggroRange:    300,
-  sight:         true,       // has LOS to target this frame
+  behavior:       AIBehavior.CASTER,
+  target:         null,
+  preferredDist:  140,
+  castCooldown:   0,
+  castRate:       1.2,
+  projSpeed:      250,
+  sightRadius:    300,
+  leashRadius:    520,
+  sight:          false,
+  patrolPoints:   [],
+  patrolIndex:    0,
 });

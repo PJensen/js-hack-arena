@@ -106,33 +106,36 @@ export function spawnPlayer(world, x, y, name = 'Player') {
 /**
  * Spawn a caster mob targeting the given entity.
  */
-export function spawnCaster(world, grid, nearX, nearY, targetId) {
+export function spawnCaster(world, grid, nearX, nearY, targetId, patrolPoints = []) {
   return spawnMob(world, grid, nearX, nearY, targetId, {
     name: 'Wraith', glyph: 'W', theme: 'shadow', radius: 12,
     speed: 80, hp: 60, mana: 50, manaRegen: 6,
     light: { radius: 105, r: 145, g: 70, b: 220 },
     behavior: AIBehavior.CASTER, preferredDist: 140, castRate: 1.5,
-    projSpeed: 220, meleeDamage: 10, weapon: 'Claws', aggroRange: 300,
+    projSpeed: 220, meleeDamage: 10, weapon: 'Claws', sightRadius: 300, leashRadius: 520,
+    patrolPoints,
   });
 }
 
-export function spawnMelee(world, grid, nearX, nearY, targetId) {
+export function spawnMelee(world, grid, nearX, nearY, targetId, patrolPoints = []) {
   return spawnMob(world, grid, nearX, nearY, targetId, {
     name: 'Goblin Raider', glyph: 'g', theme: 'fire', radius: 11,
     speed: 125, hp: 45, mana: 0, manaRegen: 0,
     light: { radius: 70, r: 255, g: 105, b: 35 },
     behavior: AIBehavior.MELEE, preferredDist: 10, castRate: 99,
-    projSpeed: 0, meleeDamage: 14, weapon: 'Jagged Blade', aggroRange: 340,
+    projSpeed: 0, meleeDamage: 14, weapon: 'Jagged Blade', sightRadius: 260, leashRadius: 460,
+    patrolPoints,
   });
 }
 
-export function spawnTank(world, grid, nearX, nearY, targetId) {
+export function spawnTank(world, grid, nearX, nearY, targetId, patrolPoints = []) {
   return spawnMob(world, grid, nearX, nearY, targetId, {
     name: 'Gelatinous Cube', glyph: '■', theme: 'frost', radius: 18,
     speed: 48, hp: 180, mana: 0, manaRegen: 0,
     light: { radius: 125, r: 40, g: 225, b: 190 },
     behavior: AIBehavior.MELEE, preferredDist: 14, castRate: 99,
-    projSpeed: 0, meleeDamage: 18, weapon: 'Engulf', aggroRange: 260,
+    projSpeed: 0, meleeDamage: 18, weapon: 'Engulf', sightRadius: 220, leashRadius: 400,
+    patrolPoints,
   });
 }
 
@@ -158,7 +161,10 @@ function spawnMob(world, grid, nearX, nearY, targetId, config) {
     preferredDist: config.preferredDist,
     castRate: config.castRate,
     projSpeed: config.projSpeed,
-    aggroRange: config.aggroRange,
+    sightRadius: config.sightRadius ?? 300,
+    leashRadius: config.leashRadius ?? 520,
+    patrolPoints: config.patrolPoints || [],
+    patrolIndex: 0,
   });
   world.add(id, MeleeWeapon, { damage: Math.round(config.meleeDamage * damageScale), name: config.weapon, glyph: config.glyph });
   world.add(id, RecoverableArrows);
