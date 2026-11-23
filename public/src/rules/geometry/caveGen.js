@@ -95,7 +95,7 @@ export const CaveProfile = Object.freeze({
 const mix = (a, b, t) => a + (b - a) * t;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-function growTopology(seed, width, height, profile) {
+function growTopology(seed, width, height, profile, chamberTarget, passageLength) {
   const rng = mulberry32(seed ^ 0xC4A9E5);
   const margin = Math.min(180, Math.min(width, height) * 0.14);
   const root = {
@@ -111,17 +111,19 @@ function growTopology(seed, width, height, profile) {
   }];
   const routes = [];
   const frontier = [{ node: root, angle: rng() * Math.PI * 2, depth: 0 }];
-  const target = clamp(Math.round(Math.min(width, height) / 270), 4, 15);
+  const target = chamberTarget ?? clamp(Math.round(Math.min(width, height) / 270), 4, 15);
 
   while (frontier.length && chambers.length < target) {
     const current = frontier.shift();
     const children = current.depth === 0
       ? 3
       : (rng() < profile.branchiness ? 2 : 1);
-    for (let child = 0; child < children && chambers.length < target; child++) {
+    const attempts = chamberTarget == null ? children : children + 4;
+    for (let attempt = 0, accepted = 0; attempt < attempts && accepted < children && chambers.length < target; attempt++) {
+      const child = chamberTarget == null ? attempt : accepted;
       let angle = current.angle + (rng() - 0.5) * profile.turn +
         (children > 1 ? (child - (children - 1) / 2) * 1.05 : 0);
-      const length = mix(250, 470, rng());
+      const length = mix(...passageLength, rng());
       let x = current.node.x, y = current.node.y;
       const points = [{ x, y }];
       const steps = Math.max(4, Math.round(length / 55));
@@ -155,6 +157,7 @@ function growTopology(seed, width, height, profile) {
         radius: mix(...profile.passageRadius, rng()),
       });
       frontier.push({ node, angle, depth: current.depth + 1 });
+      accepted++;
     }
   }
   return { chambers, routes };
@@ -278,8 +281,10 @@ export function generateCave(opts = {}) {
     cellSize = 4,
     spawnCount = 4,
     spawnSpacing = 400,
+    chamberTarget,
+    passageLength = [250, 470],
   } = opts;
-  const topology = growTopology(seed, width, height, profile);
+  const topology = growTopology(seed, width, height, profile, chamberTarget, passageLength);
   const grid = bakeGrid(seed, width, height, topology, cellSize);
   const candidates = [...topology.chambers].sort((a, b) => b.r - a.r);
   const spawns = [];
@@ -304,4 +309,14 @@ export function generateCave(opts = {}) {
     ),
   }));
   return { grid, bounds: { w: width, h: height }, spawns, routes };
+}
+
+// Shared by the browser and authoritative rooms. Keep the field dimensions
+// close to the original grid while doubling the world scale.
+export function generateArenaCave(seed) {
+  return generateCave({
+    seed, width: 8000, height: 8000, cellSize: 8,
+    chamberTarget: 42, passageLength: [350, 640],
+    spawnCount: 8, spawnSpacing: 650,
+  });
 }

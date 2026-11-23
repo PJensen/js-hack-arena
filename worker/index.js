@@ -7,7 +7,7 @@ import {
   makeRoomSeed,
   normalizeRoomId,
 } from '../public/src/shared/net/protocol.js';
-import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
+import { generateArenaCave } from '../public/src/rules/geometry/caveGen.js';
 import {
   SIM_DT,
   SIM_TICK_HZ,
@@ -259,14 +259,7 @@ export class GameRoom {
 
   ensureCave() {
     if (!this.caveData) {
-      this.caveData = generateCave({
-        seed: this.seed,
-        width: 4000,
-        height: 4000,
-        profile: CaveProfile.CAVERNS,
-        spawnCount: 8,
-        spawnSpacing: 650,
-      });
+      this.caveData = generateArenaCave(this.seed);
     }
     return this.caveData;
   }

@@ -212,7 +212,7 @@
 
 <script type="module">
 // ── Boot: imports ───────────────────────────────────────────────
-import { generateCave, CaveProfile } from './src/rules/geometry/caveGen.js';
+import { generateArenaCave } from './src/rules/geometry/caveGen.js';
 import { resolveSeed } from './src/runtime/rng.js';
 import { createFixedTickLoop } from './src/runtime/fixedLoop.js';
 import { createInputRouter } from './src/input/InputRouter.js';
@@ -299,7 +299,7 @@ const isNetworked = Boolean(netWelcome);
 
 // ── Seed + cave ─────────────────────────────────────────────────
 const SEED = netWelcome?.seed ?? resolveSeed().seed;
-const caveData = generateCave({ seed: SEED, width: 4000, height: 4000, profile: CaveProfile.CAVERNS, spawnCount: 8, spawnSpacing: 650 });
+const caveData = generateArenaCave(SEED);
 const { grid, bounds, spawns, routes } = caveData;
 const spawn = spawns[0];
 const decorations = createDungeonDecorations({ grid, routes, spawns, seed: SEED });

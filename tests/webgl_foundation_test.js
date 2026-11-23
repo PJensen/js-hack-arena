@@ -5,7 +5,17 @@ import { MAX_DYNAMIC_LIGHTS } from '../public/src/display/webgl/arenaRenderer.js
 import { buildTerrainMesh } from '../public/src/display/webgl/terrainMesh.js';
 import { createDungeonDecorations } from '../public/src/display/worldDecorations.js';
 import { biolum, emberLight, torchLight } from '../public/src/display/lightPatterns.js';
-import { generateCave } from '../public/src/rules/geometry/caveGen.js';
+import { generateArenaCave, generateCave } from '../public/src/rules/geometry/caveGen.js';
+
+Deno.test('arena cave expands the playable network without growing the field texture', () => {
+  const cave = generateArenaCave(42);
+  assertEquals(cave.bounds, { w: 8000, h: 8000 });
+  assertEquals([cave.grid.cols, cave.grid.rows], [1001, 1001]);
+  assert(cave.routes.length >= 30);
+  for (const route of cave.routes) {
+    assert(route.points.every(point => cave.grid.distanceMove(point.x, point.y) >= 20));
+  }
+});
 
 Deno.test('webgl foundation: cave generation retains signed visual density', () => {
   const cave = generateCave({ seed: 42, width: 400, height: 400 });
