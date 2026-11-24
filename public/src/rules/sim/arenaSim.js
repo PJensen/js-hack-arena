@@ -43,6 +43,8 @@ import {
   spawnEpicBow,
   spawnEpicChest,
   spawnEpicSword,
+  spawnFloatingEye,
+  FLOATING_EYE_LIGHT,
   spawnGold,
   GOLD_LIGHT,
   findOpenNear,
@@ -99,7 +101,7 @@ const PRESENTATION_EVENTS = Object.freeze([
   'terrain.carved',
 ]);
 const EVENT_HISTORY_LIMIT = 96;
-const ENEMY_PACKS = [[spawnCaster], [spawnMelee, spawnSpider], [spawnTank], [spawnSpider]];
+const ENEMY_PACKS = [[spawnCaster], [spawnMelee, spawnSpider], [spawnTank, spawnFloatingEye, spawnTank], [spawnSpider]];
 
 /**
  * Authoritative gameplay world or client-side replica of one.
@@ -367,6 +369,8 @@ export function createArenaSimulation({
     const health = world.get(entityId, Health);
     const mana = world.get(entityId, Mana);
     const actor = world.get(entityId, Actor);
+    const ai = world.get(entityId, AI);
+    const gazeTarget = ai.gazeCharge > 0 ? networkIdByEntity.get(ai.target) : null;
     return {
       id: ensureNetworkId(entityId, 'mob'),
       kind: 'mob',
@@ -379,7 +383,8 @@ export function createArenaSimulation({
         hp: health.hp, maxHp: health.maxHp, dead: health.dead,
         mana: mana.mana, maxMana: mana.maxMana, manaRegen: mana.regenPerSecond,
         name: actor.name, glyph: actor.glyph, theme: actor.theme, rare: actor.rare,
-        webWindup: world.get(entityId, AI)?.webWindup ?? 0,
+        webWindup: ai.webWindup,
+        ...(gazeTarget && { gaze: { target: gazeTarget, charge: ai.gazeCharge } }),
         conditions: projectConditions(world, entityId),
         auraEmitter: projectAuraEmitter(world, entityId),
       },
@@ -581,7 +586,10 @@ export function createArenaSimulation({
       actor.glyph = state.glyph;
       actor.theme = state.theme;
       actor.rare = state.rare;
-      world.get(entityId, AI).webWindup = state.webWindup;
+      const ai = world.get(entityId, AI);
+      ai.webWindup = state.webWindup;
+      ai.target = state.gaze ? entityByNetworkId.get(state.gaze.target) ?? null : null;
+      ai.gazeCharge = ai.target != null ? state.gaze.charge : 0;
       world.get(entityId, Conditions).active = state.conditions.map(replicaCondition);
     } else if (record.kind === 'projectile') {
       const projectile = world.get(entityId, Projectile);
@@ -925,6 +933,10 @@ function normalizeMobState(id, state) {
     name: normalizeActorName(state.name), glyph: String(state.glyph),
     theme: String(state.theme || 'shadow'), rare: Boolean(state.rare),
     webWindup: Math.max(0, finiteNumber(state.webWindup ?? 0, `${id}.webWindup`)),
+    gaze: state.gaze == null ? null : {
+      target: normalizeNetworkId(state.gaze.target),
+      charge: Math.min(1, Math.max(0, finiteNumber(state.gaze.charge, `${id}.gaze.charge`))),
+    },
     conditions: normalizeConditions(id, state.conditions ?? state.auras),
     auraEmitter: normalizeAuraEmitter(id, state.auraEmitter),
   };
@@ -1180,6 +1192,7 @@ function lightForTheme(theme) {
   if (theme === 'fire') return { radius: 70, r: 255, g: 105, b: 35 };
   if (theme === 'frost') return { radius: 125, r: 40, g: 225, b: 190 };
   if (theme === 'spider') return SPIDER_LIGHT;
+  if (theme === 'floating_eye') return FLOATING_EYE_LIGHT;
   return { radius: 105, r: 145, g: 70, b: 220 };
 }
 

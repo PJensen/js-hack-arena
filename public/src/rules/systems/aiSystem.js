@@ -1,15 +1,17 @@
 // rules/systems/aiSystem.js — AI pathing, LOS, tactical behaviour, projectile spawning
 import { Position, Velocity, Speed, Facing, AI, AIBehavior, Collider, Health, Projectile, Lifetime, Mana, Actor, ActorKind } from '../components/index.js';
-import { moveWithSlide } from '../geometry/sweep.js';
+import { moveWithSlide, sweepMaxFree } from '../geometry/sweep.js';
 import { astar } from '../ai/pathfind.js';
-import { getStatMultiplier, isActionLocked } from '../effects.js';
+import { applyCondition, getStatMultiplier, isActionLocked } from '../effects.js';
 import { ConditionId } from '../data/conditionCatalog.js';
 import { ImpactKind } from '../data/spellCatalog.js';
-import { WEB_WINDUP_SECONDS } from '../components/AI.js';
+import { GAZE_CHARGE_SECONDS, WEB_WINDUP_SECONDS } from '../components/AI.js';
 
 const PATH_REFRESH = 0.5;        // recompute every 0.5s
+const GAZE_FLASH_SECONDS = 0.25;
 
-function hasLOS(grid, ax, ay, bx, by) {
+function hasLOS(grid, ax, ay, bx, by, gaze) {
+  if (gaze) return sweepMaxFree(grid, ax, ay, bx, by, 5) === 1;
   const dx = bx - ax, dy = by - ay;
   const dist = Math.hypot(dx, dy);
   const steps = Math.ceil(dist / (grid.cellSize * 2));
@@ -29,6 +31,10 @@ export function createAISystem(ctx) {
     const players = [...world.query(Position, Health, Actor)]
       .filter(([, , , actor]) => actor.kind === ActorKind.PLAYER);
     for (const [id, pos, vel, spd, fac, ai, col] of world.query(Position, Velocity, Speed, Facing, AI, Collider)) {
+      const gaze = ai.behavior === AIBehavior.GAZE;
+      const health = gaze ? world.get(id, Health) : null;
+      if (health?.dead || health?.hp <= 0) continue;
+      if (gaze) ai.castCooldown = Math.max(0, ai.castCooldown - dt);
       const movementSpeed = spd.max * getStatMultiplier(world, id, 'movementSpeed');
       const moveLocked = isActionLocked(world, id, 'move');
       const castLocked = isActionLocked(world, id, 'cast');
@@ -38,13 +44,14 @@ export function createAISystem(ctx) {
 
       if (ai.target == null) {
         ai.webWindup = 0;
+        ai.gazeCharge = 0;
         let nearest = null;
         let nearestDistance = Infinity;
         for (const [candidate, candidatePosition, candidateHealth] of players) {
           if (candidateHealth.dead || candidateHealth.hp <= 0) continue;
           const distance = Math.hypot(candidatePosition.x - pos.x, candidatePosition.y - pos.y);
           if (distance > ai.aggroRange || distance >= nearestDistance) continue;
-          if (!hasLOS(grid, pos.x, pos.y, candidatePosition.x, candidatePosition.y)) continue;
+          if (!hasLOS(grid, pos.x, pos.y, candidatePosition.x, candidatePosition.y, gaze)) continue;
           nearest = candidate;
           nearestDistance = distance;
         }
@@ -56,14 +63,32 @@ export function createAISystem(ctx) {
         continue;
       }
 
-      if (!world.has(ai.target, Position)) { ai.target = null; continue; }
+      if (!world.has(ai.target, Position)) {
+        ai.target = null;
+        ai.gazeCharge = 0;
+        continue;
+      }
 
       const tpos = world.get(ai.target, Position);
       const dx = tpos.x - pos.x, dy = tpos.y - pos.y;
       const dist = Math.hypot(dx, dy);
 
       // LOS check
-      ai.sight = dist < ai.aggroRange && hasLOS(grid, pos.x, pos.y, tpos.x, tpos.y);
+      ai.sight = dist < ai.aggroRange && hasLOS(grid, pos.x, pos.y, tpos.x, tpos.y, gaze);
+
+      if (gaze) {
+        if (!ai.sight) {
+          ai.target = null;
+          ai.gazeCharge = 0;
+          patrol(grid, pos, vel, ai, movementSpeed, moveLocked, dt, col.radius);
+        } else {
+          vel.vx = 0;
+          vel.vy = 0;
+          fac.angle = Math.atan2(dy, dx);
+          stepGaze(world, id, ai, dt, castLocked);
+        }
+        continue;
+      }
 
       if (ai.sight) {
         // ── Has LOS — tactical behaviour ──
@@ -162,6 +187,21 @@ export function createAISystem(ctx) {
       }
     }
   };
+}
+
+function stepGaze(world, id, ai, dt, castLocked) {
+  if (castLocked) {
+    ai.gazeCharge = 0;
+  } else if (ai.castCooldown > 0) {
+    if (ai.castCooldown <= ai.castRate - GAZE_FLASH_SECONDS) ai.gazeCharge = 0;
+  } else {
+    ai.gazeCharge = Math.min(1, ai.gazeCharge + dt / GAZE_CHARGE_SECONDS);
+    if (ai.gazeCharge >= 1 - 1e-9) {
+      ai.gazeCharge = 1;
+      ai.castCooldown = ai.castRate;
+      applyCondition(world, ai.target, ConditionId.PARALYZED, id);
+    }
+  }
 }
 
 function stepWebSpit(world, id, ai, pos, facing, dx, dy, distance, dt, castLocked) {

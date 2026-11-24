@@ -17,6 +17,7 @@ import { biolum, emberLight, torchLight } from '../lightPatterns.js';
 import { createWebGLDevice } from './device.js';
 import { createGoreRenderer } from './goreRenderer.js';
 import { createSpiderMesh } from './spiderMesh.js';
+import { createFloatingEyeMesh } from './floatingEyeMesh.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
 import { createCampfireMesh } from './campfireMesh.js';
 import { createGhostPipeMesh } from './ghostPipeMesh.js';
@@ -52,10 +53,16 @@ import { WEB_SNARE_FRAGMENT } from './shaders/webSnare.frag.js';
 import { CHARGE_FRAGMENT } from './shaders/charge.frag.js';
 import { MELEE_ARC_VERTEX } from './shaders/meleeArc.vert.js';
 import { MELEE_ARC_FRAGMENT } from './shaders/meleeArc.frag.js';
+import { GAZE_RAY_VERTEX } from './shaders/gazeRay.vert.js';
+import { GAZE_RAY_FRAGMENT } from './shaders/gazeRay.frag.js';
 
 // Lighting is a core gameplay/readability layer. Keep enough simultaneous
 // sources for actors, loot, projectiles, and transient spell illumination.
 export const MAX_DYNAMIC_LIGHTS = 24;
+
+function hasRaisedStatusBar(theme) {
+  return theme === 'spider' || theme === 'floating_eye';
+}
 
 function compareDirection(next, current) {
   return next > current ? 'up' : next < current ? 'down' : '';
@@ -275,6 +282,17 @@ export function createWebGLArenaRenderer(deps) {
     color: uniform(gl, lineProgram, 'u_color'),
   };
 
+  const gazeProgram = device.program(GAZE_RAY_VERTEX, GAZE_RAY_FRAGMENT);
+  const gazeRay = {
+    program: gazeProgram,
+    view: uniform(gl, gazeProgram, 'u_view'),
+    from: uniform(gl, gazeProgram, 'u_from'),
+    to: uniform(gl, gazeProgram, 'u_to'),
+    width: uniform(gl, gazeProgram, 'u_width'),
+    charge: uniform(gl, gazeProgram, 'u_charge'),
+    time: uniform(gl, gazeProgram, 'u_time'),
+  };
+
   const particleProgram = device.program(PARTICLE_VERTEX, PARTICLE_FRAGMENT);
   const particleLocations = {
     view: uniform(gl, particleProgram, 'u_view'),
@@ -289,6 +307,7 @@ export function createWebGLArenaRenderer(deps) {
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   const goreRenderer = createGoreRenderer(device, QUAD);
   const spiderMesh = createSpiderMesh(device);
+  const drawFloatingEye = createFloatingEyeMesh(device);
 
   const campfireMesh = uploadPropMesh(device, createCampfireMesh());
   const ghostPipeMesh = uploadPropMesh(device, createGhostPipeMesh());
@@ -568,6 +587,18 @@ export function createWebGLArenaRenderer(deps) {
     gl.drawArrays(gl.TRIANGLES, 0, cubeMesh.count);
   }
 
+  function drawGazeRay({ from, to, charge }, now) {
+    gl.useProgram(gazeRay.program);
+    gl.bindVertexArray(quadVao);
+    gl.uniform4fv(gazeRay.view, view);
+    gl.uniform2f(gazeRay.from, from.x, from.y);
+    gl.uniform2f(gazeRay.to, to.x, to.y);
+    gl.uniform1f(gazeRay.width, 4.5 + charge * 4.5);
+    gl.uniform1f(gazeRay.charge, charge);
+    gl.uniform1f(gazeRay.time, motionPreference.matches ? 0 : now);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
   function drawLootShaft(x, y, height, color, time) {
     gl.useProgram(lootShaft.program);
     gl.bindVertexArray(quadVao);
@@ -837,6 +868,17 @@ export function createWebGLArenaRenderer(deps) {
         gl.uniform1f(webSnare.variant, entityId % 2 === 0 ? 1 : -1);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+      } else if (condition.id === ConditionId.PARALYZED) {
+        const fade = Math.min(1, condition.remaining / 0.22);
+        const r = collider.radius;
+        for (const side of [-1, 1]) {
+          drawLines(new Float32Array([
+            position.x + side * (r + 7), position.y - 8,
+            position.x + side * (r + 3), position.y,
+            position.x + side * (r + 3), position.y,
+            position.x + side * (r + 7), position.y + 8,
+          ]), [0.88, 0.43, 1, fade * 0.85]);
+        }
       } else if (condition.id === ConditionId.POISONED) {
         const fade = Math.min(1, condition.remaining / 0.45);
         const r = collider.radius;
@@ -1115,8 +1157,8 @@ export function createWebGLArenaRenderer(deps) {
       overlay.fillText(label, sx, labelY);
       const conditionLabel = activeConditionLabels(world.get(id, Conditions)).join(' · ');
       if (conditionLabel) {
-        const conditionOffset = collider.radius + (actor.theme === 'spider' ? 11 : 0);
-        const conditionY = sy - conditionOffset * width / view[2] - 19 * ratio;
+        const barOffset = collider.radius + (hasRaisedStatusBar(actor.theme) ? 20 : 9);
+        const conditionY = sy - barOffset * width / view[2] - 14 * ratio;
         overlay.strokeText(conditionLabel, sx, conditionY);
         overlay.fillStyle = '#dff7ff';
         overlay.fillText(conditionLabel, sx, conditionY);
@@ -1263,12 +1305,26 @@ export function createWebGLArenaRenderer(deps) {
       const facing = world.get(id, Facing)?.angle ?? 0;
       drawDisc(shown.x + Math.cos(facing) * collider.radius, shown.y + Math.sin(facing) * collider.radius, 2.2, [0.95, 1, 0.72, 1], [0.95, 1, 0.72, 1]);
     }
+    const gazeRays = [];
     for (const [id, position, collider, actor] of world.query(Position, Collider, Actor)) {
       if (actor.kind !== ActorKind.MOB) continue;
       const shown = displayPosition(id, position);
       const velocity = world.get(id, Velocity);
       const speed = Math.hypot(velocity?.vx || 0, velocity?.vy || 0);
       const facing = world.get(id, Facing)?.angle ?? 0;
+      if (actor.theme === 'floating_eye') {
+        const ai = world.get(id, AI);
+        const charge = ai?.gazeCharge ?? 0;
+        if (!inView(shown.x, shown.y, charge > 0 ? 220 : 32)) continue;
+        const { radius } = collider;
+        const bob = motionPreference.matches ? 0 : Math.sin(combatTime * 2.2 + id) * 2;
+        drawDisc(shown.x, shown.y + 4, radius * 0.85, [0.06, 0.015, 0.09, 0.43], [0, 0, 0, 0]);
+        const from = drawFloatingEye(view, shown.x, shown.y - radius * 0.7 + bob, radius, facing, charge);
+        const target = charge > 0 ? world.get(ai.target, Position) : null;
+        if (target) gazeRays.push({ from, to: displayPosition(ai.target, target), charge });
+        if (actor.rare) drawGlyph('★', shown.x + radius * 0.95, shown.y - radius * 1.75, 10, [1, 0.78, 0.18, 1]);
+        continue;
+      }
       if (actor.theme === 'spider') {
         if (!inView(shown.x, shown.y, collider.radius * 2)) continue;
         const stride = motionPreference.matches ? 0 : Math.min(1, speed / 125);
@@ -1330,8 +1386,23 @@ export function createWebGLArenaRenderer(deps) {
     goreRenderer.drawAirborne(gore, view, inView);
     // Lighting is a full-world GPU composition pass. Everything except the
     // intentionally luminous VFX and HUD participates in darkness and color.
-    drawLighting(collectLights(now, presentBurning(now, renderDt), campfires));
+    const actorLights = presentBurning(now, renderDt);
+    for (const { from, to, charge } of gazeRays) {
+      const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / 32));
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        actorLights.push({
+          x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t,
+          radius: 30 + charge * 17, intensity: 0.38 + charge * 0.7,
+          r: 0.72, g: 0.20, b: 1,
+        });
+      }
+    }
+    drawLighting(collectLights(now, actorLights, campfires));
     drawDecorationEmission(now);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    for (const ray of gazeRays) drawGazeRay(ray, now);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     for (const { x, y, angle, phase } of webShots) {
       drawDirectionalProjectile(webShot, x, y, angle, 36, 16, now + phase, 0.94);
     }
@@ -1413,14 +1484,15 @@ export function createWebGLArenaRenderer(deps) {
     // World-space status bars for every living actor.
     for (const [id, position, collider, health] of world.query(Position, Collider, Health)) {
       const shown = displayPosition(id, position);
-      const spider = world.get(id, Actor)?.theme === 'spider';
+      const theme = world.get(id, Actor)?.theme;
+      const raisedBars = hasRaisedStatusBar(theme);
       const barWidth = Math.max(25, collider.radius * 2.35);
-      const y = shown.y - collider.radius - (spider ? 20 : 9);
+      const y = shown.y - collider.radius - (raisedBars ? 20 : 9);
       const healthRatio = Math.max(0, Math.min(1, health.hp / Math.max(1, health.maxHp)));
       drawRect(shown.x, y, barWidth + 2, 5, [0.025, 0.035, 0.055, 0.92]);
       if (healthRatio > 0) drawRect(shown.x - barWidth * (1 - healthRatio) * 0.5, y, barWidth * healthRatio, 3, [0.24, 0.91, 0.43, 1]);
       const mana = world.get(id, Mana);
-      if (mana && (!spider || mana.maxMana > 0)) {
+      if (mana && (!raisedBars || mana.maxMana > 0)) {
         const manaRatio = Math.max(0, Math.min(1, mana.mana / Math.max(1, mana.maxMana)));
         drawRect(shown.x, y + 5, barWidth + 2, 4, [0.025, 0.035, 0.055, 0.92]);
         if (manaRatio > 0) drawRect(shown.x - barWidth * (1 - manaRatio) * 0.5, y + 5, barWidth * manaRatio, 2, [0.21, 0.58, 1, 1]);

@@ -6,7 +6,8 @@ import {
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { AI, Actor, Auras, Facing, Gold, Health, Input, ItemInfo, Mana, PointLight, Position, Powerups, Projectile, Ring, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
-import { GOLD_LIGHT, spawnAuraField, spawnEpicChest, spawnEpicSword, spawnFuryRune, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
+import { GOLD_LIGHT, spawnAuraField, spawnEpicChest, spawnEpicSword, spawnFloatingEye, spawnFuryRune, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
+import { GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
 import { applyAura, applyDamage, getStatMultiplier } from '../public/src/rules/effects.js';
 import { SpellCastMode, spells as spellCatalog } from '../public/src/rules/data/spellCatalog.js';
 import { getPreviewMob, spawnPreviewMob } from '../public/src/runtime/mobPreview.js';
@@ -822,7 +823,7 @@ Deno.test("arena sim: authored packs include a spider without increasing the ene
   sim.addPlayer('peer-a');
   const mobs = [...sim.world.query(AI, Actor, Health, Position)].map(([, ai, actor, health, position]) => ({ ai, actor, health, position }));
   assertEquals(mobs.length, 9);
-  assertEquals([...new Set(mobs.map((mob) => mob.actor.name))].sort(), ['Cave Spider', 'Gelatinous Cube', 'Goblin Raider', 'Wraith']);
+  assertEquals([...new Set(mobs.map((mob) => mob.actor.name))].sort(), ['Cave Spider', 'Floating Eye', 'Gelatinous Cube', 'Goblin Raider', 'Wraith']);
   assert(mobs.find((mob) => mob.actor.name === 'Gelatinous Cube').health.maxHp >= 180);
   assertEquals(mobs.find((mob) => mob.actor.name === 'Gelatinous Cube').actor.glyph, '■');
   const spider = mobs.find((mob) => mob.actor.theme === 'spider');
@@ -832,6 +833,69 @@ Deno.test("arena sim: authored packs include a spider without increasing the ene
   const replica = makeOpenSim(905, { mode: SIM_MODE.REPLICA });
   replica.applySnapshot(sim.captureSnapshot());
   assert([...replica.world.query(Actor)].some(([, actor]) => actor.theme === 'spider'));
+});
+
+Deno.test('arena sim: floating eye gaze needs sustained sight and replicates timed paralysis', () => {
+  let wall = false;
+  const grid = {
+    cellSize: 8,
+    distanceMove: (x) => wall && Math.abs(x - 153) < 2 ? 0 : 100,
+  };
+  const sim = makeOpenSim(923, { grid, enemyCount: 0 });
+  const player = sim.addPlayer('peer-a');
+  const eye = spawnFloatingEye(sim.world, grid, 230, 100, null, [{ x: 290, y: 100 }]);
+  const position = sim.world.get(player, Position);
+  const eyePosition = sim.world.get(eye, Position);
+  const ai = sim.world.get(eye, AI);
+  const replica = makeOpenSim(923, { mode: SIM_MODE.REPLICA });
+  const chargeTicks = Math.round(GAZE_CHARGE_SECONDS / SIM_DT);
+  const step = (ticks) => {
+    for (let i = 0; i < ticks; i++) sim.step();
+  };
+  const sync = () => {
+    replica.applySnapshot(sim.captureSnapshot());
+    return [...replica.world.query(AI)][0][1];
+  };
+  const conditionIds = (simulation) => simulation.getPlayerSnapshot('peer-a').state.conditions.map(({ id }) => id);
+
+  wall = true;
+  step(4);
+  assertEquals(ai.gazeCharge, 0);
+  assert(eyePosition.x > 230 && eyePosition.x - 230 < 4);
+  wall = false;
+  const anchor = { ...eyePosition };
+  step(chargeTicks - 1);
+  const replicated = sync();
+  assert(replicated.gazeCharge > 0 && replicated.gazeCharge < 1);
+  assertEquals(replicated.target, replica.getPlayerEntity('peer-a'));
+  assertEquals(eyePosition, anchor);
+  assertEquals(conditionIds(sim), []);
+
+  wall = true;
+  step(1);
+  assertEquals(sync().gazeCharge, 0);
+  assertEquals(conditionIds(replica), []);
+  wall = false;
+  step(chargeTicks - 1);
+  assertEquals(conditionIds(sim), []);
+  step(1);
+  assertEquals(sync().gazeCharge, 1);
+  assertEquals(conditionIds(replica), ['paralyzed']);
+  assertEquals([...sim.world.query(Projectile)].length, 0);
+
+  sim.setPlayerInput('peer-a', { moveY: 1, aimX: 1, spellSlot: 2, fire: true });
+  step(1);
+  assertEquals(position.y, 100);
+  assert(sim.captureSnapshot().events.some(({ type }) => type === 'spell.cast'));
+  sim.setPlayerInput('peer-a', { moveY: 1 });
+  step(26);
+  assertEquals(conditionIds(sim), []);
+  assert(position.y > 100);
+  sim.world.get(eye, Health).hp = 0;
+  step(1);
+  assertEquals(sim.world.alive.has(eye), false);
+  step(chargeTicks);
+  assertEquals([...sim.world.query(AI)].length, 0);
 });
 
 Deno.test("arena sim: a spider patrols, chases, poisons on contact, and stays dead", () => {

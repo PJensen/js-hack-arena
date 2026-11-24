@@ -1,5 +1,6 @@
 import { SPIDER_VERTEX } from './shaders/spider.vert.js';
 import { SPIDER_FRAGMENT } from './shaders/spider.frag.js';
+import { createSphereVertices } from './sphereMesh.js';
 
 const PART_FLOATS = 16;
 const PART_CAPACITY = 34;
@@ -18,7 +19,7 @@ export function createSpiderMesh(device) {
   }));
   const vao = device.vertexArray();
   gl.bindVertexArray(vao);
-  const sphere = createSphere();
+  const sphere = createSphereVertices(7, 12);
   device.buffer(gl.ARRAY_BUFFER, sphere);
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 12, 0);
@@ -102,22 +103,4 @@ export function writeSpiderPose(output, phase, stride, rear = 0) {
     const axisZ = [sideX * thickness, 0, sideZ * thickness];
     part((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2, axisX, axisY, axisZ, color);
   }
-}
-
-function createSphere() {
-  const output = [];
-  for (let row = 0; row < 7; row++) {
-    for (let col = 0; col < 12; col++) {
-      const a = point(row, col), b = point(row, col + 1);
-      const c = point(row + 1, col), d = point(row + 1, col + 1);
-      output.push(...a, ...c, ...b, ...b, ...c, ...d);
-    }
-  }
-  return new Float32Array(output);
-}
-
-function point(row, col) {
-  const pitch = Math.PI * row / 7;
-  const yaw = TAU * col / 12;
-  return [Math.sin(pitch) * Math.cos(yaw), Math.cos(pitch), Math.sin(pitch) * Math.sin(yaw)];
 }

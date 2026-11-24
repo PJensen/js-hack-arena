@@ -4,6 +4,7 @@ export const ConditionId = Object.freeze({
   FROZEN: 'frozen',
   STUNNED: 'stunned',
   IMMOBILIZED: 'immobilized',
+  PARALYZED: 'paralyzed',
   POISONED: 'poisoned',
   BLEEDING: 'bleeding',
   BURNING: 'burning',
@@ -65,6 +66,17 @@ export const conditions = Object.freeze({
     duration: 1.25,
     disposition: 'harmful',
     visual: 'webbed',
+    effects: Object.freeze([
+      Object.freeze({ kind: EffectKind.ACTION_LOCK, action: 'move' }),
+    ]),
+  }),
+  [ConditionId.PARALYZED]: Object.freeze({
+    id: ConditionId.PARALYZED,
+    name: 'Paralyzed',
+    glyph: '◉',
+    duration: 1.25,
+    disposition: 'harmful',
+    visual: 'psychic',
     effects: Object.freeze([
       Object.freeze({ kind: EffectKind.ACTION_LOCK, action: 'move' }),
     ]),

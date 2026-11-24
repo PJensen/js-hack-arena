@@ -10,6 +10,7 @@ import { Ring } from './components/Ring.js';
 
 export const GOLD_LIGHT = Object.freeze({ radius: 36, r: 255, g: 190, b: 45 });
 export const SPIDER_LIGHT = Object.freeze({ radius: 56, r: 148, g: 98, b: 70 });
+export const FLOATING_EYE_LIGHT = Object.freeze({ radius: 76, r: 192, g: 86, b: 255 });
 
 /**
  * Find open ground near a point using the grid.
@@ -161,6 +162,16 @@ export function spawnSpider(world, grid, nearX, nearY, targetId, patrolPoints = 
   });
 }
 
+export function spawnFloatingEye(world, grid, nearX, nearY, targetId, patrolPoints = []) {
+  return spawnMob(world, grid, nearX, nearY, targetId, {
+    name: 'Floating Eye', glyph: 'e', theme: 'floating_eye', radius: 13,
+    speed: 44, hp: 28, mana: 0, manaRegen: 0,
+    light: FLOATING_EYE_LIGHT, behavior: AIBehavior.GAZE, castRate: 3,
+    meleeDamage: 3, weapon: 'Eye Bash', aggroRange: 205,
+    patrolPoints, searchRadius: 64,
+  });
+}
+
 function spawnMob(world, grid, nearX, nearY, targetId, config) {
   const pos = findOpenNear(grid, nearX, nearY, config.searchRadius ?? 400);
   const rare = world.rand() < 0.09;
@@ -180,9 +191,9 @@ function spawnMob(world, grid, nearX, nearY, targetId, config) {
   world.add(id, AI, {
     behavior: config.behavior,
     target: targetId,
-    preferredDist: config.preferredDist,
+    preferredDist: config.preferredDist ?? AI.defaults.preferredDist,
     castRate: config.castRate,
-    projSpeed: config.projSpeed,
+    projSpeed: config.projSpeed ?? AI.defaults.projSpeed,
     webSpit: config.webSpit ?? false,
     plantAtContact: config.plantAtContact ?? false,
     aggroRange: config.aggroRange ?? 300,

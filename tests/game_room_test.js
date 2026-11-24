@@ -1,6 +1,8 @@
 import { assert, assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { AI, Conditions, Health, Position } from '../public/src/rules/components/index.js';
-import { SIM_MODE, createArenaSimulation } from '../public/src/rules/sim/arenaSim.js';
+import { SIM_DT, SIM_MODE, createArenaSimulation } from '../public/src/rules/sim/arenaSim.js';
+import { GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
+import { sweepMaxFree } from '../public/src/rules/geometry/sweep.js';
 import { spawnGold, spawnRing } from '../public/src/rules/spawner.js';
 import { MESSAGE, decodeMessage, encodeMessage } from '../public/src/shared/net/protocol.js';
 import { GameRoom } from '../worker/index.js';
@@ -60,6 +62,7 @@ Deno.test('game room: encounters stay spread out while some mobs patrol', () => 
     offline.addPlayer('offline');
     const mobStates = (snapshot) => snapshot.entities.filter(({ kind }) => kind === 'mob').map(({ state }) => state);
     assertEquals(mobStates(latestSnapshot(socket)), mobStates(offline.captureSnapshot()));
+    assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'floating_eye').length, 1);
 
     const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     const mobs = [...sim.world.query(AI, Position)].map(([id, ai, pos]) => ({ id, ai, pos, home: { ...pos } }));
@@ -101,6 +104,19 @@ Deno.test('game room: encounters stay spread out while some mobs patrol', () => 
     sim.world.get(nearby.id, Health).hp = 0;
     for (let tick = 0; tick < 20; tick++) room.step();
     assertEquals([...sim.world.query(AI)].length, 8);
+
+    const eye = mobStates(latestSnapshot(socket)).find(({ theme }) => theme === 'floating_eye');
+    const eyeApproach = [[65, 0], [-65, 0], [0, 65], [0, -65]]
+      .map(([dx, dy]) => ({ x: eye.x + dx, y: eye.y + dy }))
+      .find(({ x, y }) => cave.grid.distanceMove(x, y) >= 14 && sweepMaxFree(cave.grid, eye.x, eye.y, x, y, 5) === 1);
+    assert(eyeApproach);
+    Object.assign(sim.world.get(playerId, Position), eyeApproach);
+    for (let tick = 0; tick < Math.ceil(GAZE_CHARGE_SECONDS / SIM_DT) + 2; tick++) room.step();
+    const gazeHit = latestSnapshot(socket);
+    const gaze = mobStates(gazeHit).find(({ theme }) => theme === 'floating_eye').gaze;
+    const playerRecord = gazeHit.entities.find(({ kind }) => kind === 'player');
+    assertEquals(gaze, { target: playerRecord.id, charge: 1 });
+    assertEquals(playerRecord.state.conditions.map(({ id }) => id), ['paralyzed']);
   } finally {
     room.leave(socket);
   }
