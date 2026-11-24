@@ -881,7 +881,7 @@ Deno.test('arena sim: floating eye gaze needs sustained sight and replicates tim
   step(1);
   assertEquals(sync().gazeCharge, 1);
   assertEquals(conditionIds(replica), ['paralyzed']);
-  assertEquals(replica.getPlayerSnapshot('peer-a').state.conditions[0].duration, 2.5);
+  assertEquals(replica.getPlayerSnapshot('peer-a').state.conditions[0].duration, 5);
   assertEquals([...sim.world.query(Projectile)].length, 0);
 
   sim.setPlayerInput('peer-a', { moveY: 1, aimX: 1, spellSlot: 2, fire: true });
@@ -889,7 +889,7 @@ Deno.test('arena sim: floating eye gaze needs sustained sight and replicates tim
   assertEquals(position.y, 100);
   assert(sim.captureSnapshot().events.some(({ type }) => type === 'spell.cast'));
   sim.setPlayerInput('peer-a', { moveY: 1 });
-  step(47);
+  step(97);
   assertEquals(conditionIds(sim), ['paralyzed']);
   assertEquals(position.y, 100);
   step(3);

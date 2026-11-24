@@ -74,7 +74,7 @@ export const conditions = Object.freeze({
     id: ConditionId.PARALYZED,
     name: 'Paralyzed',
     glyph: '◉',
-    duration: 2.5,
+    duration: 5,
     disposition: 'harmful',
     visual: 'psychic',
     effects: Object.freeze([

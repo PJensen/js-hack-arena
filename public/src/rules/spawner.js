@@ -166,7 +166,7 @@ export function spawnFloatingEye(world, grid, nearX, nearY, targetId, patrolPoin
   return spawnMob(world, grid, nearX, nearY, targetId, {
     name: 'Floating Eye', glyph: 'e', theme: 'floating_eye', radius: 13,
     speed: 44, hp: 28, mana: 0, manaRegen: 0,
-    light: FLOATING_EYE_LIGHT, behavior: AIBehavior.GAZE, castRate: 3,
+    light: FLOATING_EYE_LIGHT, behavior: AIBehavior.GAZE, castRate: 5,
     meleeDamage: 3, weapon: 'Eye Bash', aggroRange: 205,
     patrolPoints, searchRadius: 64,
   });
