@@ -62,7 +62,7 @@ function resolvePair(world, a, b, cooldowns, time) {
 
   const playerId = aPlayer ? a.id : b.id;
   const mobId = aAI ? a.id : b.id;
-  if (contactMelee.behavior !== AIBehavior.PASSIVE) {
+  if (contactMelee.behavior !== AIBehavior.PASSIVE && contactMelee.behavior !== AIBehavior.BAT) {
     dealDamage(world, mobId, playerId, positionOf(aPlayer ? a : b));
   }
   dealDamage(world, playerId, mobId, positionOf(aAI ? a : b));

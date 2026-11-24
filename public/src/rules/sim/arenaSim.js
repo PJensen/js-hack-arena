@@ -38,6 +38,8 @@ import { createGridCarver } from '../geometry/carve.js';
 import {
   spawnArrows,
   spawnAuraField,
+  spawnBat,
+  BAT_LIGHT,
   spawnBow,
   spawnCaster,
   spawnEpicBow,
@@ -103,7 +105,7 @@ const PRESENTATION_EVENTS = Object.freeze([
   'terrain.carved',
 ]);
 const EVENT_HISTORY_LIMIT = 96;
-const ENEMY_PACKS = [[spawnCaster], [spawnMelee, spawnSpider], [spawnTank, spawnFloatingEye, spawnGasSpore], [spawnSpider]];
+const ENEMY_PACKS = [[spawnCaster, spawnBat, spawnCaster], [spawnMelee, spawnSpider], [spawnTank, spawnFloatingEye, spawnGasSpore], [spawnSpider]];
 
 /**
  * Authoritative gameplay world or client-side replica of one.
@@ -386,6 +388,8 @@ export function createArenaSimulation({
         mana: mana.mana, maxMana: mana.maxMana, manaRegen: mana.regenPerSecond,
         name: actor.name, glyph: actor.glyph, theme: actor.theme, rare: actor.rare,
         webWindup: ai.webWindup,
+        ...(ai.shriekWindup > 0 && { shriekWindup: ai.shriekWindup }),
+        ...(ai.shriekPulse > 0 && { shriekPulse: ai.shriekPulse }),
         ...(gazeTarget && { gaze: { target: gazeTarget, charge: ai.gazeCharge } }),
         conditions: projectConditions(world, entityId),
         auraEmitter: projectAuraEmitter(world, entityId),
@@ -590,6 +594,8 @@ export function createArenaSimulation({
       actor.rare = state.rare;
       const ai = world.get(entityId, AI);
       ai.webWindup = state.webWindup;
+      ai.shriekWindup = state.shriekWindup;
+      ai.shriekPulse = state.shriekPulse;
       ai.target = state.gaze ? entityByNetworkId.get(state.gaze.target) ?? null : null;
       ai.gazeCharge = ai.target != null ? state.gaze.charge : 0;
       world.get(entityId, Conditions).active = state.conditions.map(replicaCondition);
@@ -935,6 +941,8 @@ function normalizeMobState(id, state) {
     name: normalizeActorName(state.name), glyph: String(state.glyph),
     theme: String(state.theme || 'shadow'), rare: Boolean(state.rare),
     webWindup: Math.max(0, finiteNumber(state.webWindup ?? 0, `${id}.webWindup`)),
+    shriekWindup: Math.max(0, finiteNumber(state.shriekWindup ?? 0, `${id}.shriekWindup`)),
+    shriekPulse: Math.max(0, finiteNumber(state.shriekPulse ?? 0, `${id}.shriekPulse`)),
     gaze: state.gaze == null ? null : {
       target: normalizeNetworkId(state.gaze.target),
       charge: Math.min(1, Math.max(0, finiteNumber(state.gaze.charge, `${id}.gaze.charge`))),
@@ -1196,6 +1204,7 @@ function lightForTheme(theme) {
   if (theme === 'spider') return SPIDER_LIGHT;
   if (theme === 'floating_eye') return FLOATING_EYE_LIGHT;
   if (theme === 'gas_spore') return GAS_SPORE_LIGHT;
+  if (theme === 'bat') return BAT_LIGHT;
   return { radius: 105, r: 145, g: 70, b: 220 };
 }
 

@@ -65,6 +65,7 @@ Deno.test('game room: encounters stay spread out while some mobs patrol', () => 
     assertEquals(mobStates(latestSnapshot(socket)), mobStates(offline.captureSnapshot()));
     assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'floating_eye').length, 1);
     assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'gas_spore').length, 1);
+    assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'bat').length, 1);
 
     const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     const mobs = [...sim.world.query(AI, Position)].map(([id, ai, pos]) => ({ id, ai, pos, home: { ...pos } }));

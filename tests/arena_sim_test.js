@@ -6,8 +6,8 @@ import {
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { AI, Actor, Auras, Facing, Gold, Health, Input, ItemInfo, Mana, PointLight, Position, Powerups, Projectile, Ring, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
-import { GOLD_LIGHT, spawnAuraField, spawnEpicChest, spawnEpicSword, spawnFloatingEye, spawnFuryRune, spawnGasSpore, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
-import { GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
+import { GOLD_LIGHT, spawnAuraField, spawnBat, spawnEpicChest, spawnEpicSword, spawnFloatingEye, spawnFuryRune, spawnGasSpore, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
+import { BAT_SHRIEK_WINDUP, GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
 import { applyAura, applyDamage, getStatMultiplier } from '../public/src/rules/effects.js';
 import { SpellCastMode, spells as spellCatalog } from '../public/src/rules/data/spellCatalog.js';
 import { getPreviewMob, spawnPreviewMob } from '../public/src/runtime/mobPreview.js';
@@ -823,7 +823,7 @@ Deno.test("arena sim: authored packs include a spider without increasing the ene
   sim.addPlayer('peer-a');
   const mobs = [...sim.world.query(AI, Actor, Health, Position)].map(([, ai, actor, health, position]) => ({ ai, actor, health, position }));
   assertEquals(mobs.length, 9);
-  assertEquals([...new Set(mobs.map((mob) => mob.actor.name))].sort(), ['Cave Spider', 'Floating Eye', 'Gas Spore', 'Gelatinous Cube', 'Goblin Raider', 'Wraith']);
+  assertEquals([...new Set(mobs.map((mob) => mob.actor.name))].sort(), ['Bat', 'Cave Spider', 'Floating Eye', 'Gas Spore', 'Gelatinous Cube', 'Goblin Raider', 'Wraith']);
   assert(mobs.find((mob) => mob.actor.name === 'Gelatinous Cube').health.maxHp >= 180);
   assertEquals(mobs.find((mob) => mob.actor.name === 'Gelatinous Cube').actor.glyph, '■');
   const spider = mobs.find((mob) => mob.actor.theme === 'spider');
@@ -833,6 +833,59 @@ Deno.test("arena sim: authored packs include a spider without increasing the ene
   const replica = makeOpenSim(905, { mode: SIM_MODE.REPLICA });
   replica.applySnapshot(sim.captureSnapshot());
   assert([...replica.world.query(Actor)].some(([, actor]) => actor.theme === 'spider'));
+});
+
+Deno.test('arena sim: Bat warns before shrieking and nearby allies investigate without acquiring through cover', () => {
+  let wall = false;
+  const grid = {
+    cellSize: 8,
+    distanceMove: (x) => wall && Math.abs(x - 140) < 11 ? 0 : 100,
+  };
+  const sim = makeOpenSim(926, { grid, enemyCount: 0 });
+  const player = sim.addPlayer('peer-a');
+  const bat = spawnBat(sim.world, grid, 180, 100, null);
+  const ally = spawnMelee(sim.world, grid, 300, 100, null);
+  const distant = spawnMelee(sim.world, grid, 385, 100, null);
+  const ai = sim.world.get(bat, AI);
+  const allyAI = sim.world.get(ally, AI);
+  const distantAI = sim.world.get(distant, AI);
+  allyAI.aggroRange = distantAI.aggroRange = 170;
+  const replica = makeOpenSim(926, { mode: SIM_MODE.REPLICA });
+  const batState = () => sim.captureSnapshot().entities.find(({ state }) => state.theme === 'bat').state;
+  const step = (ticks) => {
+    for (let i = 0; i < ticks; i++) sim.step();
+  };
+
+  step(1);
+  assertEquals(ai.target, player);
+  assertEquals(batState().shriekWindup, BAT_SHRIEK_WINDUP);
+  assertEquals(allyAI.investigate, null);
+  replica.applySnapshot(sim.captureSnapshot());
+  assertEquals(replica.captureSnapshot().entities.find(({ state }) => state.theme === 'bat').state.shriekWindup, BAT_SHRIEK_WINDUP);
+
+  wall = true;
+  step(1);
+  assertEquals(ai.shriekWindup, 0);
+  assertEquals(allyAI.investigate, null);
+  wall = false;
+  step(1 + Math.round(BAT_SHRIEK_WINDUP / SIM_DT));
+  assert(batState().shriekPulse > 0);
+  assertEquals(allyAI.target, null);
+  assertEquals([allyAI.investigate.x, allyAI.investigate.y], [180, 100]);
+  assertEquals(distantAI.investigate, null);
+  assertEquals(sim.world.get(player, Health).hp, 100);
+
+  wall = true;
+  step(4);
+  assert(sim.world.get(ally, Position).x < 300);
+  assertEquals(allyAI.target, null);
+  applyDamage(sim.world, bat, 30, { sourceId: player });
+  step(1);
+  assertEquals(sim.world.alive.has(bat), false);
+  step(55);
+  assertEquals(allyAI.investigate, null);
+  assertEquals(allyAI.target, null);
+  assertEquals([...sim.world.query(AI)].length, 2);
 });
 
 Deno.test('arena sim: a passive Gas Spore ruptures once and the cloud only damages actors inside', () => {
@@ -1114,7 +1167,7 @@ Deno.test('mob preview: spawns the selected mob once on reachable ground near th
   };
   const names = {
     spider: 'Cave Spider', goblin: 'Goblin Raider', wraith: 'Wraith', cube: 'Gelatinous Cube',
-    floating_eye: 'Floating Eye', gas_spore: 'Gas Spore',
+    floating_eye: 'Floating Eye', gas_spore: 'Gas Spore', bat: 'Bat',
   };
   for (const [key, name] of Object.entries(names)) {
     const sim = makeOpenSim(924, { grid, enemyCount: 0 });

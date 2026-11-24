@@ -5,7 +5,7 @@ import { astar } from '../ai/pathfind.js';
 import { applyCondition, getStatMultiplier, isActionLocked } from '../effects.js';
 import { ConditionId } from '../data/conditionCatalog.js';
 import { ImpactKind } from '../data/spellCatalog.js';
-import { GAZE_CHARGE_SECONDS, WEB_WINDUP_SECONDS } from '../components/AI.js';
+import { BAT_SHRIEK_PULSE, BAT_SHRIEK_RADIUS, BAT_SHRIEK_WINDUP, GAZE_CHARGE_SECONDS, WEB_WINDUP_SECONDS } from '../components/AI.js';
 
 const PATH_REFRESH = 0.5;        // recompute every 0.5s
 const GAZE_FLASH_SECONDS = 0.25;
@@ -32,9 +32,14 @@ export function createAISystem(ctx) {
       .filter(([, , , actor]) => actor.kind === ActorKind.PLAYER);
     for (const [id, pos, vel, spd, fac, ai, col] of world.query(Position, Velocity, Speed, Facing, AI, Collider)) {
       const gaze = ai.behavior === AIBehavior.GAZE;
-      const health = gaze ? world.get(id, Health) : null;
+      const bat = ai.behavior === AIBehavior.BAT;
+      const health = gaze || bat ? world.get(id, Health) : null;
       if (health?.dead || health?.hp <= 0) continue;
       if (gaze) ai.castCooldown = Math.max(0, ai.castCooldown - dt);
+      if (bat) {
+        ai.shriekPulse = Math.max(0, ai.shriekPulse - dt);
+        ai.castCooldown = Math.max(0, ai.castCooldown - dt);
+      }
       const movementSpeed = spd.max * getStatMultiplier(world, id, 'movementSpeed');
       const moveLocked = isActionLocked(world, id, 'move');
       if (ai.behavior === AIBehavior.PASSIVE) {
@@ -50,6 +55,7 @@ export function createAISystem(ctx) {
       if (ai.target == null) {
         ai.webWindup = 0;
         ai.gazeCharge = 0;
+        ai.shriekWindup = 0;
         let nearest = null;
         let nearestDistance = Infinity;
         for (const [candidate, candidatePosition, candidateHealth] of players) {
@@ -60,7 +66,10 @@ export function createAISystem(ctx) {
           nearest = candidate;
           nearestDistance = distance;
         }
-        if (nearest != null) ai.target = nearest;
+        if (nearest != null) {
+          ai.target = nearest;
+          ai.investigate = null;
+        }
       }
 
       if (ai.target == null) {
@@ -71,6 +80,7 @@ export function createAISystem(ctx) {
       if (!world.has(ai.target, Position)) {
         ai.target = null;
         ai.gazeCharge = 0;
+        ai.shriekWindup = 0;
         continue;
       }
 
@@ -80,6 +90,13 @@ export function createAISystem(ctx) {
 
       // LOS check
       ai.sight = dist < ai.aggroRange && hasLOS(grid, pos.x, pos.y, tpos.x, tpos.y, gaze);
+
+      if (bat && !ai.sight) {
+        ai.target = null;
+        ai.shriekWindup = 0;
+        patrol(grid, pos, vel, ai, movementSpeed, moveLocked, dt, col.radius);
+        continue;
+      }
 
       if (gaze) {
         if (!ai.sight) {
@@ -95,7 +112,19 @@ export function createAISystem(ctx) {
         continue;
       }
 
-      if (ai.sight) {
+      if (bat) {
+        if (stepBatShriek(world, grid, id, ai, pos, dist, dt, castLocked)) {
+          vel.vx = 0;
+          vel.vy = 0;
+          fac.angle = Math.atan2(dy, dx);
+          continue;
+        }
+        const retreat = dist < 76 ? -0.86 : dist > 126 ? 0.62 : 0;
+        const turn = id % 2 ? 0.62 : -0.62;
+        vel.vx = (dx * retreat - dy * turn) / Math.max(1, dist) * movementSpeed;
+        vel.vy = (dy * retreat + dx * turn) / Math.max(1, dist) * movementSpeed;
+        fac.angle = Math.atan2(vel.vy, vel.vx);
+      } else if (ai.sight) {
         // ── Has LOS — tactical behaviour ──
         aiPaths.delete(id);  // drop path, we can see them
         ai.castCooldown -= dt;
@@ -194,6 +223,33 @@ export function createAISystem(ctx) {
   };
 }
 
+function stepBatShriek(world, grid, id, ai, position, distance, dt, castLocked) {
+  if (castLocked || distance > BAT_SHRIEK_RADIUS) {
+    ai.shriekWindup = 0;
+    return false;
+  }
+  if (ai.shriekWindup === 0) {
+    if (ai.castCooldown > 0 || distance > 118) return false;
+    ai.shriekWindup = BAT_SHRIEK_WINDUP;
+    return true;
+  }
+  ai.shriekWindup = Math.max(0, ai.shriekWindup - dt);
+  if (ai.shriekWindup > 1e-6) return true;
+  ai.shriekWindup = 0;
+  ai.shriekPulse = BAT_SHRIEK_PULSE;
+  ai.castCooldown = ai.castRate;
+  const team = world.get(id, Actor).team;
+  for (const [ally, allyAI, allyPosition, actor, health] of world.query(AI, Position, Actor, Health)) {
+    if (ally === id || actor.team !== team || health.dead || health.hp <= 0) continue;
+    if (allyAI.target != null || allyAI.behavior === AIBehavior.PASSIVE) continue;
+    if (Math.hypot(allyPosition.x - position.x, allyPosition.y - position.y) > BAT_SHRIEK_RADIUS) continue;
+    // Investigate the noise. The ally still needs its own sight to engage a player.
+    if (!hasLOS(grid, allyPosition.x, allyPosition.y, position.x, position.y, true)) continue;
+    allyAI.investigate = { ...position, remaining: 2.4 };
+  }
+  return true;
+}
+
 function stepGaze(world, id, ai, dt, castLocked) {
   if (castLocked) {
     ai.gazeCharge = 0;
@@ -239,6 +295,18 @@ function stepWebSpit(world, id, ai, pos, facing, dx, dy, distance, dt, castLocke
 }
 
 function patrol(grid, pos, vel, ai, movementSpeed, moveLocked, dt, radius) {
+  if (ai.investigate) {
+    const point = ai.investigate;
+    point.remaining -= dt;
+    const distance = Math.hypot(point.x - pos.x, point.y - pos.y);
+    if (point.remaining > 0 && distance > 18 && !moveLocked) {
+      vel.vx = (point.x - pos.x) / distance * movementSpeed * 0.55;
+      vel.vy = (point.y - pos.y) / distance * movementSpeed * 0.55;
+      Object.assign(pos, moveWithSlide(grid, pos.x, pos.y, vel.vx * dt, vel.vy * dt, radius));
+      return;
+    }
+    if (point.remaining <= 0 || distance <= 18) ai.investigate = null;
+  }
   if (moveLocked || !ai.patrolPoints?.length) {
     vel.vx = 0;
     vel.vy = 0;

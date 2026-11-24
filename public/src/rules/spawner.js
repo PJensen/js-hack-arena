@@ -12,6 +12,7 @@ export const GOLD_LIGHT = Object.freeze({ radius: 36, r: 255, g: 190, b: 45 });
 export const SPIDER_LIGHT = Object.freeze({ radius: 56, r: 148, g: 98, b: 70 });
 export const FLOATING_EYE_LIGHT = Object.freeze({ radius: 76, r: 192, g: 86, b: 255 });
 export const GAS_SPORE_LIGHT = Object.freeze({ radius: 66, r: 167, g: 101, b: 180 });
+export const BAT_LIGHT = Object.freeze({ radius: 55, r: 151, g: 118, b: 196 });
 
 /**
  * Find open ground near a point using the grid.
@@ -179,6 +180,15 @@ export function spawnGasSpore(world, grid, nearX, nearY, targetId, patrolPoints 
     speed: 38, hp: 8, mana: 0, manaRegen: 0,
     light: GAS_SPORE_LIGHT, behavior: AIBehavior.PASSIVE, castRate: 0,
     meleeDamage: 0, weapon: '', patrolPoints, searchRadius: 64,
+  });
+}
+
+export function spawnBat(world, grid, nearX, nearY, targetId, patrolPoints = []) {
+  return spawnMob(world, grid, nearX, nearY, targetId, {
+    name: 'Bat', glyph: 'b', theme: 'bat', radius: 10,
+    speed: 102, hp: 12, mana: 0, manaRegen: 0,
+    light: BAT_LIGHT, behavior: AIBehavior.BAT, castRate: 5.5,
+    meleeDamage: 0, weapon: '', aggroRange: 185, patrolPoints, searchRadius: 64,
   });
 }
 

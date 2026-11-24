@@ -4,7 +4,7 @@ import {
   PickupLock, PlayerTag, PointLight, Position, Powerups, Projectile, Ring, Spellbook,
   Velocity, WeaponPickup,
 } from '../../rules/components/index.js';
-import { AI, WEB_WINDUP_SECONDS } from '../../rules/components/AI.js';
+import { AI, BAT_SHRIEK_PULSE, BAT_SHRIEK_RADIUS, BAT_SHRIEK_WINDUP, WEB_WINDUP_SECONDS } from '../../rules/components/AI.js';
 import { AuraId } from '../../rules/data/auraCatalog.js';
 import { ConditionId, conditions as conditionCatalog } from '../../rules/data/conditionCatalog.js';
 import { spells as spellCatalog } from '../../rules/data/spellCatalog.js';
@@ -17,6 +17,7 @@ import { biolum, emberLight, torchLight } from '../lightPatterns.js';
 import { createWebGLDevice } from './device.js';
 import { createGoreRenderer } from './goreRenderer.js';
 import { createSpiderMesh } from './spiderMesh.js';
+import { createBatMesh } from './batMesh.js';
 import { createFloatingEyeMesh } from './floatingEyeMesh.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
 import { createCampfireMesh } from './campfireMesh.js';
@@ -63,7 +64,7 @@ import { SPORE_CLOUD_FRAGMENT } from './shaders/sporeCloud.frag.js';
 export const MAX_DYNAMIC_LIGHTS = 24;
 
 function hasRaisedStatusBar(theme) {
-  return theme === 'spider' || theme === 'floating_eye' || theme === 'gas_spore';
+  return theme === 'spider' || theme === 'floating_eye' || theme === 'gas_spore' || theme === 'bat';
 }
 
 function compareDirection(next, current) {
@@ -320,6 +321,7 @@ export function createWebGLArenaRenderer(deps) {
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   const goreRenderer = createGoreRenderer(device, QUAD);
   const spiderMesh = createSpiderMesh(device);
+  const drawBat = createBatMesh(device);
   const drawFloatingEye = createFloatingEyeMesh(device);
 
   const campfireMesh = uploadPropMesh(device, createCampfireMesh());
@@ -1332,12 +1334,29 @@ export function createWebGLArenaRenderer(deps) {
       drawDisc(shown.x + Math.cos(facing) * collider.radius, shown.y + Math.sin(facing) * collider.radius, 2.2, [0.95, 1, 0.72, 1], [0.95, 1, 0.72, 1]);
     }
     const gazeRays = [];
+    const batShrieks = [];
     for (const [id, position, collider, actor] of world.query(Position, Collider, Actor)) {
       if (actor.kind !== ActorKind.MOB) continue;
       const shown = displayPosition(id, position);
       const velocity = world.get(id, Velocity);
       const speed = Math.hypot(velocity?.vx || 0, velocity?.vy || 0);
       const facing = world.get(id, Facing)?.angle ?? 0;
+      if (actor.theme === 'bat') {
+        const ai = world.get(id, AI);
+        const windup = ai?.shriekWindup ?? 0;
+        const pulse = ai?.shriekPulse ?? 0;
+        if (!inView(shown.x, shown.y, pulse > 0 ? BAT_SHRIEK_RADIUS : 42)) continue;
+        const shriek = windup > 0 ? 1 - windup / BAT_SHRIEK_WINDUP : 0;
+        const still = motionPreference.matches;
+        const phase = combatTime * 26 + id * 1.43;
+        const height = still ? 0.61 : 0.60 + Math.sin(phase - 0.75) * 0.17 + shriek * 0.25;
+        const flap = still ? 0.14 : 0.19 + Math.sin(phase) * (0.73 - shriek * 0.38);
+        drawDisc(shown.x, shown.y + 3, collider.radius * 0.91, [0.06, 0.02, 0.07, 0.45], [0, 0, 0, 0]);
+        drawBat(view, shown.x, shown.y, collider.radius, facing, height, flap, shriek);
+        if (windup > 0 || pulse > 0) batShrieks.push({ ...shown, height: collider.radius * (height + 0.8), windup, pulse });
+        if (actor.rare) drawGlyph('★', shown.x + collider.radius, shown.y - collider.radius * 1.95, 10, [1, 0.78, 0.18, 1]);
+        continue;
+      }
       const spore = actor.theme === 'gas_spore';
       if (actor.theme === 'floating_eye' || spore) {
         const ai = world.get(id, AI);
@@ -1430,6 +1449,17 @@ export function createWebGLArenaRenderer(deps) {
     drawDecorationEmission(now);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     for (const ray of gazeRays) drawGazeRay(ray, now);
+    for (const { x, y, height, windup, pulse } of batShrieks) {
+      if (windup > 0) {
+        const charge = 1 - windup / BAT_SHRIEK_WINDUP;
+        drawDisc(x, y - height, 14 - charge * 8, [0, 0, 0, 0], [0.88, 0.63, 1, 0.22 + charge * 0.45]);
+      }
+      if (pulse > 0) {
+        const progress = 1 - pulse / BAT_SHRIEK_PULSE;
+        const spread = motionPreference.matches ? 1 : 0.14 + progress * 0.86;
+        drawDisc(x, y, BAT_SHRIEK_RADIUS * spread, [0, 0, 0, 0], [0.84, 0.65, 1, (1 - progress) * 0.16]);
+      }
+    }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     for (const { x, y, angle, phase } of webShots) {
       drawDirectionalProjectile(webShot, x, y, angle, 36, 16, now + phase, 0.94);
