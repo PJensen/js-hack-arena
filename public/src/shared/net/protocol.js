@@ -5,6 +5,8 @@ export const MESSAGE = Object.freeze({
   WELCOME: 'welcome',
   INPUT: 'input',
   SNAPSHOT: 'snapshot',
+  SAY: 'say',
+  SAY_ERROR: 'say.error',
   PEER_JOINED: 'peer.joined',
   PEER_LEFT: 'peer.left',
   PING: 'ping',
@@ -14,6 +16,16 @@ export const MESSAGE = Object.freeze({
 
 export const DEFAULT_ROOM_ID = 'lobby';
 export const ACCOUNT_ALREADY_PLAYING = 4009;
+export const MAX_SAY_LENGTH = 160;
+
+export function normalizeSayText(raw) {
+  if (typeof raw !== 'string' || raw.length > MAX_SAY_LENGTH) return '';
+  return raw
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+    .replace(/[\u202a-\u202e\u2066-\u2069]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 export function normalizePlayerName(raw = 'Adventurer') {
   return String(raw)
@@ -77,6 +89,7 @@ export function makeInputFrame({
   aimX = 0,
   aimY = 0,
   fire = false,
+  cancelCast = false,
   spellSlot = null,
   spellCycle = 0,
   pickupX = null,
@@ -93,6 +106,7 @@ export function makeInputFrame({
     spellSlot: Number.isInteger(spellSlot) ? spellSlot : null,
     spellCycle: Number.isInteger(spellCycle) ? Math.max(-1, Math.min(1, spellCycle)) : 0,
   };
+  if (cancelCast === true) frame.cancelCast = true;
   if (Number.isFinite(pickupX) && Number.isFinite(pickupY)) {
     frame.pickupX = pickupX;
     frame.pickupY = pickupY;

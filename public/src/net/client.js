@@ -17,6 +17,8 @@ const JOIN_FAILED = 'Could not join the shared dungeon. Check your connection an
 export function createNetClient({
   sendHz = 20,
   onDisconnect = () => {},
+  onSay = () => {},
+  onSayError = () => {},
 } = {}) {
   const peers = new Map();
   const minSendMs = 1000 / Math.max(1, sendHz);
@@ -113,6 +115,7 @@ export function createNetClient({
         aimX: sampledInput?.intent?.aimX,
         aimY: sampledInput?.intent?.aimY,
         fire: sampledInput?.intent?.fire,
+        cancelCast: sampledInput?.cancelCast,
         spellSlot: sampledInput?.spellSlot,
         spellCycle: sampledInput?.spellCycle,
         pickupX: pickupIntent?.x,
@@ -148,6 +151,18 @@ export function createNetClient({
 
     if (msg.type === MESSAGE.SNAPSHOT) {
       acceptSnapshot(msg.snapshot);
+      return;
+    }
+
+    if (msg.type === MESSAGE.SAY) {
+      if (welcome && typeof msg.peerId === 'string' && typeof msg.name === 'string' && typeof msg.text === 'string') {
+        onSay({ peerId: msg.peerId, name: msg.name, text: msg.text });
+      }
+      return;
+    }
+
+    if (msg.type === MESSAGE.SAY_ERROR) {
+      onSayError(msg.error || 'Message could not be sent.');
       return;
     }
 
@@ -218,8 +233,9 @@ export function createNetClient({
   }
 
   function send(type, payload) {
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return false;
     socket.send(encodeMessage(type, payload));
+    return true;
   }
 
   function setStatus(next, detail = '') {
@@ -259,6 +275,7 @@ export function createNetClient({
     getSeed,
     needsSignIn: () => status === 'auth',
     getStatusText,
+    say: (text) => Boolean(welcome) && send(MESSAGE.SAY, { text }),
     update,
   };
 }

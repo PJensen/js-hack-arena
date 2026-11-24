@@ -179,7 +179,7 @@ function uploadCubeMesh(device, vertices) {
 }
 
 export function createWebGLArenaRenderer(deps) {
-  const { canvas, overlayCanvas, cam, grid, bounds, decorations, world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars, stepParticles } = deps;
+  const { canvas, overlayCanvas, cam, grid, bounds, decorations, world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars, stepParticles, speechBubbles } = deps;
   const syncHudStatus = createHudStatus(hud.meta);
   const device = createWebGLDevice(canvas);
   const { gl } = device;
@@ -1192,6 +1192,61 @@ export function createWebGLArenaRenderer(deps) {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
+  function drawSpeechBubbles(width, height, ratio) {
+    const bubbles = speechBubbles?.();
+    if (!bubbles?.length) return;
+    overlay.save();
+    overlay.font = `600 ${Math.round(13 * ratio)}px system-ui, sans-serif`;
+    overlay.textAlign = 'center';
+    overlay.textBaseline = 'middle';
+    const maxTextWidth = Math.min(230 * ratio, width - 36 * ratio);
+    const boxHeight = 25 * ratio;
+    for (const { id, text } of bubbles) {
+      const position = world.get(id, Position);
+      const collider = world.get(id, Collider);
+      if (!position || !collider) continue;
+      const shown = displayPosition(id, position);
+      if (!inView(shown.x, shown.y, 0)) continue;
+      const sx = ((shown.x - view[0]) / view[2] + 0.5) * width;
+      const sy = ((shown.y - view[1]) / view[3] + 0.5) * height;
+      const radius = collider.radius * width / view[2];
+      let caption = text;
+      if (overlay.measureText(text).width > maxTextWidth) {
+        const characters = Array.from(text);
+        let first = 0;
+        let last = characters.length - 1;
+        while (first < last) {
+          const middle = Math.ceil((first + last) * 0.5);
+          const candidate = characters.slice(0, middle).join('').trimEnd() + '…';
+          if (overlay.measureText(candidate).width <= maxTextWidth) first = middle;
+          else last = middle - 1;
+        }
+        caption = characters.slice(0, first).join('').trimEnd() + '…';
+      }
+      const halfWidth = overlay.measureText(caption).width * 0.5 + 9 * ratio;
+      const x = Math.max(halfWidth + 5 * ratio, Math.min(width - halfWidth - 5 * ratio, sx));
+      const above = sy - radius - 44 * ratio - boxHeight;
+      const below = above < 68 * ratio;
+      const y = below ? Math.min(height - boxHeight - 6 * ratio, sy + radius + 25 * ratio) : above;
+      overlay.beginPath();
+      overlay.roundRect(x - halfWidth, y, halfWidth * 2, boxHeight, 6 * ratio);
+      const pointer = Math.max(x - halfWidth + 7 * ratio, Math.min(x + halfWidth - 7 * ratio, sx));
+      const edge = below ? y : y + boxHeight;
+      overlay.moveTo(pointer - 4 * ratio, edge);
+      overlay.lineTo(pointer, edge + (below ? -5 : 5) * ratio);
+      overlay.lineTo(pointer + 4 * ratio, edge);
+      overlay.closePath();
+      overlay.fillStyle = 'rgba(6,15,24,.94)';
+      overlay.fill();
+      overlay.strokeStyle = 'rgba(139,229,248,.55)';
+      overlay.lineWidth = ratio;
+      overlay.stroke();
+      overlay.fillStyle = '#e8f7fd';
+      overlay.fillText(caption, x, y + boxHeight * 0.5);
+    }
+    overlay.restore();
+  }
+
   function drawOverlay(width, height, ratio, shownPlayer, campfires) {
     if (!overlay || !overlayCanvas) return;
     if (overlayCanvas.width !== width || overlayCanvas.height !== height) {
@@ -1223,6 +1278,7 @@ export function createWebGLArenaRenderer(deps) {
       }
     }
 
+    drawSpeechBubbles(width, height, ratio);
     combatNumbers.render(overlay, { view, width, height, ratio, reducedMotion: motionPreference.matches });
     const size = Math.round(128 * ratio);
     const pad = Math.round(15 * ratio);

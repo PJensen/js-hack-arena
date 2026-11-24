@@ -10,7 +10,7 @@
         -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
     :root { --cyan:#70e6ff; --blue:#438cff; --ink:rgba(5,10,18,.78); --edge:rgba(112,230,255,.24); }
     html,body { width:100%; height:100%; overflow:hidden; background:#080d14; color:#fff;
-                font-family:Inter,"Segoe UI",system-ui,-apple-system,sans-serif; }
+                font-family:Inter,"Segoe UI",system-ui,-apple-system,sans-serif; touch-action:auto; }
     canvas { display:block; width:100%; height:100%; }
     #world-overlay { position:fixed; inset:0; pointer-events:none; z-index:12; }
     #arena-ui { position:fixed; inset:0; z-index:35; pointer-events:none; }
@@ -150,6 +150,29 @@
                      color:rgba(220,255,242,.82); font:11px ui-monospace,monospace; letter-spacing:.04em;
                      cursor:pointer; }
     #reset-dungeon:hover { background:rgba(22,58,58,.9); color:#fff; }
+    #dungeon-chat { position:fixed; left:max(12px,env(safe-area-inset-left));
+                    bottom:calc(max(22px,env(safe-area-inset-bottom)) + 115px);
+                    width:min(320px,calc(100vw - 24px)); z-index:55; pointer-events:none;
+                    font:13px/1.4 system-ui,sans-serif; color:#e6f1f7; }
+    #dungeon-chat[data-composing] { bottom:max(calc(max(22px,env(safe-area-inset-bottom)) + 115px),calc(var(--keyboard-inset,0px) + 10px)); }
+    #dungeon-chat, #dungeon-chat * { touch-action:auto; }
+    #dungeon-chat button, #chat-message { border:1px solid var(--edge); border-radius:6px; min-height:35px;
+                                        background:#0c1721; color:#effaff; }
+    #dungeon-chat button { padding:0 10px; cursor:pointer; pointer-events:auto; }
+    #dungeon-chat button:focus-visible, #chat-message:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
+    #chat-feed { list-style:none; max-height:min(116px,18dvh); overflow:auto; overscroll-behavior:contain;
+                 touch-action:pan-y; margin-bottom:6px; pointer-events:auto; }
+    #chat-feed:empty, #chat-status:empty { display:none; }
+    #chat-feed li { background:rgba(5,10,18,.82); padding:4px 8px; border-radius:5px; margin:2px 0;
+                   overflow-wrap:anywhere; }
+    #chat-feed bdi { font-weight:700; color:#a7e9f8; }
+    #chat-form { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:5px; align-items:center;
+                 margin-top:5px; padding:6px; background:#071019; border:1px solid var(--edge); border-radius:8px;
+                 pointer-events:auto; }
+    #chat-form[hidden] { display:none; }
+    #chat-form label { color:#a7e9f8; font:12px ui-monospace,monospace; }
+    #chat-message { width:100%; padding:4px 7px; font:16px system-ui,sans-serif; user-select:text; -webkit-user-select:text; }
+    #chat-status { grid-column:1 / -1; color:#ffcb94; font-size:12px; }
     .player-dead .joystick, .player-dead #spell-bar { opacity:.2; filter:grayscale(1); pointer-events:none; }
     @media (max-width:760px) {
       #hud { grid-auto-flow:row; grid-template-columns:repeat(3,minmax(0,1fr)); max-width:calc(100vw - 20px); gap:4px; padding:6px 7px; font-size:11px; }
@@ -160,6 +183,8 @@
       #spell-bar { bottom:calc(max(22px,env(safe-area-inset-bottom)) + 117px); gap:4px; }
       .spell-btn { width:min(43px,calc((100vw - 48px) / 9)); height:42px; }
       #zoom-readout { display:none; }
+      #dungeon-chat { bottom:calc(max(22px,env(safe-area-inset-bottom)) + 169px); }
+      #dungeon-chat[data-composing] { bottom:max(calc(max(22px,env(safe-area-inset-bottom)) + 169px),calc(var(--keyboard-inset,0px) + 10px)); }
     }
   </style>
 </head>
@@ -196,6 +221,16 @@
   <div class="touch-dot touch-dot-left" id="touch-left"></div>
   <div class="touch-dot touch-dot-right" id="touch-right"></div>
   <div id="spell-bar"></div>
+  <section id="dungeon-chat" aria-label="Dungeon chat" hidden>
+    <ol id="chat-feed" role="log" aria-label="Dungeon messages"></ol>
+    <button id="chat-toggle" type="button" aria-expanded="false" aria-controls="chat-form">Chat</button>
+    <form id="chat-form" hidden>
+      <label for="chat-message">/say</label>
+      <input id="chat-message" type="text" autocomplete="off" enterkeyhint="send" aria-label="Say to the dungeon" />
+      <button type="submit">Send</button>
+      <span id="chat-status" role="status"></span>
+    </form>
+  </section>
 
 <script>
   const ENABLE_SW = true;
@@ -277,6 +312,7 @@ import { createProjectileFxController } from './src/display/passes/projectileFx.
 import { createArenaAudio, unlockArenaAudio } from './src/display/audio/arenaAudio.js';
 import { createAtlasIcon } from './src/display/ui/atlasIcon.js';
 import { createItemTooltip } from './src/display/ui/itemTooltip.js';
+import { createDungeonChat } from './src/display/ui/dungeonChat.js';
 import { createResourceBar } from './src/display/ui/resourceBars.js';
 import { ArrowAmmo, BowWeapon, Gold, Health, Mana, MeleeWeapon, Powerups, Spellbook, Position, Stamina } from './src/rules/components/index.js';
 import { createNetClient } from './src/net/client.js';
@@ -306,7 +342,10 @@ const authState = forceOffline ? null : await fetch('/auth/me', { credentials: '
   .then(async (response) => response.ok ? response.json() : ({ authenticated: false }))
   .catch(() => ({ authenticated: false, unavailable: true }));
 
+let dungeonChat = null;
 const netClient = createNetClient({
+  onSay(message) { dungeonChat?.receive(message); },
+  onSayError(message) { dungeonChat?.reject(message); },
   onDisconnect(message) {
     loop.stop();
     showArenaLoadError(`${message} Reload to rejoin.`);
@@ -439,6 +478,22 @@ const playerId = isNetworked
   ? (sim.getPlayerEntity(netWelcome.peerId) ?? sim.addPlayer(netWelcome.peerId, 0, null, playerName))
   : sim.addPlayer('local', 0, null, playerName);
 const world = sim.world;
+if (isNetworked) {
+  dungeonChat = createDungeonChat({
+    root: document.getElementById('dungeon-chat'),
+    localPeerId: netWelcome.peerId,
+    playerForPeer: sim.getPlayerEntity,
+    send: netClient.say,
+    onCompose(open) {
+      inputRouter.setSuspended(open);
+      if (open) {
+        pendingWeaponPickup = null;
+        pendingSpellSlot = null;
+        pendingSpellCycle = 0;
+      }
+    },
+  });
+}
 if (mobPreview) spawnPreviewMob(world, grid, world.get(playerId, Position), mobPreview);
 const offlineProgressKey = 'hack-arena.offline-progress';
 let offlineProgress = { gold: 0 };
@@ -532,7 +587,7 @@ const arenaAudio = createArenaAudio({
 // ── Renderer ────────────────────────────────────────────────────
 const itemTooltip = createItemTooltip({
   root: document.getElementById('arena-ui'),
-  onActivate(target) { pendingWeaponPickup = target; },
+  onActivate(target) { if (!dungeonChat?.isComposing()) pendingWeaponPickup = target; },
 });
 const healthBar = createResourceBar(document.getElementById('hud-hp-bar'), { key: 'health', label: '♥', color: '#ff4164' });
 const manaBar = createResourceBar(document.getElementById('hud-mana-bar'), { key: 'mana', label: '◆', color: '#55aaff', boostedClass: 'mana-boosted' });
@@ -553,6 +608,7 @@ renderer = createWebGLArenaRenderer({
   canvas, overlayCanvas, cam, grid, bounds, decorations, fx, world, SEED, runtimeEvents,
   net: isNetworked ? netClient : null, playerId,
   presentation,
+  speechBubbles: () => dungeonChat?.getBubbles(),
   stepParticles: projectileFx.step,
   itemTooltip,
   resourceBars: { health: healthBar, mana: manaBar },
@@ -676,6 +732,7 @@ console.log(`Cave: seed=${SEED.toString(16)} grid=${grid.cols}x${grid.rows} spaw
 addEventListener('beforeunload', () => {
   loop.stop();
   inputRouter.destroy();
+  dungeonChat?.dispose();
   netClient.destroy();
   arenaAudio.dispose();
   renderer.dispose();

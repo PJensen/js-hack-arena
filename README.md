@@ -76,6 +76,11 @@ Set the secret values with Wrangler rather than committing them to the repo.
 Offline play remains available with `?offline`, but the shared room requires a
 valid Arena session.
 
+In the shared dungeon, press **Enter** or tap **Chat** to open the composer.
+Send plain text or type `/say hello` to reach everyone in the dungeon. Messages
+appear in the chat feed and briefly above the speaker when they are on screen.
+Press **Escape** to close the composer and return to the game controls.
+
 Rooms are server-seeded. On a Worker-backed connection, `WELCOME` includes the
 authoritative room seed and the browser generates cave geometry from that seed.
 Static/offline play still falls back to the local seed resolver.

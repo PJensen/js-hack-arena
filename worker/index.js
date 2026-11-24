@@ -1,11 +1,14 @@
 import {
   ACCOUNT_ALREADY_PLAYING,
   DEFAULT_ROOM_ID,
+  MAX_SAY_LENGTH,
   MESSAGE,
   decodeMessage,
   encodeMessage,
   makeInputFrame,
   makeRoomSeed,
+  normalizePlayerName,
+  normalizeSayText,
 } from '../public/src/shared/net/protocol.js';
 import { generateArenaCave } from '../public/src/rules/geometry/caveGen.js';
 import { Gold } from '../public/src/rules/components/index.js';
@@ -33,6 +36,7 @@ const JSON_HEADERS = {
 const SNAPSHOT_HZ = 10;
 const SERVER_TICK_MS = 1000 / SIM_TICK_HZ;
 const SNAPSHOT_EVERY_TICKS = Math.max(1, Math.round(SIM_TICK_HZ / SNAPSHOT_HZ));
+const SAY_COOLDOWN_MS = 900;
 
 export default {
   async fetch(request, env) {
@@ -144,6 +148,7 @@ export class GameRoom {
       socket,
       joinedAt: Date.now(),
       lastSeenAt: Date.now(),
+      nextSayAt: 0,
       input: makeInputFrame(),
       name: identity.displayName,
       userId: identity.userId,
@@ -215,6 +220,19 @@ export class GameRoom {
     if (msg.type === MESSAGE.INPUT) {
       session.input = makeInputFrame(msg.input);
       this.ensureSim().setPlayerInput(session.id, session.input);
+      return;
+    }
+
+    if (msg.type === MESSAGE.SAY) {
+      const text = normalizeSayText(msg.text);
+      if (!text) {
+        this.send(socket, MESSAGE.SAY_ERROR, { error: `Enter a message up to ${MAX_SAY_LENGTH} characters.` });
+      } else if (session.lastSeenAt < session.nextSayAt) {
+        this.send(socket, MESSAGE.SAY_ERROR, { error: 'Wait a moment before sending again.' });
+      } else {
+        session.nextSayAt = session.lastSeenAt + SAY_COOLDOWN_MS;
+        this.broadcast(MESSAGE.SAY, { peerId: session.id, name: normalizePlayerName(session.name), text });
+      }
       return;
     }
 

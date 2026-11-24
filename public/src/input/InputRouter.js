@@ -124,6 +124,7 @@ export function createInputRouter({
   const rightStick = new Joystick(rightBase, rightKnob, rightMarker);
 
   const keys = Object.create(null);
+  let suspended = false;
   const mouse = {
     active: false,
     x: 0,
@@ -167,13 +168,15 @@ export function createInputRouter({
     for (const k of Object.keys(keys)) keys[k] = false;
     mouse.active = false;
     mouse.down = false;
-    // Clear queued actions on blur or when the page is hidden.
+    // Clear queued actions when focus leaves gameplay.
     spellSlot = null;
     spellCycle = 0;
     pickupPressed = false;
+    zoomDelta = 0;
   };
 
   on(document, 'touchstart', (e) => {
+    if (suspended) return;
     e.preventDefault();
     for (const t of e.changedTouches) {
       const stick = t.clientX < window.innerWidth / 2 ? leftStick : rightStick;
@@ -182,6 +185,7 @@ export function createInputRouter({
   }, { passive: false });
 
   on(document, 'touchmove', (e) => {
+    if (suspended) return;
     e.preventDefault();
     for (const t of e.changedTouches) {
       if (leftStick.touchId === t.identifier) leftStick.update(t);
@@ -193,6 +197,7 @@ export function createInputRouter({
   on(document, 'touchcancel', (e) => releaseTouches(e.changedTouches));
 
   on(window, 'keydown', (e) => {
+    if (suspended) return;
     const key = keyFromKeyboardEvent(e);
     keys[key] = true;
     if (key === ' ') e.preventDefault();
@@ -200,6 +205,7 @@ export function createInputRouter({
   on(window, 'keyup', (e) => { keys[keyFromKeyboardEvent(e)] = false; });
 
   on(canvas, 'pointerdown', (e) => {
+    if (suspended) return;
     mouse.active = true;
     mouse.down = true;
     mouse.x = e.clientX;
@@ -207,6 +213,7 @@ export function createInputRouter({
   });
 
   on(canvas, 'pointermove', (e) => {
+    if (suspended) return;
     mouse.x = e.clientX;
     mouse.y = e.clientY;
     mouse.active = true;
@@ -244,6 +251,7 @@ export function createInputRouter({
   let pickupPressed = false;
 
   on(window, 'keydown', (e) => {
+    if (suspended) return;
     if (e.key === ',') {
       if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) {
         pickupPressed = true;
@@ -264,10 +272,12 @@ export function createInputRouter({
   // Zoom via +/- keys and mouse wheel
   let zoomDelta = 0;
   on(window, 'keydown', (e) => {
+    if (suspended) return;
     if (e.key === '=' || e.key === '+') zoomDelta += 1;
     if (e.key === '-' || e.key === '_') zoomDelta -= 1;
   });
   on(window, 'wheel', (e) => {
+    if (suspended) return;
     e.preventDefault();
     zoomDelta += e.deltaY < 0 ? 1 : -1;
   }, { passive: false });
@@ -351,6 +361,7 @@ export function createInputRouter({
     output.spellSlot = spellSlot;
     output.spellCycle = spellCycle;
     output.pickupPressed = pickupPressed;
+    output.cancelCast = suspended;
     spellSlot = null;   // drain
     spellCycle = 0;     // drain
     pickupPressed = false;
@@ -373,6 +384,7 @@ export function createInputRouter({
   }
 
   function setSpellSlot(slot) {
+    if (suspended) return;
     const normalized = Number(slot);
     if (Number.isInteger(normalized) && normalized >= 0) spellSlot = normalized;
   }
@@ -382,6 +394,11 @@ export function createInputRouter({
     destroy,
     pulse,
     reset: resetAll,
+    setSuspended(value) {
+      if (suspended === value) return;
+      suspended = value;
+      resetAll();
+    },
     setSpellSlot,
     _setSpellSlot: setSpellSlot,
     getOutput: () => ({ ...output, left: { ...output.left }, right: { ...output.right }, intent: { ...output.intent } }),

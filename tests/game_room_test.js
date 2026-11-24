@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
-import { AI, Actor, Conditions, Health, Position } from '../public/src/rules/components/index.js';
+import { AI, Actor, Conditions, Health, Position, Projectile, Spellbook } from '../public/src/rules/components/index.js';
 import { SIM_DT, SIM_MODE, createArenaSimulation } from '../public/src/rules/sim/arenaSim.js';
 import { GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
 import { sweepMaxFree } from '../public/src/rules/geometry/sweep.js';
@@ -49,6 +49,75 @@ Deno.test('game room: every connected socket receives both players immediately',
 
   room.leave(first);
   room.leave(second);
+});
+
+Deno.test('game room: /say reaches distant peers in the same room and uses the session identity', () => {
+  const room = new GameRoom(makeRoomState(), {});
+  const otherRoom = new GameRoom({ ...makeRoomState(), id: { toString: () => 'other-room' } }, {});
+  const speaker = new FakeSocket();
+  const listener = new FakeSocket();
+  const outsider = new FakeSocket();
+  room.accept(speaker, { userId: 'user-1', displayName: '  First  ' });
+  room.accept(listener, { userId: 'user-2', displayName: 'Second' });
+  otherRoom.accept(outsider, { userId: 'user-3', displayName: 'Outsider' });
+  try {
+    const { peerId } = speaker.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    const listenerPeer = listener.sent.find(({ type }) => type === MESSAGE.WELCOME).peerId;
+    const sim = room.ensureSim();
+    const distant = sim.world.get(sim.getPlayerEntity(listenerPeer), Position);
+    distant.x += 5000;
+    const say = (socket, payload) => room.handleMessage(socket, encodeMessage(MESSAGE.SAY, payload));
+    const messages = (socket) => socket.sent.filter(({ type }) => type === MESSAGE.SAY)
+      .map(({ peerId, name, text }) => ({ peerId, name, text }));
+    const rejectionCount = (socket) => socket.sent.filter(({ type }) => type === MESSAGE.SAY_ERROR).length;
+
+    say(speaker, { text: 42 });
+    say(speaker, { text: ' '.repeat(200) + 'hello' });
+    say(speaker, { text: '  hello\n <b> ', peerId: 'fake', name: 'Fake' });
+    const delivered = [{ peerId, name: 'First', text: 'hello <b>' }];
+    assertEquals(messages(speaker), delivered);
+    assertEquals(messages(listener), delivered);
+    assertEquals(messages(outsider), []);
+    assertEquals(rejectionCount(speaker), 2);
+    assertEquals(rejectionCount(listener), 0);
+
+    say(speaker, { text: 'too soon' });
+    assertEquals(rejectionCount(speaker), 3);
+    assertEquals(messages(listener), delivered);
+    say(listener, { text: 'heard you' });
+    assertEquals(messages(speaker).at(-1), { peerId: listenerPeer, name: 'Second', text: 'heard you' });
+  } finally {
+    room.leave(speaker);
+    room.leave(listener);
+    otherRoom.leave(outsider);
+  }
+});
+
+Deno.test('game room: opening chat interrupts an in-progress cast before release', () => {
+  const room = new GameRoom(makeRoomState(), {});
+  const socket = new FakeSocket();
+  room.accept(socket, { userId: 'caster', displayName: 'Caster' });
+  try {
+    const { peerId } = socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    const sim = room.ensureSim();
+    const book = sim.world.get(sim.getPlayerEntity(peerId), Spellbook);
+    const input = (frame) => room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, { input: frame }));
+    input({ seq: 1, aimX: 1, fire: true });
+    for (let i = 0; i < 4; i++) room.step();
+    assertEquals(book.castPhase, 'charging');
+    input({ seq: 2, cancelCast: true });
+    room.step();
+    assertEquals(book.castPhase, 'idle');
+    assertEquals([...sim.world.query(Projectile)].length, 0);
+
+    input({ seq: 3, aimX: 1, fire: true });
+    room.step();
+    input({ seq: 4 });
+    room.step();
+    assertEquals([...sim.world.query(Projectile)].length, 1);
+  } finally {
+    room.leave(socket);
+  }
 });
 
 Deno.test('game room: encounters stay spread out while some mobs patrol', () => {

@@ -211,6 +211,7 @@ export function createArenaSimulation({
     input.aimX = clampUnit(command.aimX);
     input.aimY = clampUnit(command.aimY);
     input.fire = Boolean(command.fire);
+    input.cancelCast = command.cancelCast === true;
     if (Number.isFinite(command.pickupX) && Number.isFinite(command.pickupY)) {
       input.pickupX = command.pickupX;
       input.pickupY = command.pickupY;

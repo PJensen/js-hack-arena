@@ -37,6 +37,10 @@ export function createPlayerCombatSystem({ grid }) {
         continue;
       }
       const damaged = damagedTargets.delete(playerId);
+      if (input.cancelCast) {
+        interruptCast(world, playerId, book, 'input');
+        continue;
+      }
       if (damaged && book.castPhase !== 'idle') {
         const activeSpell = spellCatalog[book.spells[book.chargeSpellIndex]];
         if (activeSpell?.cast.interruptOnDamage) {

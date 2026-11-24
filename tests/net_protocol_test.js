@@ -1,12 +1,14 @@
 import { assertEquals, assertThrows } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import {
   MESSAGE,
+  MAX_SAY_LENGTH,
   NET_VERSION,
   decodeMessage,
   encodeMessage,
   makeInputFrame,
   makeRoomSeed,
   normalizeRoomId,
+  normalizeSayText,
   normalizePlayerName,
 } from '../public/src/shared/net/protocol.js';
 
@@ -50,4 +52,12 @@ Deno.test("makeInputFrame: clamps analog values", () => {
     spellSlot: null,
     spellCycle: 0,
   });
+});
+
+Deno.test('say: accepts bounded single-line text and preserves literal markup', () => {
+  assertEquals(normalizeSayText('  Hi\n there\u0000 🦇 <b>\u202e '), 'Hi there 🦇 <b>');
+  assertEquals(normalizeSayText('a'.repeat(MAX_SAY_LENGTH)).length, MAX_SAY_LENGTH);
+  assertEquals(normalizeSayText('a'.repeat(MAX_SAY_LENGTH + 1)), '');
+  assertEquals(normalizeSayText({ text: 'hi' }), '');
+  assertEquals(makeInputFrame({ cancelCast: true }).cancelCast, true);
 });
