@@ -3,6 +3,7 @@ import { EffectKind } from './effectCatalog.js';
 export const ConditionId = Object.freeze({
   FROZEN: 'frozen',
   STUNNED: 'stunned',
+  IMMOBILIZED: 'immobilized',
   POISONED: 'poisoned',
   BLEEDING: 'bleeding',
   BURNING: 'burning',
@@ -55,6 +56,17 @@ export const conditions = Object.freeze({
     effects: Object.freeze([
       Object.freeze({ kind: EffectKind.ACTION_LOCK, action: 'move' }),
       Object.freeze({ kind: EffectKind.ACTION_LOCK, action: 'cast' }),
+    ]),
+  }),
+  [ConditionId.IMMOBILIZED]: Object.freeze({
+    id: ConditionId.IMMOBILIZED,
+    name: 'Immobilized',
+    glyph: '🕸',
+    duration: 1.25,
+    disposition: 'harmful',
+    visual: 'webbed',
+    effects: Object.freeze([
+      Object.freeze({ kind: EffectKind.ACTION_LOCK, action: 'move' }),
     ]),
   }),
   [ConditionId.POISONED]: Object.freeze({

@@ -99,7 +99,7 @@ function maintainCast(world, grid, playerId, input, book, position, dt) {
   const spellId = book.spells[book.chargeSpellIndex];
   const spell = spellCatalog[spellId];
   if (!spell) return interruptCast(world, playerId, book, 'invalid_spell');
-  const moving = Math.hypot(input.moveX, input.moveY) > 0.1;
+  const moving = Math.hypot(input.moveX, input.moveY) > 0.1 && !isActionLocked(world, playerId, 'move');
 
   if (book.castPhase === 'charging') {
     if (input.fire) {

@@ -154,8 +154,8 @@ export function spawnSpider(world, grid, nearX, nearY, targetId, patrolPoints = 
     name: 'Cave Spider', glyph: '🕷', theme: 'spider', radius: 11,
     speed: 154, hp: 38, mana: 0, manaRegen: 0,
     light: SPIDER_LIGHT,
-    behavior: AIBehavior.MELEE, preferredDist: 10, castRate: 99,
-    projSpeed: 0, meleeDamage: 8, weapon: 'Venom Bite', conditionId: ConditionId.POISONED, aggroRange: 285,
+    behavior: AIBehavior.MELEE, preferredDist: 10, castRate: 4.5,
+    projSpeed: 230, webSpit: true, meleeDamage: 8, weapon: 'Venom Bite', conditionId: ConditionId.POISONED, aggroRange: 285,
     patrolPoints, searchRadius: 64,
   });
 }
@@ -182,6 +182,7 @@ function spawnMob(world, grid, nearX, nearY, targetId, config) {
     preferredDist: config.preferredDist,
     castRate: config.castRate,
     projSpeed: config.projSpeed,
+    webSpit: config.webSpit ?? false,
     aggroRange: config.aggroRange ?? 300,
     patrolPoints: config.patrolPoints || [],
     patrolIndex: 0,

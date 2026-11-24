@@ -32,6 +32,7 @@ import {
 } from '../components/index.js';
 import { epicChestTable, epicChestTotalWeight, mobDropTable, mobDropTotalWeight, rollTable } from '../data/lootTable.js';
 import { AuraId } from '../data/auraCatalog.js';
+import { conditions as conditionCatalog } from '../data/conditionCatalog.js';
 import { effectSystem, projectConditions, projectAuraEmitter } from '../effects.js';
 import { createGridCarver } from '../geometry/carve.js';
 import {
@@ -1127,7 +1128,7 @@ function normalizeEffect(id, value, index) {
 }
 
 function replicaCondition(condition) {
-  return { ...condition, source: null, effects: [] };
+  return { ...condition, source: null, effects: conditionCatalog[condition.id]?.effects ?? [] };
 }
 
 function setAuraEmitter(world, entityId, value) {

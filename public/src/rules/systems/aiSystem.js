@@ -3,6 +3,8 @@ import { Position, Velocity, Speed, Facing, AI, AIBehavior, Collider, Health, Pr
 import { moveWithSlide } from '../geometry/sweep.js';
 import { astar } from '../ai/pathfind.js';
 import { getStatMultiplier, isActionLocked } from '../effects.js';
+import { ConditionId } from '../data/conditionCatalog.js';
+import { ImpactKind } from '../data/spellCatalog.js';
 
 const PATH_REFRESH = 0.5;        // recompute every 0.5s
 
@@ -69,7 +71,10 @@ export function createAISystem(ctx) {
         const tooClose = !melee && dist < ai.preferredDist * 0.7;
         const tooFar = dist > ai.preferredDist * 1.3;
 
-        if (tooClose) {
+        if (dist === 0) {
+          vel.vx = 0;
+          vel.vy = 0;
+        } else if (tooClose) {
           vel.vx = -(dx / dist) * movementSpeed;
           vel.vy = -(dy / dist) * movementSpeed;
         } else if (tooFar || melee) {
@@ -86,7 +91,19 @@ export function createAISystem(ctx) {
         ai.castCooldown -= dt;
         const mana = world.get(id, Mana);
         const manaCost = 10;
-        if (!castLocked && !melee && ai.castCooldown <= 0 && (!mana || mana.mana >= manaCost)) {
+        if (!castLocked && ai.castCooldown <= 0 && ai.webSpit && dist >= 55 && dist <= 200) {
+          ai.castCooldown = ai.castRate;
+          const shot = world.create();
+          world.add(shot, Position, { x: pos.x, y: pos.y });
+          world.add(shot, Velocity, { vx: Math.cos(fac.angle) * ai.projSpeed, vy: Math.sin(fac.angle) * ai.projSpeed });
+          world.add(shot, Projectile, {
+            damage: 0, owner: id, team: 'enemies', speed: ai.projSpeed, style: 'web',
+            burstColor: '#eee8d9',
+            impacts: [{ kind: ImpactKind.APPLY_CONDITION, conditionId: ConditionId.IMMOBILIZED }],
+          });
+          world.add(shot, Lifetime, { ttl: 0.9 });
+          world.add(shot, Collider, { radius: 5 });
+        } else if (!castLocked && !melee && ai.castCooldown <= 0 && (!mana || mana.mana >= manaCost)) {
           ai.castCooldown = ai.castRate;
           if (mana) mana.mana -= manaCost;
           const angle = Math.atan2(dy, dx);

@@ -874,6 +874,66 @@ Deno.test("arena sim: a spider patrols, chases, poisons on contact, and stays de
   assertEquals(replayedBites.map(({ x, y }) => [x, y]), bites.map(({ x, y }) => [x, y]));
 });
 
+Deno.test('arena sim: a web shot roots on impact, permits casting, and wears off', () => {
+  const sim = makeOpenSim(922, { enemyCount: 0 });
+  const player = sim.addPlayer('peer-a');
+  const spider = spawnSpider(sim.world, { distanceMove: () => 100 }, 260, 100, null);
+  const position = sim.world.get(player, Position);
+  const events = [];
+  sim.world.on('projectile.hit', (event) => events.push(event));
+  // Hold the spider in place to isolate the projectile from contact melee.
+  const spiderPosition = sim.world.get(spider, Position);
+  Object.assign(spiderPosition, { x: 260, y: 100 });
+  applyAura(sim.world, spider, 'immobilized', null, 3);
+
+  sim.step();
+  assertEquals([...sim.world.query(Projectile)].map(([, shot]) => shot.style), ['web']);
+  assertEquals(sim.getPlayerSnapshot('peer-a').state.conditions, []);
+  for (let i = 0; i < 15; i++) sim.step();
+  assertEquals(events.map(({ target, style }) => [target, style]), [[player, 'web']]);
+  assertEquals(sim.world.get(player, Health).hp, 100);
+  const replica = makeOpenSim(922, { mode: SIM_MODE.REPLICA });
+  replica.applySnapshot(sim.captureSnapshot());
+  assertEquals(replica.getPlayerSnapshot('peer-a').state.conditions.map(({ id }) => id), ['immobilized']);
+
+  const casts = [];
+  sim.world.on('spell.cast', ({ spellId }) => casts.push(spellId));
+  sim.setPlayerInput('peer-a', { moveX: 1, aimX: 1, spellSlot: 2, fire: true });
+  sim.step();
+  assertEquals(casts, ['cleave']);
+  assertEquals(position.x, 100);
+  sim.setPlayerInput('peer-a', { moveY: 1 });
+  for (let i = 0; i < 25; i++) sim.step();
+  assertEquals(sim.getPlayerSnapshot('peer-a').state.conditions, []);
+  assert(position.y > 100);
+});
+
+Deno.test('arena sim: a web shot misses a sidestep and stops at intervening walls', () => {
+  for (const dodge of [true, false]) {
+    let wall = false;
+    const grid = {
+      cellSize: 4, cols: 256, rows: 256,
+      moveGrid: new Float32Array(256 * 256).fill(100),
+      distanceMove: (x) => wall ? Math.min(100, Math.abs(x - 170) - 2) : 100,
+    };
+    const sim = makeOpenSim(923, { enemyCount: 0, grid });
+    sim.addPlayer('peer-a');
+    const spider = spawnSpider(sim.world, grid, 260, 100, null);
+    Object.assign(sim.world.get(spider, Position), { x: 260, y: 100 });
+    applyAura(sim.world, spider, 'immobilized', null, 3);
+    const walls = [];
+    sim.world.on('projectile.wall', (event) => walls.push(event));
+    sim.step();
+    assertEquals([...sim.world.query(Projectile)].length, 1);
+    wall = !dodge;
+    if (dodge) sim.setPlayerInput('peer-a', { moveY: 1 });
+    for (let i = 0; i < 19; i++) sim.step();
+    assertEquals([...sim.world.query(Projectile)].length, 0);
+    assertEquals(sim.getPlayerSnapshot('peer-a').state.conditions, []);
+    assertEquals(walls.map(({ style, radius }) => [style, radius]), dodge ? [] : [['web', 0]]);
+  }
+});
+
 Deno.test("arena sim: unalerted patrol mobs stay dormant and dead mobs stay dead", () => {
   const sim = makeOpenSim(907, {
     enemyCount: 1,

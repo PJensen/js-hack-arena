@@ -47,6 +47,7 @@ import { CUBE_VERTEX } from './shaders/cube.vert.js';
 import { createCubeMesh } from './cubeMesh.js';
 import { PROJECTILE_VERTEX } from './shaders/projectile.vert.js';
 import { FROST_BOLT_FRAGMENT } from './shaders/frostBolt.frag.js';
+import { WEB_SHOT_FRAGMENT } from './shaders/webShot.frag.js';
 import { CHARGE_FRAGMENT } from './shaders/charge.frag.js';
 import { MELEE_ARC_VERTEX } from './shaders/meleeArc.vert.js';
 import { MELEE_ARC_FRAGMENT } from './shaders/meleeArc.frag.js';
@@ -241,6 +242,7 @@ export function createWebGLArenaRenderer(deps) {
   lootShaft.color = uniform(gl, lootShaft.program, 'u_color');
   lootShaft.time = uniform(gl, lootShaft.program, 'u_time');
   const frostBolt = directionalProgram(device, FROST_BOLT_FRAGMENT);
+  const webShot = directionalProgram(device, WEB_SHOT_FRAGMENT);
   const charge = worldProgram(device, CHARGE_FRAGMENT);
   charge.theme = uniform(gl, charge.program, 'u_theme');
   charge.time = uniform(gl, charge.program, 'u_time');
@@ -491,15 +493,15 @@ export function createWebGLArenaRenderer(deps) {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  function drawFrostBolt(x, y, angle, length, time, alpha = 1) {
-    gl.useProgram(frostBolt.program);
+  function drawDirectionalProjectile(shader, x, y, angle, length, width, time, alpha) {
+    gl.useProgram(shader.program);
     gl.bindVertexArray(quadVao);
-    gl.uniform4fv(frostBolt.view, view);
-    gl.uniform2f(frostBolt.position, x, y);
-    gl.uniform2f(frostBolt.size, length, Math.max(7, length * 0.42));
-    gl.uniform1f(frostBolt.angle, angle);
-    gl.uniform1f(frostBolt.time, time);
-    gl.uniform1f(frostBolt.alpha, alpha);
+    gl.uniform4fv(shader.view, view);
+    gl.uniform2f(shader.position, x, y);
+    gl.uniform2f(shader.size, length, width);
+    gl.uniform1f(shader.angle, angle);
+    gl.uniform1f(shader.time, time);
+    gl.uniform1f(shader.alpha, alpha);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
@@ -798,6 +800,24 @@ export function createWebGLArenaRenderer(deps) {
           const angle = now * 5 + star * Math.PI * 2 / 3;
           drawGlyph('★', position.x + Math.cos(angle) * (collider.radius + 5), position.y - collider.radius - 8 + Math.sin(angle) * 4, 8, [1, 0.9, 0.24, 1]);
         }
+      } else if (condition.id === ConditionId.IMMOBILIZED) {
+        const { x, y } = position;
+        const r = collider.radius;
+        const fade = Math.min(1, condition.remaining / 0.25);
+        const spread = 1 + 0.08 * Math.max(0, 1 - (condition.duration - condition.remaining) / 0.18) * pulse;
+        const points = [];
+        // Crossed strands wrap the feet and fan out to anchors on the floor.
+        for (let strand = -1; strand <= 1; strand++) {
+          const offset = strand * r * 0.29;
+          const left = x - r * 1.45 * spread;
+          const right = x + r * 1.45 * spread;
+          points.push(
+            left, y + r * 0.94 + offset, x + r * 0.62, y + r * 0.24 - offset,
+            right, y + r * 0.94 - offset, x - r * 0.62, y + r * 0.24 + offset,
+            left + r * 0.22, y + r * 1.1 + offset, right - r * 0.22, y + r * 1.1 + offset,
+          );
+        }
+        drawLines(new Float32Array(points), [1, 0.94, 0.8, 0.84 * fade], 2);
       } else if (condition.visual === 'poisoned') {
         drawDisc(position.x, position.y, collider.radius + 2 + pulse * 2, [0.12, 0.7, 0.2, 0.25], [0.3, 1, 0.42, 0.62]);
         for (let drop = 0; drop < 3; drop++) {
@@ -1256,11 +1276,18 @@ export function createWebGLArenaRenderer(deps) {
         drawArrow(shown.x, shown.y, velocity?.vx || 1, velocity?.vy || 0, projectile.power || 1);
         continue;
       }
+      if (projectile.style === 'web') {
+        const velocity = world.get(id, Velocity);
+        const angle = Math.atan2(velocity?.vy ?? 0, velocity?.vx ?? 1);
+        drawDirectionalProjectile(webShot, shown.x, shown.y, angle, 37, 17, now + id * 0.07, 1);
+        continue;
+      }
       if (projectile.style === 'frost' || projectile.trailColor === '#8cd8ff') {
         const velocity = world.get(id, Velocity);
         const angle = Math.atan2(velocity?.vy || 0, velocity?.vx || 1);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-        drawFrostBolt(shown.x, shown.y, angle, Math.max(24, collider.radius * 5.8), now + id * 0.07, 0.96);
+        const length = Math.max(24, collider.radius * 5.8);
+        drawDirectionalProjectile(frostBolt, shown.x, shown.y, angle, length, Math.max(7, length * 0.42), now + id * 0.07, 0.96);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         continue;
       }

@@ -4,12 +4,13 @@ import { AI, Collider, Health, Lifetime, PlayerTag, Position, Projectile, Recove
 import { applyDamage } from '../effects.js';
 import { applyImpacts } from '../impacts.js';
 import { findOpenNear, spawnArrows } from '../spawner.js';
+import { sweepMaxFree } from '../geometry/sweep.js';
 
 export function createProjectileSystem({ grid, carve = null }) {
   return function projectileSystem(world, dt) {
     const targets = [];
     for (const [id, position, collider, health] of world.query(Position, Collider, Health)) {
-      if (health.dead) continue;
+      if (health.dead || health.hp <= 0) continue;
       targets.push({ id, position, collider, health, team: teamOf(world, id) });
     }
 
@@ -21,11 +22,16 @@ export function createProjectileSystem({ grid, carve = null }) {
       Lifetime,
       Collider,
     )) {
-      position.x += velocity.vx * dt;
-      position.y += velocity.vy * dt;
+      const nextX = position.x + velocity.vx * dt;
+      const nextY = position.y + velocity.vy * dt;
+      const travel = projectile.style === 'web'
+        ? sweepMaxFree(grid, position.x, position.y, nextX, nextY, collider.radius)
+        : 1;
+      position.x += (nextX - position.x) * travel;
+      position.y += (nextY - position.y) * travel;
       const projectileTeam = projectile.team || teamOf(world, projectile.owner);
 
-      for (const target of targets) {
+      for (const target of travel < 1 ? [] : targets) {
         if (target.id === projectile.owner || target.team === projectileTeam) continue;
         const dx = target.position.x - position.x;
         const dy = target.position.y - position.y;
@@ -62,7 +68,7 @@ export function createProjectileSystem({ grid, carve = null }) {
       }
       if (destroy.has(id)) continue;
 
-      if (grid.distanceMove(position.x, position.y) < collider.radius) {
+      if (travel < 1 || grid.distanceMove(position.x, position.y) < collider.radius) {
         if (projectile.recoverableAmmo) {
           const open = findOpenNear(grid, position.x, position.y, 72);
           spawnArrows(world, open.x, open.y, 1);

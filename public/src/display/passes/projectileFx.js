@@ -30,6 +30,7 @@ export function createProjectileFxController({ world, fx, runtimeEvents }) {
     const current = new Set();
     const origins = [];
     for (const [id, position, velocity, projectile] of world.query(Position, Velocity, Projectile)) {
+      if (projectile.style === 'web') continue;
       const key = `projectile:${id}`;
       current.add(key);
       if (!activeTrails.has(key)) {

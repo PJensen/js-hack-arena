@@ -13,6 +13,7 @@ export const AI = defineComponent('AI', {
   castCooldown:   0,
   castRate:       1.2,
   projSpeed:      250,
+  webSpit:        false,
   aggroRange:     300,
   sight:          true,
   patrolPoints:   [],

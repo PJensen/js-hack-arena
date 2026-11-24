@@ -2,6 +2,7 @@ import { assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { createSnapshotInterpolator } from '../public/src/display/snapshotInterpolator.js';
 import { createLocalPlayerPrediction } from '../public/src/display/localPlayerPrediction.js';
 import { Position } from '../public/src/rules/components/index.js';
+import { applyCondition } from '../public/src/rules/effects.js';
 import { SIM_MODE, createArenaSimulation } from '../public/src/rules/sim/arenaSim.js';
 
 function makeSim(mode) {
@@ -58,4 +59,29 @@ Deno.test('local prediction is presentation-only', () => {
   prediction.step({ intent: { moveX: 1, moveY: 0 } }, 0.25);
   assertEquals(prediction.position().x, 60);
   assertEquals(replica.world.get(playerId, Position).x, 10);
+});
+
+Deno.test('local prediction follows authoritative immobilization and release', () => {
+  const authority = makeSim(SIM_MODE.AUTHORITY);
+  const player = authority.addPlayer('peer-a');
+  const replica = makeSim(SIM_MODE.REPLICA);
+  replica.applySnapshot(authority.captureSnapshot());
+  const playerId = replica.getPlayerEntity('peer-a');
+  const prediction = createLocalPlayerPrediction({ world: replica.world, playerId, grid: { distanceMove: () => 100 } });
+  const input = { intent: { moveX: 1 } };
+  prediction.step(input, 0.25);
+  assertEquals(prediction.position().x, 60);
+
+  applyCondition(authority.world, player, 'immobilized', null, 0.25);
+  authority.step(0.1);
+  replica.applySnapshot(authority.captureSnapshot());
+  prediction.reconcile();
+  prediction.step(input, 0.25);
+  assertEquals(prediction.position().x, 10);
+
+  authority.step(0.2);
+  replica.applySnapshot(authority.captureSnapshot());
+  prediction.reconcile();
+  prediction.step(input, 0.25);
+  assertEquals(prediction.position().x, 60);
 });

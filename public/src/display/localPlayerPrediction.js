@@ -2,6 +2,7 @@
 // authoritative replica world; snapshots only reconcile this render position.
 import { Collider, Position, Speed } from '../rules/components/index.js';
 import { moveWithSlide } from '../rules/geometry/sweep.js';
+import { isActionLocked } from '../rules/effects.js';
 
 export function createLocalPlayerPrediction({ world, playerId, grid }) {
   const initial = world.get(playerId, Position);
@@ -26,6 +27,14 @@ export function createLocalPlayerPrediction({ world, playerId, grid }) {
   }
 
   function step(sample, dt) {
+    if (isActionLocked(world, playerId, 'move')) {
+      const authoritative = world.get(playerId, Position);
+      x = authoritative.x;
+      y = authoritative.y;
+      correctionX = 0;
+      correctionY = 0;
+      return;
+    }
     const speed = world.get(playerId, Speed)?.max ?? 0;
     const radius = world.get(playerId, Collider)?.radius ?? 0;
     const moveX = finiteUnit(sample.intent?.moveX);
