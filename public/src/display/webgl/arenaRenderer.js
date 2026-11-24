@@ -637,11 +637,11 @@ export function createWebGLArenaRenderer(deps) {
     for (const torch of decorations?.torches || []) {
       const y = torch.y - 12;
       const intensity = torchLight(now, torch.phase);
-      const radius = 175 * (0.84 + 0.20 * intensity);
+      const radius = 155 * (0.84 + 0.20 * intensity);
       if (!inView(torch.x, y, radius)) continue;
       candidates.push({
         x: torch.x, y, radius,
-        intensity: 1.55 * intensity,
+        intensity: 2.0 * intensity,
         r: 1, g: 0.48, b: 0.18,
       });
     }
@@ -649,11 +649,11 @@ export function createWebGLArenaRenderer(deps) {
     if (campfire) {
       const y = campfire.y - 8;
       const intensity = emberLight(now, campfire.phase);
-      const radius = 215 * (0.77 + 0.25 * intensity);
+      const radius = 185 * (0.77 + 0.25 * intensity);
       if (inView(campfire.x, y, radius)) {
         candidates.push({
           x: campfire.x, y, radius,
-          intensity: 1.8 * intensity,
+          intensity: 2.4 * intensity,
           r: 1, g: 0.38 + 0.07 * intensity, b: 0.14 + 0.06 * intensity,
         });
       }

@@ -15,8 +15,8 @@ void main() {
     float distanceRatio = distance(v_world, source.xy) / max(1.0, source.z);
     float falloff = 1.0 - smoothstep(0.0, 1.0, distanceRatio);
     falloff = pow(falloff, 2.8);
-    illumination += u_light_colors[i] * falloff * source.w * 2.6;
+    illumination += u_light_colors[i] * falloff * source.w * 4.0;
   }
-  out_color = vec4(clamp(illumination, 0.0, 1.25), 1.0);
+  out_color = vec4(clamp(illumination, 0.0, 3.5), 1.0);
 }`;
 }
