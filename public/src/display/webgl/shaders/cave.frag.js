@@ -18,9 +18,9 @@ float field_sample(vec2 uv) {
 void main() {
   float clearance = field_sample(v_uv);
   // Unlit material colors. The world lighting pass shades the terrain and props together.
-  vec3 wall = vec3(0.027, 0.031, 0.039);
-  vec3 edge = vec3(0.095, 0.100, 0.112);
-  vec3 floorColor = vec3(0.235, 0.228, 0.252);
+  vec3 wall = vec3(0.009, 0.012, 0.020);
+  vec3 edge = vec3(0.035, 0.041, 0.057);
+  vec3 floorColor = vec3(0.125, 0.116, 0.137);
   vec3 color = clearance > 18.0 ? floorColor : (clearance > 10.0 ? edge : wall);
   out_color = vec4(color, 1.0);
 }`;
