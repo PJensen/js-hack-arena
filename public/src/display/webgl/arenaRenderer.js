@@ -935,16 +935,16 @@ export function createWebGLArenaRenderer(deps) {
       fx.pool.spawn({
         x: shown.x + drift * collider.radius * 0.72,
         y: shown.y + collider.radius * (0.36 + flicker * 0.2),
-        vx: drift * 11, vy: -53 - 15 * flicker, ax: 0, ay: -22,
-        life: 0.29 + 0.11 * Math.abs(drift),
-        size0: 2.9, size1: 0.6, r: 1, g: 0.43, b: 0.10, a0: 0.8, a1: 0,
+        vx: drift * 6, vy: -22 - 6 * flicker, ax: 0, ay: -7,
+        life: 0.57 + 0.16 * Math.abs(drift),
+        size0: 4.7, size1: 0.9, r: 1, g: 0.43, b: 0.10, a0: 0.8, a1: 0,
       });
       fx.pool.spawn({
         x: shown.x - drift * collider.radius * 0.65,
         y: shown.y + collider.radius * 0.12,
-        vx: -drift * 21, vy: -63 - 14 * drift, ax: 0, ay: -18,
-        life: 0.32 + 0.18 * Math.abs(flicker),
-        size0: 1.55, size1: 0.3, r: 1, g: 0.8, b: 0.27, a0: 0.98, a1: 0,
+        vx: -drift * 11, vy: -26 - 6 * drift, ax: 0, ay: -6,
+        life: 0.64 + 0.20 * Math.abs(flicker),
+        size0: 2.7, size1: 0.5, r: 1, g: 0.8, b: 0.27, a0: 0.98, a1: 0,
       });
     }
     return lights;
