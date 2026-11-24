@@ -119,6 +119,8 @@
     .spell-btn.active { border-color:var(--cyan); background:rgba(52,133,180,.28); transform:translateY(-3px); box-shadow:0 0 18px rgba(80,210,255,.22); }
     .spell-btn[data-resource="stamina"] { color:#ffce85; }
     .spell-btn[data-resource="stamina"].active { border-color:#ffc167; background:rgba(192,110,39,.24); box-shadow:0 0 18px rgba(247,147,64,.24); }
+    .spell-btn[data-resource="stamina"] .spell-key { position:absolute; top:4px; right:4px; margin:0; }
+    .spell-btn .spell-name { position:absolute; inset:auto 0 4px; color:#fff0db; font-size:9px; font-weight:800; line-height:1; }
     .spell-btn.resource-low { opacity:.52; }
     .spell-btn.charging { border-color:#d9fbff; background:conic-gradient(from -90deg,var(--cyan) calc(var(--charge,0) * 1turn),rgba(16,37,54,.88) 0); }
     .spell-btn.cooldown:not(.charging) { opacity:.56; filter:saturate(.45); }
@@ -439,11 +441,11 @@ const cameraSystem = createCameraSystem({
 
 // ── Dynamic spell bar (rebuild when spells change) ───────────────
 import { spells as spellCatalog } from './src/rules/data/spellCatalog.js';
-function rebuildSpellBar() {
-  if (!world.has(playerId, Spellbook)) return;
-  const book = world.get(playerId, Spellbook);
-  const bar = document.getElementById('spell-bar');
-  bar.innerHTML = '';
+let shownSpells = [];
+function syncSpellSlots(book) {
+  if (book.spells.length === shownSpells.length && book.spells.every((id, i) => id === shownSpells[i])) return;
+  shownSpells = [...book.spells];
+  spellBar.replaceChildren();
   book.spells.forEach((spellId, i) => {
     const spell = spellCatalog[spellId];
     if (!spell) return;
@@ -459,22 +461,15 @@ function rebuildSpellBar() {
     btn.title = `${spell.name} · ${costText} · ${spell.description ?? spell.cast.mode.replace('_', ' ')}`;
     btn.innerHTML = spell.glyph + '<span class="spell-key">' + (i + 1) + '</span>'
       + (spell.ammoType === 'arrow' ? '<span class="spell-ammo">—</span>' : '');
-    bar.appendChild(btn);
-  });
-  // Re-bind touch
-  bar.querySelectorAll('.spell-btn').forEach(btn => {
-    btn.addEventListener('touchstart', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      inputRouter.setSpellSlot(Number(btn.dataset.slot));
-    }, { capture: true });
-    btn.addEventListener('pointerdown', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      inputRouter.setSpellSlot(Number(btn.dataset.slot));
-    });
+    if (spell.staminaCost) {
+      const name = document.createElement('span');
+      name.className = 'spell-name';
+      name.textContent = spell.name;
+      btn.appendChild(name);
+    }
+    spellBar.appendChild(btn);
   });
 }
-world.on('item.pickup', () => rebuildSpellBar());
-rebuildSpellBar();
 
 const projectileFx = createProjectileFxController({ world, fx, runtimeEvents });
 const arenaAudio = createArenaAudio({
@@ -580,8 +575,10 @@ const loop = createFixedTickLoop({
     // Sync spell bar UI with active spell
     if (world.has(playerId, Spellbook)) {
       const sb = world.get(playerId, Spellbook);
+      syncSpellSlots(sb);
       const stamina = world.get(playerId, Stamina)?.stamina ?? 0;
-      spellBar.querySelectorAll('.spell-btn').forEach((b, i) => {
+      spellBar.querySelectorAll('.spell-btn').forEach((b) => {
+        const i = Number(b.dataset.slot);
         b.classList.toggle('active', i === sb.activeIndex);
         const charging = sb.charging && i === sb.chargeSpellIndex;
         b.classList.toggle('charging', charging);
