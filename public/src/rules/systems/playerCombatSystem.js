@@ -1,12 +1,14 @@
 import {
-  AI, ArrowAmmo, BowWeapon, Collider, Health, Input, Lifetime, Mana, PlayerTag,
-  Position, Powerups, Projectile, Spellbook, Velocity,
+  AI, ArrowAmmo, BowWeapon, Collider, Health, Input, Lifetime, Mana, MeleeWeapon, PlayerTag,
+  Position, Powerups, Projectile, Spellbook, Stamina, Velocity,
 } from '../components/index.js';
 import {
   DeliveryKind, SpellCastMode, TargetingType, spells as spellCatalog,
 } from '../data/spellCatalog.js';
 import { isActionLocked } from '../effects.js';
-import { applyImpacts, resolveImpacts } from '../impacts.js';
+import { applyImpacts, canReceiveImpacts, resolveImpacts } from '../impacts.js';
+
+const STAMINA_RECOVERY_DELAY = 0.65;
 
 export function createPlayerCombatSystem({ grid }) {
   const damagedTargets = new Set();
@@ -157,6 +159,13 @@ function resolveCast(world, grid, playerId, book, position, spell, power) {
     finishCast(book);
     return false;
   }
+  const staminaCost = spell.staminaCost ?? 0;
+  const stamina = world.get(playerId, Stamina);
+  if (staminaCost > 0 && (!stamina || stamina.stamina < staminaCost)) {
+    deny(world, playerId, spellId, 'stamina');
+    finishCast(book);
+    return false;
+  }
 
   const fury = world.get(playerId, Powerups)?.furyMultiplier || 1;
   const impacts = applyWeaponDamage(
@@ -168,6 +177,9 @@ function resolveCast(world, grid, playerId, book, position, spell, power) {
   let resolved = false;
   if (spell.targeting.type === TargetingType.ENEMY_CHAIN) {
     resolved = castChain(world, grid, playerId, position, spell, impacts);
+  } else if (spell.targeting.type === TargetingType.MELEE_ARC) {
+    castMeleeArc(world, grid, playerId, position, book, spell, impacts);
+    resolved = true;
   } else if (spell.targeting.type === TargetingType.SELF) {
     resolved = applyImpacts(world, playerId, playerId, impacts, {
       x: position.x, y: position.y, spellId, damageType: spell.element,
@@ -182,6 +194,10 @@ function resolveCast(world, grid, playerId, book, position, spell, power) {
   }
 
   if (mana) mana.mana = Math.max(0, mana.mana - manaCost);
+  if (staminaCost > 0) {
+    stamina.stamina -= staminaCost;
+    stamina.recoveryDelay = STAMINA_RECOVERY_DELAY;
+  }
   spendAmmo(world, playerId, spell);
   engageCooldowns(book, spellId, spell);
   emitCast(world, playerId, spellId, position, book, power, manaCost);
@@ -241,6 +257,29 @@ function applyArea(world, playerId, spell, impacts, x, y) {
   return targets;
 }
 
+function castMeleeArc(world, grid, playerId, origin, book, spell, impacts) {
+  const { halfAngle, range, maxTargets } = spell.targeting;
+  const angle = Math.atan2(book.chargeAimY, book.chargeAimX);
+  const directionX = Math.cos(angle);
+  const directionY = Math.sin(angle);
+  const minAlignment = Math.cos(halfAngle);
+  const targets = [];
+  for (const [id, position] of world.query(Position, Health, AI)) {
+    const dx = position.x - origin.x;
+    const dy = position.y - origin.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance > range || dx * directionX + dy * directionY < distance * minAlignment) continue;
+    if (!canReceiveImpacts(world, id) || !hasLineOfSight(grid, origin.x, origin.y, position.x, position.y)) continue;
+    targets.push({ id, position, distance });
+  }
+  targets.sort((a, b) => a.distance - b.distance || a.id - b.id);
+  for (const { id, position } of targets.slice(0, maxTargets ?? targets.length)) {
+    applyImpacts(world, id, playerId, impacts, {
+      x: position.x, y: position.y, spellId: spell.id, damageType: spell.element,
+    });
+  }
+}
+
 function spawnSpellProjectile(world, playerId, position, book, spell, impacts, power) {
   const angle = Math.atan2(book.chargeAimY, book.chargeAimX);
   const speedScale = spell.cast.mode === SpellCastMode.CHARGED ? 0.8 + power * 0.35 : 1;
@@ -285,6 +324,13 @@ function hasRequiredWeaponAndAmmo(world, playerId, spell, { deny }) {
 }
 
 function applyWeaponDamage(playerId, spell, impacts, world) {
+  if (spell.targeting.type === TargetingType.MELEE_ARC) {
+    const weapon = world.get(playerId, MeleeWeapon);
+    const bonus = (weapon?.damage ?? 0) * (world.get(playerId, Powerups)?.furyMultiplier || 1);
+    return impacts.map((impact) => impact.kind === 'damage'
+      ? { ...impact, amount: impact.amount + bonus }
+      : impact);
+  }
   if (spell.ammoType !== 'arrow') return impacts;
   const bow = world.get(playerId, BowWeapon);
   const baseDamage = spell.impacts.find((impact) => impact.kind === 'damage')?.amount || 10;

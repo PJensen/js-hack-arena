@@ -4,9 +4,9 @@ import {
   assertEquals,
   assertThrows,
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
-import { AI, Actor, Auras, Facing, Gold, Health, Input, ItemInfo, Mana, PointLight, Position, Powerups, Projectile, Spellbook, Collider } from '../public/src/rules/components/index.js';
+import { AI, Actor, Auras, Facing, Gold, Health, Input, ItemInfo, Mana, PointLight, Position, Powerups, Projectile, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
-import { GOLD_LIGHT, spawnEpicChest, spawnFuryRune, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnPotion, spawnSpellbook, spawnWardRune } from '../public/src/rules/spawner.js';
+import { GOLD_LIGHT, spawnEpicChest, spawnFuryRune, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnSpellbook, spawnWardRune } from '../public/src/rules/spawner.js';
 import { applyAura, applyDamage, getStatMultiplier } from '../public/src/rules/effects.js';
 import { SpellCastMode, spells as spellCatalog } from '../public/src/rules/data/spellCatalog.js';
 import {
@@ -59,6 +59,88 @@ Deno.test("spell catalog: all spells compose a cast mode and global cooldown", (
     modes.add(spell.cast.mode);
   }
   assertEquals([...modes].sort(), Object.values(SpellCastMode).sort());
+});
+
+function spawnIdleTarget(sim, x, y) {
+  const id = spawnMelee(sim.world, { distanceMove: () => 100 }, x, y, null);
+  Object.assign(sim.world.get(id, Position), { x, y });
+  sim.world.get(id, AI).aggroRange = 0;
+  const health = sim.world.get(id, Health);
+  health.hp = health.maxHp = 100;
+  return { id, health };
+}
+
+Deno.test("arena sim: Cleave hits its arc, respects walls and spends replicated stamina", () => {
+  const grid = {
+    cellSize: 4,
+    cols: 256,
+    rows: 256,
+    moveGrid: new Float32Array(256 * 256).fill(100),
+    distanceMove: (x, y) => x > 123 && x < 142 && y < 94 ? 0 : 100,
+  };
+  const sim = makeOpenSim(915, { enemyCount: 0, grid });
+  const playerId = sim.addPlayer('peer-a');
+  const front = spawnIdleTarget(sim, 145, 100);
+  const flank = spawnIdleTarget(sim, 141, 145);
+  const behindWall = spawnIdleTarget(sim, 157, 72);
+  const behind = spawnIdleTarget(sim, 60, 100);
+  const outOfRange = spawnIdleTarget(sim, 185, 113);
+  const book = sim.world.get(playerId, Spellbook);
+  const stamina = sim.world.get(playerId, Stamina);
+  assertEquals(book.spells.slice(2), ['cleave', 'rend']);
+  assertEquals(stamina.stamina, 100);
+
+  sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 2 });
+  sim.step();
+  assertEquals([front.health.hp, flank.health.hp], [82, 82]);
+  assertEquals([behindWall.health.hp, behind.health.hp, outOfRange.health.hp], [100, 100, 100]);
+  assertEquals(stamina.stamina, 75);
+  assertEquals(sim.world.get(playerId, Mana).mana, 100);
+
+  const replica = makeOpenSim(915, { mode: SIM_MODE.REPLICA });
+  const casts = [];
+  replica.world.on('spell.cast', (event) => casts.push(event));
+  const snapshot = sim.captureSnapshot();
+  replica.applySnapshot(snapshot);
+  replica.applySnapshot(snapshot);
+  const [, replicaStamina] = [...replica.world.query(Stamina)][0];
+  assertEquals(replicaStamina.stamina, 75);
+  assertEquals(casts.map(({ spellId, angle }) => [spellId, angle]), [['cleave', 0]]);
+
+  for (let i = 0; i < 10; i++) sim.step();
+  assertEquals(stamina.stamina, 75);
+  for (let i = 0; i < 35; i++) sim.step();
+  assertEquals(stamina.stamina, 100);
+  assertEquals(front.health.hp, 82); // Holding fire never repeats the instant attack.
+});
+
+Deno.test("arena sim: Rend picks the closest target, applies a finite bleed and denies low stamina", () => {
+  const sim = makeOpenSim(916, { enemyCount: 0 });
+  const playerId = sim.addPlayer('peer-a');
+  const near = spawnIdleTarget(sim, 142, 90);
+  const far = spawnIdleTarget(sim, 150, 122);
+  const stamina = sim.world.get(playerId, Stamina);
+  sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 3 });
+  sim.step();
+  assertEquals(stamina.stamina, 80);
+  assertEquals(near.health.hp, 88);
+  assertEquals(far.health.hp, 100);
+  assert(sim.world.get(near.id, Auras).active.some((condition) => condition.id === 'bleeding'));
+
+  sim.setPlayerInput('peer-a', { seq: 2, fire: false });
+  for (let i = 0; i < 90; i++) sim.step();
+  assertEquals(near.health.hp, 72);
+  assertEquals(far.health.hp, 100);
+  assertEquals(sim.world.get(near.id, Auras).active, []);
+  stamina.stamina = 10;
+  stamina.regenPerSecond = 0;
+  sim.setPlayerInput('peer-a', { seq: 3, aimX: 1, fire: true });
+  sim.step();
+  assertEquals(stamina.stamina, 10);
+  assertEquals(near.health.hp, 72);
+  assert(sim.captureSnapshot().events.some((event) =>
+    event.type === 'spell.denied' && event.payload.reason === 'stamina' && event.payload.spellId === 'rend'
+  ));
 });
 
 Deno.test("arena sim: player movement uses the canonical command and movement path", () => {
@@ -330,10 +412,10 @@ Deno.test("arena sim: spell cycle advances the active spell", () => {
   const playerId = sim.addPlayer('peer-a');
   const book = sim.world.get(playerId, Spellbook);
   assertEquals(book.activeIndex, 0);
-  sim.setPlayerInput('peer-a', { seq: 1, spellCycle: 1 });
-  assertEquals(book.activeIndex, 1);
-  sim.setPlayerInput('peer-a', { seq: 2, spellCycle: 1 });
-  assertEquals(book.activeIndex, 0);
+  for (let seq = 1; seq <= book.spells.length; seq++) {
+    sim.setPlayerInput('peer-a', { seq, spellCycle: 1 });
+    assertEquals(book.activeIndex, seq % book.spells.length);
+  }
 });
 
 Deno.test("arena sim: generic aura effects modify rules and expire", () => {
@@ -368,9 +450,9 @@ Deno.test("arena sim: '?' spellbooks teach mana-powered abilities", () => {
   assert(book.spells.includes('poison_orb'));
   const mana = sim.world.get(playerId, Mana);
   const beforeMana = mana.mana;
-  sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 2 });
+  sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: book.spells.indexOf('poison_orb') });
   for (let i = 0; i < 14; i++) sim.step();
-  sim.setPlayerInput('peer-a', { seq: 2, aimX: 0, fire: false, spellSlot: 2 });
+  sim.setPlayerInput('peer-a', { seq: 2, aimX: 0, fire: false, spellSlot: book.spells.indexOf('poison_orb') });
   sim.step();
   assert(mana.mana < beforeMana);
   assert([...sim.world.query(Projectile)].some(([, projectile]) => projectile.auraId === 'poisoned'));
@@ -403,17 +485,17 @@ Deno.test("arena sim: fixed cast-time spells can be interrupted before resolutio
   book.spells.push('poison_orb');
   const mana = sim.world.get(playerId, Mana);
 
-  sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 2 });
+  sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: book.spells.indexOf('poison_orb') });
   for (let i = 0; i < 4; i++) sim.step();
   assertEquals(book.castPhase, 'casting');
-  sim.setPlayerInput('peer-a', { seq: 2, aimX: 1, fire: false, spellSlot: 2 });
+  sim.setPlayerInput('peer-a', { seq: 2, aimX: 1, fire: false, spellSlot: book.spells.indexOf('poison_orb') });
   sim.step();
   assertEquals(book.castPhase, 'idle');
   assertEquals(mana.mana, mana.maxMana);
   assertEquals([...sim.world.query(Projectile)].some(([, projectile]) => projectile.style === 'poison'), false);
   assert(sim.captureSnapshot().events.some((event) => event.type === 'spell.interrupted'));
 
-  sim.setPlayerInput('peer-a', { seq: 3, aimX: 1, fire: true, spellSlot: 2 });
+  sim.setPlayerInput('peer-a', { seq: 3, aimX: 1, fire: true, spellSlot: book.spells.indexOf('poison_orb') });
   sim.step();
   applyDamage(sim.world, playerId, 1, { damageType: 'physical' });
   sim.step();
@@ -433,7 +515,7 @@ Deno.test("arena sim: Blizzard channels once per global tick and movement interr
   const mana = sim.world.get(playerId, Mana);
   mana.regenPerSecond = 0;
 
-  sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 2 });
+  sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: book.spells.indexOf('blizzard') });
   sim.step();
   assertEquals(book.castPhase, 'channeling');
   const manaAtStart = mana.mana;
@@ -443,7 +525,7 @@ Deno.test("arena sim: Blizzard channels once per global tick and movement interr
   assertEquals(health.hp, hpAtStart - 3);
   assert(sim.world.get(mobId, Auras).active.some((aura) => aura.id === 'frozen'));
 
-  sim.setPlayerInput('peer-a', { seq: 2, moveX: 1, aimX: 1, fire: true, spellSlot: 2 });
+  sim.setPlayerInput('peer-a', { seq: 2, moveX: 1, aimX: 1, fire: true, spellSlot: book.spells.indexOf('blizzard') });
   sim.step();
   assertEquals(book.castPhase, 'idle');
   assert(sim.captureSnapshot().events.some((event) => event.type === 'spell.interrupted' && event.payload.reason === 'moved'));
@@ -457,7 +539,7 @@ Deno.test("arena sim: Ice Armor is an instant buff with mitigation and an indivi
   const mana = sim.world.get(playerId, Mana);
   const health = sim.world.get(playerId, Health);
 
-  sim.setPlayerInput('peer-a', { seq: 1, fire: true, spellSlot: 2 });
+  sim.setPlayerInput('peer-a', { seq: 1, fire: true, spellSlot: book.spells.indexOf('ice_armor') });
   sim.step();
   assert(sim.world.get(playerId, Auras).active.some((aura) => aura.id === 'ice_armor'));
   assertEquals(book.castPhase, 'idle');
@@ -478,7 +560,7 @@ Deno.test("arena sim: Regeneration authors healing over time as a buff effect", 
   mana.regenPerSecond = 0;
   health.hp = 50;
 
-  sim.setPlayerInput('peer-a', { seq: 1, fire: true, spellSlot: 2 });
+  sim.setPlayerInput('peer-a', { seq: 1, fire: true, spellSlot: book.spells.indexOf('regeneration') });
   sim.step();
   assert(sim.world.get(playerId, Auras).active.some((aura) => aura.id === 'regeneration'));
   for (let i = 0; i < 21; i++) sim.step();

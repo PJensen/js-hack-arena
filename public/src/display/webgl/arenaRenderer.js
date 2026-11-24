@@ -38,6 +38,8 @@ import { createCubeMesh } from './cubeMesh.js';
 import { PROJECTILE_VERTEX } from './shaders/projectile.vert.js';
 import { FROST_BOLT_FRAGMENT } from './shaders/frostBolt.frag.js';
 import { CHARGE_FRAGMENT } from './shaders/charge.frag.js';
+import { MELEE_ARC_VERTEX } from './shaders/meleeArc.vert.js';
+import { MELEE_ARC_FRAGMENT } from './shaders/meleeArc.frag.js';
 
 // Lighting is a core gameplay/readability layer. Keep enough simultaneous
 // sources for actors, loot, projectiles, and transient spell illumination.
@@ -235,6 +237,18 @@ export function createWebGLArenaRenderer(deps) {
   charge.alpha = uniform(gl, charge.program, 'u_alpha');
   charge.charge = uniform(gl, charge.program, 'u_charge');
 
+  const meleeArcProgram = device.program(MELEE_ARC_VERTEX, MELEE_ARC_FRAGMENT);
+  const meleeArc = {
+    program: meleeArcProgram,
+    view: uniform(gl, meleeArcProgram, 'u_view'),
+    origin: uniform(gl, meleeArcProgram, 'u_origin'),
+    range: uniform(gl, meleeArcProgram, 'u_range'),
+    angle: uniform(gl, meleeArcProgram, 'u_angle'),
+    halfAngle: uniform(gl, meleeArcProgram, 'u_half_angle'),
+    progress: uniform(gl, meleeArcProgram, 'u_progress'),
+    rend: uniform(gl, meleeArcProgram, 'u_rend'),
+  };
+
   const lineProgram = device.program(LINE_VERTEX, SOLID_FRAGMENT);
   const lineLocations = {
     view: uniform(gl, lineProgram, 'u_view'),
@@ -308,6 +322,7 @@ export function createWebGLArenaRenderer(deps) {
   let disposed = false;
   const bolts = [];
   const meleeSwings = [];
+  const meleeArcs = [];
   const bloodDecals = [];
   let lastFrameTime = performance.now() * 0.001;
   let torchParticleAccumulator = 0;
@@ -315,6 +330,32 @@ export function createWebGLArenaRenderer(deps) {
 
   world.on('spell.bolt', (event) => {
     bolts.push({ ...event, age: 0, duration: 0.18 });
+  });
+  world.on('spell.cast', (event) => {
+    if (event.spellId !== 'cleave' && event.spellId !== 'rend') return;
+    const rend = event.spellId === 'rend';
+    const { range, halfAngle } = spellCatalog[event.spellId].targeting;
+    meleeArcs.push({ ...event, range, halfAngle, rend, age: 0, duration: rend ? 0.44 : 0.36 });
+  });
+  world.on('damage.dealt', (event) => {
+    const rend = event.spellId === 'rend';
+    if (event.amount <= 0 || (!rend && event.spellId !== 'cleave')) return;
+    const source = world.get(event.source, Position);
+    const direction = source ? Math.atan2(event.y - source.y, event.x - source.x) : 0;
+    for (let i = 0; i < (rend ? 15 : 12); i++) {
+      const random = 0.5 + 0.5 * Math.sin(i * 81.7 + event.x * 2.3 + event.y * 7.9);
+      const angle = direction + (random - 0.5) * 2.8;
+      const speed = 35 + (i % 5) * 27;
+      fx.pool.spawn({
+        x: event.x, y: event.y,
+        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+        ax: 0, ay: 80,
+        life: 0.16 + random * 0.24,
+        size0: 3 + random * 4, size1: 0.6,
+        r: 1, g: rend ? 0.12 + random * 0.26 : 0.52 + random * 0.46, b: rend ? 0.21 : 0.32,
+        a0: 0.95, a1: 0,
+      });
+    }
   });
   world.on('melee.hit', (event) => {
     meleeSwings.push({ ...event, age: 0, duration: 0.22 });
@@ -423,6 +464,19 @@ export function createWebGLArenaRenderer(deps) {
     gl.uniform1f(frostBolt.angle, angle);
     gl.uniform1f(frostBolt.time, time);
     gl.uniform1f(frostBolt.alpha, alpha);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  function drawMeleeArc(swing) {
+    gl.useProgram(meleeArc.program);
+    gl.bindVertexArray(quadVao);
+    gl.uniform4fv(meleeArc.view, view);
+    gl.uniform2f(meleeArc.origin, swing.x, swing.y);
+    gl.uniform1f(meleeArc.range, swing.range);
+    gl.uniform1f(meleeArc.angle, swing.angle);
+    gl.uniform1f(meleeArc.halfAngle, swing.halfAngle);
+    gl.uniform1f(meleeArc.progress, swing.age / swing.duration);
+    gl.uniform1i(meleeArc.rend, Number(swing.rend));
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
@@ -586,6 +640,21 @@ export function createWebGLArenaRenderer(deps) {
         r: 0.68, g: 0.92, b: 1,
       });
     }
+    for (const swing of meleeArcs) {
+      const progress = swing.age / swing.duration;
+      const reach = swing.range * 0.66;
+      const tip = Math.min(1, progress * (swing.rend ? 4.8 : 2.8));
+      const angle = swing.angle + (2 * tip - 1) * swing.halfAngle;
+      const x = swing.x + Math.cos(angle) * reach;
+      const y = swing.y + Math.sin(angle) * reach;
+      const radius = swing.range * 1.65;
+      if (inView(x, y, radius)) {
+        candidates.push({
+          x, y, radius, intensity: 1.35 * (1 - progress) ** 2,
+          r: 1, g: swing.rend ? 0.13 : 0.61, b: swing.rend ? 0.28 : 0.21,
+        });
+      }
+    }
     if (candidates.length > MAX_DYNAMIC_LIGHTS) {
       for (const source of candidates) {
         source.distance = Math.hypot(source.x - view[0], source.y - view[1]);
@@ -682,6 +751,13 @@ export function createWebGLArenaRenderer(deps) {
           const offset = (drop - 1) * collider.radius * 0.62;
           const fall = (now * (10 + drop * 2) + entityId * 0.31) % (collider.radius * 1.5);
           drawDisc(position.x + offset, position.y - collider.radius * 0.3 + fall, 1.5, [0.24, 1, 0.35, 0.8], [0.24, 1, 0.35, 0.8]);
+        }
+      } else if (condition.id === 'bleeding') {
+        for (let drop = 0; drop < 3; drop++) {
+          const fall = (now * 1.7 + drop / 3 + entityId * 0.17) % 1;
+          const x = position.x + (drop - 1) * collider.radius * 0.65;
+          const y = position.y - collider.radius * 0.2 + fall * collider.radius * 1.3;
+          drawGlyph('♦', x, y, 6 - fall * 2, [1, 0.06, 0.18, (1 - fall) * 0.9]);
         }
       } else if (condition.visual === 'ice_armor') {
         drawDisc(position.x, position.y, collider.radius + 5 + pulse * 1.5, [0.18, 0.52, 0.9, 0.14], [0.58, 0.9, 1, 0.78]);
@@ -1190,8 +1266,14 @@ export function createWebGLArenaRenderer(deps) {
       drawDisc(aimX, aimY, 3 + charge * 4, [0.35, 0.9, 1, 0.25 + charge * 0.55], [0.72, 1, 1, 0.9]);
     }
 
-    // Lightning and melee are short-lived GPU line effects.
+    // Draw transient combat effects over the lit scene.
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    for (let i = meleeArcs.length - 1; i >= 0; i--) {
+      const swing = meleeArcs[i];
+      if (inView(swing.x, swing.y, swing.range * 1.2)) drawMeleeArc(swing);
+      swing.age += renderDt;
+      if (swing.age >= swing.duration) meleeArcs.splice(i, 1);
+    }
     for (let i = bolts.length - 1; i >= 0; i--) {
       const bolt = bolts[i];
       bolt.age += renderDt;

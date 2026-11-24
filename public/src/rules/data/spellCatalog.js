@@ -14,6 +14,7 @@ export const TargetingType = Object.freeze({
   ENEMY_CHAIN: 'enemy_chain',
   SELF: 'self',
   AIMED_AREA: 'aimed_area',
+  MELEE_ARC: 'melee_arc',
 });
 
 export const DeliveryKind = Object.freeze({
@@ -32,6 +33,31 @@ export const ImpactKind = Object.freeze({
 export const DEFAULT_GLOBAL_COOLDOWN = 0.45;
 
 export const spells = Object.freeze({
+  cleave: spell({
+    id: 'cleave',
+    name: 'Cleave', glyph: '⚔', element: 'physical',
+    description: 'Strike every enemy in a wide arc.',
+    cast: { mode: SpellCastMode.INSTANT },
+    staminaCost: 25,
+    cooldown: 1.4,
+    targeting: { type: TargetingType.MELEE_ARC, range: 70, halfAngle: Math.PI * 0.39 },
+    delivery: { kind: DeliveryKind.DIRECT },
+    impacts: [{ kind: ImpactKind.DAMAGE, amount: 13 }],
+  }),
+  rend: spell({
+    id: 'rend',
+    name: 'Rend', glyph: '〆', element: 'physical',
+    description: 'Slash the nearest enemy in a narrow arc and inflict Bleeding for 4 seconds.',
+    cast: { mode: SpellCastMode.INSTANT },
+    staminaCost: 20,
+    cooldown: 2.4,
+    targeting: { type: TargetingType.MELEE_ARC, range: 58, halfAngle: Math.PI * 0.19, maxTargets: 1 },
+    delivery: { kind: DeliveryKind.DIRECT },
+    impacts: [
+      { kind: ImpactKind.DAMAGE, amount: 7 },
+      { kind: ImpactKind.APPLY_CONDITION, conditionId: 'bleeding', duration: 4 },
+    ],
+  }),
   frost_bolt: spell({
     id: 'frost_bolt',
     name: 'Frost Bolt', glyph: '❄', element: 'frost',

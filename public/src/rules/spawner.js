@@ -2,7 +2,7 @@
 // Entity creation helpers. Creates entities with the right component bundles.
 // No display logic. Pure ECS.
 
-import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, Mana, Powerups, FOV, PointLight, AI, AIBehavior, Projectile, Lifetime, Spellbook, SpellId, ItemInfo, ItemSlot, Consumable, GroundItem, MeleeWeapon, WeaponPickup, BowWeapon, ArrowAmmo, RecoverableArrows, Conditions, AuraEmitter } from './components/index.js';
+import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, Mana, Stamina, Powerups, FOV, PointLight, AI, AIBehavior, Projectile, Lifetime, Spellbook, SpellId, ItemInfo, ItemSlot, Consumable, GroundItem, MeleeWeapon, WeaponPickup, BowWeapon, ArrowAmmo, RecoverableArrows, Conditions, AuraEmitter } from './components/index.js';
 import { auras as auraCatalog } from './data/auraCatalog.js';
 import { Gold } from './components/Gold.js';
 
@@ -86,6 +86,7 @@ export function spawnPlayer(world, x, y, name = 'Player') {
   world.add(id, Actor,    { kind: ActorKind.PLAYER, team: 'friendly', name, glyph: '@' });
   world.add(id, Health,   { hp: 100, maxHp: 100 });
   world.add(id, Mana,     { mana: 100, maxMana: 100, regenPerSecond: 5 });
+  world.add(id, Stamina);
   world.add(id, Powerups);
   world.add(id, Conditions);
   world.add(id, FOV,      { distance: 220, angle: 1.4 });
@@ -95,7 +96,7 @@ export function spawnPlayer(world, x, y, name = 'Player') {
   world.add(id, ArrowAmmo, { count: 10 });
   world.add(id, Gold);
   world.add(id, Spellbook, {
-    spells: [SpellId.FROST_BOLT, SpellId.LIGHTNING],
+    spells: [SpellId.FROST_BOLT, SpellId.LIGHTNING, SpellId.CLEAVE, SpellId.REND],
     activeIndex: 0,
     cooldown: 0,
     charge: 0,

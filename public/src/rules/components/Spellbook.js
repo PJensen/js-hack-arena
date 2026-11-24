@@ -8,6 +8,8 @@ export const SpellId = Object.freeze({
   ICE_ARMOR:  'ice_armor',
   BLIZZARD:   'blizzard',
   REGENERATION: 'regeneration',
+  CLEAVE: 'cleave',
+  REND: 'rend',
 });
 
 export const Spellbook = defineComponent('Spellbook', {

@@ -26,6 +26,7 @@ import {
   Projectile,
   PickupLock,
   Spellbook,
+  Stamina,
   Velocity,
 } from '../components/index.js';
 import { epicChestTable, epicChestTotalWeight, mobDropTable, mobDropTotalWeight, rollTable } from '../data/lootTable.js';
@@ -64,6 +65,7 @@ import { createPickupSystem } from '../systems/pickupSystem.js';
 import { powerupSystem } from '../systems/powerupSystem.js';
 import { createPlayerCombatSystem } from '../systems/playerCombatSystem.js';
 import { createProjectileSystem } from '../systems/projectileSystem.js';
+import { staminaSystem } from '../systems/staminaSystem.js';
 
 export const SIM_TICK_HZ = 20;
 export const SIM_DT = 1 / SIM_TICK_HZ;
@@ -313,6 +315,7 @@ export function createArenaSimulation({
     const health = world.get(entityId, Health);
     const mana = world.get(entityId, Mana);
     const book = world.get(entityId, Spellbook);
+    const stamina = world.get(entityId, Stamina);
     const powerups = world.get(entityId, Powerups);
     const weapon = world.get(entityId, MeleeWeapon);
     const bow = world.get(entityId, BowWeapon);
@@ -332,6 +335,8 @@ export function createArenaSimulation({
         radius: collider.radius,
         hp: health.hp, maxHp: health.maxHp, dead: health.dead,
         mana: mana.mana, maxMana: mana.maxMana, manaRegen: mana.regenPerSecond,
+        stamina: stamina.stamina, maxStamina: stamina.maxStamina,
+        staminaRegen: stamina.regenPerSecond, staminaRecoveryDelay: stamina.recoveryDelay,
         manaRegenMultiplier: powerups.manaRegenMultiplier,
         manaRegenSeconds: powerups.manaRegenSeconds,
         hasteMultiplier: powerups.hasteMultiplier, hasteSeconds: powerups.hasteSeconds,
@@ -525,6 +530,10 @@ export function createArenaSimulation({
       lastInputSeqByPeer.set(record.owner, record.inputSeq);
       const book = world.get(entityId, Spellbook);
       const powerups = world.get(entityId, Powerups);
+      Object.assign(world.get(entityId, Stamina), {
+        stamina: state.stamina, maxStamina: state.maxStamina,
+        regenPerSecond: state.staminaRegen, recoveryDelay: state.staminaRecoveryDelay,
+      });
       book.spells = [...state.spells];
       book.activeIndex = state.activeSpell;
       book.cooldown = state.cooldown;
@@ -694,6 +703,7 @@ function installAuthoritativeRules(world, grid) {
     effectSystem,
     createMovementSystem({ grid }),
     manaSystem,
+    staminaSystem,
     powerupSystem,
     createAISystem({ grid }),
     createPlayerCombatSystem({ grid }),
@@ -790,6 +800,10 @@ function normalizePlayerState(id, state) {
     castTargetY: finiteNumber(state.castTargetY ?? 0, `${id}.castTargetY`),
     channelRemaining: finiteNumber(state.channelRemaining ?? 0, `${id}.channelRemaining`),
     triggerHeld: Boolean(state.triggerHeld),
+    stamina: finiteNumber(state.stamina ?? Stamina.defaults.stamina, `${id}.stamina`),
+    maxStamina: finiteNumber(state.maxStamina ?? Stamina.defaults.maxStamina, `${id}.maxStamina`),
+    staminaRegen: finiteNumber(state.staminaRegen ?? Stamina.defaults.regenPerSecond, `${id}.staminaRegen`),
+    staminaRecoveryDelay: finiteNumber(state.staminaRecoveryDelay ?? Stamina.defaults.recoveryDelay, `${id}.staminaRecoveryDelay`),
     manaRegenMultiplier: finiteNumber(state.manaRegenMultiplier, `${id}.manaRegenMultiplier`),
     manaRegenSeconds: finiteNumber(state.manaRegenSeconds, `${id}.manaRegenSeconds`),
     hasteMultiplier: finiteNumber(state.hasteMultiplier, `${id}.hasteMultiplier`),

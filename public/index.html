@@ -59,7 +59,7 @@
                      font-weight:900; letter-spacing:.1em; cursor:pointer; }
     #hud { position:fixed; top:max(10px,env(safe-area-inset-top)); left:max(10px,env(safe-area-inset-left));
            right:max(10px,env(safe-area-inset-right)); max-width:1100px; margin:0 auto;
-           display:grid; grid-template-columns:auto minmax(150px,1fr) minmax(150px,1fr) auto;
+           display:grid; grid-auto-flow:column; grid-template-columns:auto repeat(3,minmax(0,1fr)) minmax(0,auto);
            align-items:center; gap:9px; min-height:42px; padding:6px 9px;
            font-size:12px; color:rgba(224,240,255,.78); text-align:center; z-index:40;
            background:linear-gradient(180deg,rgba(11,22,36,.88),rgba(5,10,18,.72));
@@ -78,15 +78,17 @@
                           font-variant-numeric:tabular-nums; text-shadow:0 1px 2px #000; white-space:nowrap; }
     .hud-resource[data-resource="health"] .hud-resource-fill { background:linear-gradient(90deg,#c71942,#ff4164 58%,#ff6b7f); }
     .hud-resource[data-resource="mana"] .hud-resource-fill { background:linear-gradient(90deg,#1d68c5,#4aa3ff 58%,#72c2ff); }
+    .hud-resource[data-resource="stamina"] .hud-resource-fill { background:linear-gradient(90deg,#8d520e,#c38222 58%,#ecb44d); }
     .hud-resource[data-resource="health"] .hud-resource-recent { background:linear-gradient(90deg,rgba(255,112,132,.95),rgba(255,235,212,.98)); }
     .hud-resource[data-resource="mana"] .hud-resource-recent { background:linear-gradient(90deg,rgba(106,198,255,.95),rgba(226,250,255,.98)); }
+    .hud-resource[data-resource="stamina"] .hud-resource-recent { background:linear-gradient(90deg,#ffc36b,#fff1bd); }
     .hud-resource.resource-draining { animation:resource-drain-flash .56s ease-out; }
     .hud-resource[data-state="critical"] .hud-resource-fill { filter:saturate(1.35); animation:resource-critical .7s ease-in-out infinite alternate; }
     .hud-resource.mana-boosted { border-color:rgba(100,210,255,.75); animation:mana-surge .8s ease-in-out infinite alternate; }
     @keyframes resource-critical { to { opacity:.72; filter:saturate(1.5) brightness(1.25); } }
     @keyframes resource-drain-flash { 0% { filter:brightness(1.5); } 100% { filter:brightness(1); } }
     @keyframes mana-surge { to { box-shadow:inset 0 2px 4px rgba(0,0,0,.5),0 0 16px rgba(75,175,255,.42); } }
-    .hud-meta { color:rgba(203,220,235,.48); }
+    .hud-meta { max-width:min(240px,22vw); color:rgba(203,220,235,.48); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
     /* ── Joysticks ── */
     .joystick { position:fixed; bottom:max(22px,env(safe-area-inset-bottom)); width:112px; height:112px; border-radius:50%;
@@ -115,6 +117,9 @@
                  color:#fff; font-size:22px; line-height:48px; text-align:center;
                  cursor:pointer; box-shadow:0 8px 20px rgba(0,0,0,.3); transition:border-color .15s,background .15s,transform .15s; }
     .spell-btn.active { border-color:var(--cyan); background:rgba(52,133,180,.28); transform:translateY(-3px); box-shadow:0 0 18px rgba(80,210,255,.22); }
+    .spell-btn[data-resource="stamina"] { color:#ffce85; }
+    .spell-btn[data-resource="stamina"].active { border-color:#ffc167; background:rgba(192,110,39,.24); box-shadow:0 0 18px rgba(247,147,64,.24); }
+    .spell-btn.resource-low { opacity:.52; }
     .spell-btn.charging { border-color:#d9fbff; background:conic-gradient(from -90deg,var(--cyan) calc(var(--charge,0) * 1turn),rgba(16,37,54,.88) 0); }
     .spell-btn.cooldown:not(.charging) { opacity:.56; filter:saturate(.45); }
     .spell-btn.cooldown::after { content:attr(data-cooldown); position:absolute; inset:0; display:grid; place-items:center;
@@ -126,20 +131,22 @@
                              color:#f5dfad; font-size:10px; font-weight:900; line-height:1.1;
                              font-variant-numeric:tabular-nums; }
     .spell-btn .spell-ammo.empty { color:#ff8c8c; }
-    #zoom-readout { opacity:.45; transition:opacity .2s; }
+    #zoom-readout { bottom:calc(max(22px,env(safe-area-inset-bottom)) + 57px); opacity:.45; transition:opacity .2s; }
     #zoom-readout:hover { opacity:1; }
-    #reset-dungeon { position:fixed; top:12px; right:12px; z-index:40; padding:7px 10px;
+    #reset-dungeon { padding:7px 10px; white-space:nowrap;
                      border:1px solid rgba(126,232,194,.28); border-radius:6px; background:rgba(5,15,20,.76);
                      color:rgba(220,255,242,.82); font:11px ui-monospace,monospace; letter-spacing:.04em;
                      cursor:pointer; }
     #reset-dungeon:hover { background:rgba(22,58,58,.9); color:#fff; }
     .player-dead .joystick, .player-dead #spell-bar { opacity:.2; filter:grayscale(1); pointer-events:none; }
-    @media (max-width:620px) {
-      #hud { grid-template-columns:auto 1fr 1fr; max-width:calc(100vw - 20px); gap:4px; padding:6px 7px; font-size:11px; }
-      .brand { letter-spacing:.06em; }
-      .hud-meta { grid-column:1 / -1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-      #reset-dungeon { top:calc(max(10px, env(safe-area-inset-top)) + 62px); right:max(10px, env(safe-area-inset-right)); }
+    @media (max-width:760px) {
+      #hud { grid-auto-flow:row; grid-template-columns:repeat(3,minmax(0,1fr)); max-width:calc(100vw - 20px); gap:4px; padding:6px 7px; font-size:11px; }
+      .brand { grid-row:1; letter-spacing:.06em; justify-self:start; }
+      .hud-meta { grid-row:1; grid-column:2 / -1; max-width:none; text-align:right; }
+      #reset-dungeon { position:fixed; top:calc(max(10px, env(safe-area-inset-top)) + 62px); right:max(10px, env(safe-area-inset-right)); }
       .joystick { width:104px; height:104px; }
+      #spell-bar { bottom:calc(max(22px,env(safe-area-inset-bottom)) + 117px); gap:4px; }
+      .spell-btn { width:min(43px,calc((100vw - 48px) / 9)); height:42px; line-height:42px; }
       #zoom-readout { display:none; }
     }
   </style>
@@ -161,14 +168,15 @@
     <span class="brand">HACK//ARENA</span>
     <div class="hud-resource" id="hud-hp-bar"></div>
     <div class="hud-resource" id="hud-mana-bar"></div>
+    <div class="hud-resource" id="hud-stamina-bar"></div>
     <span class="hud-meta" id="hud-meta">connecting</span>
+    <button id="reset-dungeon" type="button" title="Leave this room and generate a fresh dungeon">New Dungeon</button>
   </div>
   <span id="hud-hp" hidden></span><span id="hud-mana" hidden></span><span id="hud-weapon" hidden></span>
-  <div id="zoom-readout" style="position:fixed;bottom:12px;left:50%;transform:translateX(-50%);
+  <div id="zoom-readout" style="position:fixed;left:50%;transform:translateX(-50%);
     font:13px ui-monospace,monospace;color:rgba(255,255,255,0.5);z-index:40;
     background:rgba(0,0,0,0.4);padding:4px 12px;border-radius:6px;
     border:1px solid rgba(255,255,255,0.1)">zoom: —</div>
-  <button id="reset-dungeon" type="button" title="Leave this room and generate a fresh dungeon">New Dungeon</button>
   <div class="stick-readout" id="readout-left">L stick idle</div>
   <div class="stick-readout" id="readout-right">R stick idle</div>
   <div class="joystick joystick-left" id="joystick-left"><div class="joystick-knob" id="knob-left"></div></div>
@@ -259,7 +267,7 @@ import { createProjectileFxController } from './src/display/passes/projectileFx.
 import { createArenaAudio, unlockArenaAudio } from './src/display/audio/arenaAudio.js';
 import { createItemTooltip } from './src/display/ui/itemTooltip.js';
 import { createResourceBar } from './src/display/ui/resourceBars.js';
-import { ArrowAmmo, BowWeapon, Health, Mana, MeleeWeapon, Powerups, Spellbook, Position } from './src/rules/components/index.js';
+import { ArrowAmmo, BowWeapon, Health, Mana, MeleeWeapon, Powerups, Spellbook, Position, Stamina } from './src/rules/components/index.js';
 import { createNetClient } from './src/net/client.js';
 import { DEFAULT_ROOM_ID } from './src/shared/net/protocol.js';
 import { samplePlayerCommand } from './src/input/samplePlayerCommand.js';
@@ -442,10 +450,13 @@ function rebuildSpellBar() {
     const btn = document.createElement('div');
     btn.className = 'spell-btn' + (i === book.activeIndex ? ' active' : '');
     btn.dataset.slot = i;
-    const manaText = spell.ammoType === 'arrow'
+    const costText = spell.staminaCost
+      ? `${spell.staminaCost} stamina`
+      : spell.ammoType === 'arrow'
       ? 'consumes arrows'
       : spell.mana.perTick != null ? `${spell.mana.perTick} mana/tick` : `${spell.mana.cost || 0} mana`;
-    btn.title = `${spell.name} · ${manaText} · ${spell.cast.mode.replace('_', ' ')}`;
+    if (spell.staminaCost) btn.dataset.resource = 'stamina';
+    btn.title = `${spell.name} · ${costText} · ${spell.description ?? spell.cast.mode.replace('_', ' ')}`;
     btn.innerHTML = spell.glyph + '<span class="spell-key">' + (i + 1) + '</span>'
       + (spell.ammoType === 'arrow' ? '<span class="spell-ammo">—</span>' : '');
     bar.appendChild(btn);
@@ -481,14 +492,17 @@ const itemTooltip = createItemTooltip({
 });
 const healthBar = createResourceBar(document.getElementById('hud-hp-bar'), { key: 'health', label: '♥', color: '#ff4164' });
 const manaBar = createResourceBar(document.getElementById('hud-mana-bar'), { key: 'mana', label: '◆', color: '#55aaff', boostedClass: 'mana-boosted' });
+const staminaBar = createResourceBar(document.getElementById('hud-stamina-bar'), { key: 'stamina', label: 'Stamina', color: '#ecb44d' });
 function syncHudResources() {
   const health = world.get(playerId, Health);
   const mana = world.get(playerId, Mana);
+  const stamina = world.get(playerId, Stamina);
   const powerups = world.get(playerId, Powerups);
   healthBar.set(health?.hp ?? 0, health?.maxHp ?? 1);
   manaBar.set(mana?.mana ?? 0, mana?.maxMana ?? 1, {
     boosted: (powerups?.manaRegenSeconds || 0) > 0,
   });
+  staminaBar.set(stamina?.stamina ?? 0, stamina?.maxStamina ?? Stamina.defaults.maxStamina);
 }
 syncHudResources();
 renderer = createWebGLArenaRenderer({
@@ -566,11 +580,13 @@ const loop = createFixedTickLoop({
     // Sync spell bar UI with active spell
     if (world.has(playerId, Spellbook)) {
       const sb = world.get(playerId, Spellbook);
+      const stamina = world.get(playerId, Stamina)?.stamina ?? 0;
       spellBar.querySelectorAll('.spell-btn').forEach((b, i) => {
         b.classList.toggle('active', i === sb.activeIndex);
         const charging = sb.charging && i === sb.chargeSpellIndex;
         b.classList.toggle('charging', charging);
         const spell = spellCatalog[sb.spells[i]];
+        b.classList.toggle('resource-low', stamina < (spell?.staminaCost ?? 0));
         const remainingCooldown = Math.max(sb.cooldown || 0, sb.cooldowns?.[sb.spells[i]] || 0);
         b.classList.toggle('cooldown', remainingCooldown > 0);
         b.dataset.cooldown = remainingCooldown > 0 ? remainingCooldown.toFixed(1) : '';

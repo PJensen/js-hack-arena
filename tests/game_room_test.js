@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
-import { MESSAGE, decodeMessage } from '../public/src/shared/net/protocol.js';
+import { MESSAGE, decodeMessage, encodeMessage } from '../public/src/shared/net/protocol.js';
 import { GameRoom } from '../worker/index.js';
 
 class FakeSocket {
@@ -37,3 +37,26 @@ function latestSnapshot(socket) {
   assert(message?.snapshot);
   return message.snapshot;
 }
+
+Deno.test('game room: a starter Cleave consumes stamina and broadcasts the swing', () => {
+  const room = new GameRoom({ id: { toString: () => 'test-room' } }, {});
+  const socket = new FakeSocket();
+  room.accept(socket, { userId: 'user-1', displayName: 'First' });
+  try {
+    const initial = latestSnapshot(socket).entities.find((entity) => entity.kind === 'player').state;
+    assertEquals(initial.spells.slice(2), ['cleave', 'rend']);
+    assertEquals(initial.stamina, 100);
+    room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, {
+      input: { seq: 1, aimX: 1, fire: true, spellSlot: 2 },
+    }));
+    room.step();
+    room.broadcastSnapshot();
+    const snapshot = latestSnapshot(socket);
+    const player = snapshot.entities.find((entity) => entity.kind === 'player').state;
+    assertEquals(player.stamina, 75);
+    assertEquals(player.mana, initial.mana);
+    assert(snapshot.events.some(({ type, payload }) => type === 'spell.cast' && payload.spellId === 'cleave'));
+  } finally {
+    room.leave(socket);
+  }
+});

@@ -85,6 +85,9 @@ export function createArenaAudio({ world, getPlayerPosition }) {
   });
   listen('damage.dealt', (event) => {
     if (Number(event?.amount) < 0) playAt(SOUND.healing, event, { volume: 0.7, maxVoices: 2 });
+    if (event.amount > 0 && (event.spellId === 'cleave' || event.spellId === 'rend')) {
+      playAt(SOUND.meleeHit, event, { volume: 0.68, maxVoices: 3, randomPitch: 35 });
+    }
   });
   listen('item.pickup', (event) => {
     playAt(pickupSound(event), event, { volume: 0.72, maxVoices: 4, randomPitch: 18 });
