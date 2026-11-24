@@ -238,11 +238,11 @@ export function spawnManaPotion(world, x, y, potency = 30) {
   return id;
 }
 
-export function spawnGold(world, x, y) {
+export function spawnGold(world, x, y, count = 1) {
   const id = world.create();
   world.add(id, Position, { x, y });
-  world.add(id, ItemInfo, { name: 'Gold', glyph: '$', count: 1 });
-  world.add(id, Consumable, { effect: 'gold', potency: 1 });
+  world.add(id, ItemInfo, { name: 'Gold', glyph: '$', count });
+  world.add(id, Consumable, { effect: 'gold', potency: count });
   world.add(id, GroundItem);
   world.add(id, Collider, { radius: 7 });
   world.add(id, PointLight, { ...GOLD_LIGHT });

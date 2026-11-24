@@ -699,7 +699,8 @@ export function createArenaSimulation({
       const goldPosition = findOpenNear(grid, event.x + 16, event.y);
       const gold = grid.distanceMove(goldPosition.x, goldPosition.y) >= 7
         ? goldPosition : event;
-      ensureNetworkId(spawnGold(targetWorld, gold.x, gold.y), 'item');
+      const goldCount = 1 + Math.floor(targetWorld.rand() * 3);
+      ensureNetworkId(spawnGold(targetWorld, gold.x, gold.y, goldCount), 'item');
       revision += 1;
     });
     targetWorld.on('chest.opened', ({ x, y }) => {

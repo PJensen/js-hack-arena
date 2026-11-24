@@ -131,16 +131,16 @@ Deno.test('game room: earned gold follows the account into a fresh run', () => {
     const sim = room.ensureSim();
     const player = sim.getPlayerEntity(peerId);
     const { x, y } = sim.world.get(player, Position);
-    spawnGold(sim.world, x, y);
+    spawnGold(sim.world, x, y, 3);
     room.step();
-    assertEquals(saved.get(key), { unlocks: ['example'], gold: 1 });
+    assertEquals(saved.get(key), { unlocks: ['example'], gold: 3 });
 
     sim.world.get(player, Health).hp = 0;
     room.step();
     room.broadcastSnapshot();
     const { state } = latestSnapshot(first).entities.find(({ owner }) => owner === peerId);
     assertEquals(state.hp, 0);
-    assertEquals(state.gold, 1);
+    assertEquals(state.gold, 3);
   } finally {
     room.leave(first);
   }
@@ -152,7 +152,7 @@ Deno.test('game room: earned gold follows the account into a fresh run', () => {
     nextRoom.accept(returning, { userId: 'user-1', displayName: 'Renamed' });
     const restored = returning.sent.find(({ type }) => type === MESSAGE.WELCOME);
     const player = restored.snapshot.entities.find(({ owner }) => owner === restored.peerId).state;
-    assertEquals(player.gold, 1);
+    assertEquals(player.gold, 3);
     assertEquals(player.hp, player.maxHp);
     nextRoom.accept(otherAccount, { userId: 'user-2', displayName: 'Renamed' });
     const other = otherAccount.sent.find(({ type }) => type === MESSAGE.WELCOME);

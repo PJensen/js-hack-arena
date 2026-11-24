@@ -301,6 +301,21 @@ Deno.test("arena sim: combat, projectiles, deaths, and loot are authoritative", 
   assert(afterDeath.events.some((event) => event.type === 'entity.died'));
 });
 
+Deno.test('arena sim: mobs drop one pile worth 1–3 gold', () => {
+  const amounts = new Set();
+  for (let seed = 1; seed <= 12; seed++) {
+    const sim = makeOpenSim(seed, { enemyCount: 0 });
+    sim.addPlayer('peer-a');
+    spawnIdleTarget(sim, 300, 300).health.hp = 0;
+    sim.step();
+    const drops = sim.captureSnapshot().entities.filter(({ state }) => state.effect === 'gold');
+    assertEquals(drops.length, 1);
+    assertEquals(drops[0].state.count, drops[0].state.potency);
+    amounts.add(drops[0].state.count);
+  }
+  assertEquals(amounts, new Set([1, 2, 3]));
+});
+
 Deno.test('arena sim: gold drops once, lights replicas and credits the collecting player', () => {
   const sim = makeOpenSim(123, { enemyCount: 1 });
   const player = sim.addPlayer('peer-a');
@@ -319,13 +334,13 @@ Deno.test('arena sim: gold drops once, lights replicas and credits the collectin
   const [, , light] = [...replica.world.query(ItemInfo, PointLight)].find(([, info]) => info.glyph === '$');
   assertEquals({ radius: light.radius, r: light.r, g: light.g, b: light.b }, GOLD_LIGHT);
 
-  const { x, y } = drops[0].state;
+  const { x, y, count } = drops[0].state;
   Object.assign(sim.world.get(player, Position), { x, y });
   sim.step();
   const collected = sim.captureSnapshot();
   assert(!collected.entities.some(record => record.state.effect === 'gold'));
   replica.applySnapshot(collected);
-  assertEquals(replica.world.get(replica.getPlayerEntity('peer-a'), Gold).count, 1);
+  assertEquals(replica.world.get(replica.getPlayerEntity('peer-a'), Gold).count, count);
 });
 
 Deno.test('arena sim: opening an epic chest replaces it with rolled loot', () => {
