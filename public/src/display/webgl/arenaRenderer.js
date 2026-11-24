@@ -55,6 +55,7 @@ import { MELEE_ARC_VERTEX } from './shaders/meleeArc.vert.js';
 import { MELEE_ARC_FRAGMENT } from './shaders/meleeArc.frag.js';
 import { GAZE_RAY_VERTEX } from './shaders/gazeRay.vert.js';
 import { GAZE_RAY_FRAGMENT } from './shaders/gazeRay.frag.js';
+import { SPORE_CLOUD_VERTEX } from './shaders/sporeCloud.vert.js';
 import { SPORE_CLOUD_FRAGMENT } from './shaders/sporeCloud.frag.js';
 
 // Lighting is a core gameplay/readability layer. Keep enough simultaneous
@@ -294,7 +295,7 @@ export function createWebGLArenaRenderer(deps) {
     time: uniform(gl, gazeProgram, 'u_time'),
   };
 
-  const sporeCloudProgram = device.program(WORLD_VERTEX, SPORE_CLOUD_FRAGMENT);
+  const sporeCloudProgram = device.program(SPORE_CLOUD_VERTEX, SPORE_CLOUD_FRAGMENT);
   const sporeCloud = {
     program: sporeCloudProgram,
     view: uniform(gl, sporeCloudProgram, 'u_view'),
@@ -942,15 +943,16 @@ export function createWebGLArenaRenderer(deps) {
     if (emitter.id === AuraId.CAMPFIRE) return;
     if (!emitter?.active || emitter.radius <= 0) return;
     if (emitter.id === AuraId.SPORE_CLOUD) {
-      if (!inView(position.x, position.y, emitter.radius)) return;
+      if (!inView(position.x, position.y, emitter.radius * 1.35)) return;
       gl.useProgram(sporeCloud.program);
       gl.bindVertexArray(quadVao);
       setWorld(sporeCloud, position.x, position.y, emitter.radius * 2.04, emitter.radius * 2.04);
       const still = motionPreference.matches;
       gl.uniform1f(sporeCloud.time, (still ? 0 : now) + entityId * 0.31);
-      gl.uniform1f(sporeCloud.age, still ? 0.45 : emitter.duration - emitter.remaining);
+      gl.uniform1f(sporeCloud.age, still ? 3 : emitter.duration - emitter.remaining);
       gl.uniform1f(sporeCloud.remaining, emitter.remaining);
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      // One floor marker and four fog slices, drawn from lowest to highest.
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, 5);
       return;
     }
     const pulse = 0.5 + 0.5 * Math.sin(now * 3.2 + entityId * 0.47);
