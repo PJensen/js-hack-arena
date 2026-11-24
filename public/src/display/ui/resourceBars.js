@@ -1,6 +1,8 @@
 // Small DOM resource bars for the canonical arena HUD.
 
-export function createResourceBar(root, { key = 'resource', label, color, gradient, boostedClass = '' } = {}) {
+import { createAtlasIcon } from './atlasIcon.js';
+
+export function createResourceBar(root, { key = 'resource', label, iconId, color, gradient, boostedClass = '' } = {}) {
   if (!root) throw new Error('createResourceBar(root): root is required');
   root.classList.add('hud-resource');
   root.dataset.resource = key;
@@ -15,7 +17,11 @@ export function createResourceBar(root, { key = 'resource', label, color, gradie
   recent.className = 'hud-resource-recent';
   const value = document.createElement('span');
   value.className = 'hud-resource-value';
-  value.textContent = `${label || ''} —/—`;
+  const icon = createAtlasIcon(iconId);
+  const prefix = icon || !label ? '' : `${label} `;
+  const amountText = document.createTextNode(`${prefix}—/—`);
+  if (icon) value.append(icon);
+  value.append(amountText);
   root.replaceChildren(fill, recent, value);
   let previousRatio = 0;
   let previousAmount = null;
@@ -27,7 +33,7 @@ export function createResourceBar(root, { key = 'resource', label, color, gradie
     const amount = Math.max(0, Math.min(max, Number(current) || 0));
     const ratio = amount / max;
     const width = `${(ratio * 100).toFixed(2)}%`;
-    value.textContent = `${label || ''} ${Math.ceil(amount)}/${Math.ceil(max)}`;
+    amountText.data = `${prefix}${Math.ceil(amount)}/${Math.ceil(max)}`;
     fill.style.width = width;
     root.dataset.state = ratio <= 0 ? 'empty' : ratio <= 0.2 ? 'critical' : ratio >= 1 ? 'full' : 'partial';
     // `boostedClass` is optional (health has no boost state). DOMTokenList

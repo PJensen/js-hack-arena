@@ -7,6 +7,7 @@ import {
   makeRoomSeed,
 } from '../public/src/shared/net/protocol.js';
 import { generateArenaCave } from '../public/src/rules/geometry/caveGen.js';
+import { Gold } from '../public/src/rules/components/index.js';
 import {
   SIM_DT,
   SIM_TICK_HZ,
@@ -128,6 +129,8 @@ export class GameRoom {
     if ([...this.sessions.values()].some((session) => session.userId === identity.userId)) {
       return false;
     }
+    const progressKey = `player-progress:${identity.userId}`;
+    const progress = this.state.storage.kv.get(progressKey) ?? { gold: 0 };
     socket.accept();
 
     const peerId = crypto.randomUUID();
@@ -139,9 +142,13 @@ export class GameRoom {
       input: makeInputFrame(),
       name: identity.displayName,
       userId: identity.userId,
+      progressKey,
+      progress,
     };
 
-    this.ensureSim().addPlayer(peerId, this.sessions.size, null, identity.displayName);
+    const sim = this.ensureSim();
+    const player = sim.addPlayer(peerId, this.sessions.size, null, identity.displayName);
+    sim.world.get(player, Gold).count = progress.gold ?? 0;
     this.sessions.set(socket, session);
     this.startTicking();
     this.send(socket, MESSAGE.WELCOME, {
@@ -212,6 +219,14 @@ export class GameRoom {
   step() {
     const sim = this.ensureSim();
     const tick = sim.step(SIM_DT);
+
+    for (const session of this.sessions.values()) {
+      const gold = sim.world.get(sim.getPlayerEntity(session.id), Gold).count;
+      if (gold === (session.progress.gold ?? 0)) continue;
+      const progress = { ...session.progress, gold };
+      this.state.storage.kv.put(session.progressKey, progress);
+      session.progress = progress;
+    }
 
     if (tick % SNAPSHOT_EVERY_TICKS !== 0) return;
     this.broadcast(MESSAGE.SNAPSHOT, {

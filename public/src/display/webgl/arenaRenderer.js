@@ -10,6 +10,7 @@ import { rarityTextColors } from '../../rules/data/lootTable.js';
 import { createMeleeImpact } from '../passes/meleeImpact.js';
 import { createFloatTextPass } from '../passes/floatText.js';
 import { createGorePass } from '../passes/gore.js';
+import { createHudStatus } from '../ui/hudStatus.js';
 import { biolum, emberLight, torchLight } from '../lightPatterns.js';
 import { createWebGLDevice } from './device.js';
 import { createGoreRenderer } from './goreRenderer.js';
@@ -162,6 +163,7 @@ function uploadCubeMesh(device, vertices) {
 
 export function createWebGLArenaRenderer(deps) {
   const { canvas, overlayCanvas, cam, grid, bounds, decorations, world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars, stepParticles } = deps;
+  const syncHudStatus = createHudStatus(hud.meta);
   const device = createWebGLDevice(canvas);
   const { gl } = device;
   const overlay = overlayCanvas?.getContext('2d') || null;
@@ -760,16 +762,6 @@ export function createWebGLArenaRenderer(deps) {
       drawLines(new Float32Array(points), [0.32, 1, 0.75, 0.62], 2);
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-  }
-
-  function activePowerupLabels(powerups) {
-    if (!powerups) return [];
-    const labels = [];
-    if (powerups.manaRegenSeconds > 0) labels.push(`SURGE ${Math.ceil(powerups.manaRegenSeconds)}s`);
-    if (powerups.hasteSeconds > 0) labels.push(`HASTE ${Math.ceil(powerups.hasteSeconds)}s`);
-    if (powerups.furySeconds > 0) labels.push(`FURY ${Math.ceil(powerups.furySeconds)}s`);
-    if (powerups.wardSeconds > 0) labels.push(`WARD ${Math.ceil(powerups.wardSeconds)}s`);
-    return labels;
   }
 
   function drawActiveConditions(conditionState, position, collider, now, entityId) {
@@ -1375,15 +1367,19 @@ export function createWebGLArenaRenderer(deps) {
     const meleeWeapon = world.get(playerId, MeleeWeapon);
     resourceBars?.health?.set(hp?.hp ?? 0, hp?.maxHp ?? 1);
     if (hud.weapon) {
-      hud.weapon.textContent = `⚔ ${meleeWeapon?.damage ?? 5}`;
+      hud.weapon.textContent = String(meleeWeapon?.damage ?? 5);
       hud.weapon.title = `${meleeWeapon?.name || 'Fists'} · ${meleeWeapon?.damage ?? 5} physical damage per hit`;
     }
     const boosted = activePowerups?.manaRegenSeconds > 0;
     resourceBars?.mana?.set(mana?.mana ?? 0, mana?.maxMana ?? 1, { boosted });
-    const activeLabels = [...activePowerupLabels(activePowerups), ...activeConditionLabels(world.get(playerId, Conditions))];
-    hud.meta.textContent = hp?.dead
-      ? 'YOU DIED · refresh to re-enter'
-      : `$ ${world.get(playerId, Gold)?.count ?? 0} · ${activeLabels.length ? activeLabels.join(' · ') + ' · ' : ''}casts ${runtimeEvents.casts}${net ? ` · ${net.getStatusText()}` : ''}`;
+    syncHudStatus({
+      dead: hp?.dead,
+      gold: world.get(playerId, Gold)?.count ?? 0,
+      powerups: activePowerups,
+      conditions: world.get(playerId, Conditions),
+      casts: runtimeEvents.casts,
+      connection: net?.getStatusText(),
+    });
     document.body.classList.toggle('player-dead', Boolean(hp?.dead));
     hud.zoomReadout.textContent = `zoom: ${cam.scale.toFixed(2)}x  particles:${fx.pool.count}`;
     hud.readL.textContent = router.left.active ? `L x:${playerInput.moveX.toFixed(2)} y:${playerInput.moveY.toFixed(2)}` : (Math.abs(keyboard.mx) + Math.abs(keyboard.my) ? `KB ${keyboard.mx},${keyboard.my}` : 'L stick idle');

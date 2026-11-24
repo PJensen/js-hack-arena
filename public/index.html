@@ -14,17 +14,22 @@
     canvas { display:block; width:100%; height:100%; }
     #world-overlay { position:fixed; inset:0; pointer-events:none; z-index:12; }
     #arena-ui { position:fixed; inset:0; z-index:35; pointer-events:none; }
-    .arena-item-tooltip { position:fixed; width:min(252px,calc(100vw - 24px)); padding:10px 11px 9px;
-                          transform:translate(14px,-50%); pointer-events:auto; color:#deecf7;
+    .arena-atlas-icon { display:inline-block; width:1em; aspect-ratio:1; flex:none;
+                        vertical-align:middle; background-repeat:no-repeat; }
+    .arena-item-tooltip { --tooltip-width:min(252px,calc(100vw - 24px));
+                          --tooltip-left:calc(var(--tooltip-anchor-x) + 14px);
+                          position:fixed; width:var(--tooltip-width); padding:10px 11px 9px;
+                          left:clamp(12px,var(--tooltip-left),calc(100vw - 12px - var(--tooltip-width)));
+                          transform:translateY(-50%); pointer-events:auto; color:#deecf7;
                           background:linear-gradient(165deg,rgba(9,18,30,.97),rgba(3,8,15,.98));
                           border:1px solid rgba(112,230,255,.34); border-radius:8px;
                           box-shadow:0 14px 34px rgba(0,0,0,.46),inset 0 0 22px rgba(80,180,230,.05);
                           font:12px/1.25 ui-monospace,SFMono-Regular,monospace; }
-    .arena-item-tooltip[data-side="left"] { transform:translate(calc(-100% - 14px),-50%); }
+    .arena-item-tooltip[data-side="left"] { --tooltip-left:calc(var(--tooltip-anchor-x) - 14px - var(--tooltip-width)); }
     .arena-item-tooltip-header { display:flex; align-items:center; gap:9px; padding-bottom:8px;
                                  border-bottom:1px solid rgba(255,255,255,.1); }
-    .arena-item-tooltip-glyph { width:27px; flex:none; font-size:25px; line-height:1; text-align:center;
-                                text-shadow:0 0 12px currentColor; }
+    .arena-item-tooltip-icon { flex:none; }
+    .arena-item-tooltip-icon > .arena-atlas-icon { display:block; width:34px; border-radius:4px; }
     .arena-item-tooltip-title { min-width:0; font-weight:900; letter-spacing:.03em; }
     .arena-item-tooltip-title > div:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .arena-item-tooltip-rarity { margin-top:3px; font-size:9px; letter-spacing:.12em; opacity:.78; }
@@ -75,7 +80,9 @@
                            background:rgba(255,255,255,.92); opacity:0; pointer-events:none;
                            box-shadow:0 0 12px rgba(255,255,255,.75); mix-blend-mode:screen; }
     .hud-resource-value { position:relative; z-index:1; color:#fff8ea; font-weight:900;
+                          display:flex; align-items:center; gap:4px;
                           font-variant-numeric:tabular-nums; text-shadow:0 1px 2px #000; white-space:nowrap; }
+    .hud-resource-value > .arena-atlas-icon, .hud-meta .arena-atlas-icon { width:16px; border-radius:3px; }
     .hud-resource[data-resource="health"] .hud-resource-fill { background:linear-gradient(90deg,#c71942,#ff4164 58%,#ff6b7f); }
     .hud-resource[data-resource="mana"] .hud-resource-fill { background:linear-gradient(90deg,#1d68c5,#4aa3ff 58%,#72c2ff); }
     .hud-resource[data-resource="stamina"] .hud-resource-fill { background:linear-gradient(90deg,#8d520e,#c38222 58%,#ecb44d); }
@@ -114,20 +121,20 @@
                  display:flex; gap:8px; z-index:50; pointer-events:auto; }
     .spell-btn { position:relative; width:48px; height:48px; border-radius:10px;
                  background:var(--ink); border:1px solid rgba(255,255,255,.18);
-                 color:#fff; font-size:22px; line-height:48px; text-align:center;
+                 text-align:center;
                  cursor:pointer; box-shadow:0 8px 20px rgba(0,0,0,.3); transition:border-color .15s,background .15s,transform .15s; }
+    .spell-btn > .arena-atlas-icon { position:absolute; top:3px; left:50%; transform:translateX(-50%);
+                                    width:min(32px,calc(100% - 6px)); border-radius:5px; }
     .spell-btn.active { border-color:var(--cyan); background:rgba(52,133,180,.28); transform:translateY(-3px); box-shadow:0 0 18px rgba(80,210,255,.22); }
-    .spell-btn[data-resource="stamina"] { color:#ffce85; }
     .spell-btn[data-resource="stamina"].active { border-color:#ffc167; background:rgba(192,110,39,.24); box-shadow:0 0 18px rgba(247,147,64,.24); }
-    .spell-btn[data-resource="stamina"] .spell-key { position:absolute; top:4px; right:4px; margin:0; }
     .spell-btn .spell-name { position:absolute; inset:auto 0 4px; color:#fff0db; font-size:9px; font-weight:800; line-height:1; }
     .spell-btn.resource-low { opacity:.52; }
     .spell-btn.charging { border-color:#d9fbff; background:conic-gradient(from -90deg,var(--cyan) calc(var(--charge,0) * 1turn),rgba(16,37,54,.88) 0); }
     .spell-btn.cooldown:not(.charging) { opacity:.56; filter:saturate(.45); }
     .spell-btn.cooldown::after { content:attr(data-cooldown); position:absolute; inset:0; display:grid; place-items:center;
                                  color:#fff; font-size:11px; line-height:1; text-shadow:0 1px 3px #000; }
-    .spell-btn .spell-key { display:block; font-size:10px; line-height:1;
-                            color:rgba(255,255,255,0.4); margin-top:-8px; }
+    .spell-btn .spell-key { position:absolute; top:3px; right:3px; padding:1px 2px; border-radius:3px;
+                            background:rgba(3,8,14,.82); color:#dce6ee; font-size:10px; line-height:1; }
     .spell-btn .spell-ammo { position:absolute; right:4px; bottom:3px; min-width:14px;
                              padding:1px 3px; border-radius:5px; background:rgba(3,8,14,.86);
                              color:#f5dfad; font-size:10px; font-weight:900; line-height:1.1;
@@ -148,7 +155,8 @@
       #reset-dungeon { position:fixed; top:calc(max(10px, env(safe-area-inset-top)) + 62px); right:max(10px, env(safe-area-inset-right)); }
       .joystick { width:104px; height:104px; }
       #spell-bar { bottom:calc(max(22px,env(safe-area-inset-bottom)) + 117px); gap:4px; }
-      .spell-btn { width:min(43px,calc((100vw - 48px) / 9)); height:42px; line-height:42px; }
+      .spell-btn { width:min(43px,calc((100vw - 48px) / 9)); height:42px; }
+      .spell-btn > .arena-atlas-icon { width:min(27px,calc(100% - 4px)); }
       #zoom-readout { display:none; }
     }
   </style>
@@ -185,10 +193,7 @@
   <div class="joystick joystick-right" id="joystick-right"><div class="joystick-knob" id="knob-right"></div></div>
   <div class="touch-dot touch-dot-left" id="touch-left"></div>
   <div class="touch-dot touch-dot-right" id="touch-right"></div>
-  <div id="spell-bar">
-    <div class="spell-btn active" data-slot="0">&#x2744;<span class="spell-key">1</span></div>
-    <div class="spell-btn" data-slot="1">&#x26A1;<span class="spell-key">2</span></div>
-  </div>
+  <div id="spell-bar"></div>
 
 <script>
   const ENABLE_SW = true;
@@ -267,9 +272,10 @@ import { createSnapshotInterpolator } from './src/display/snapshotInterpolator.j
 import { createLocalPlayerPrediction } from './src/display/localPlayerPrediction.js';
 import { createProjectileFxController } from './src/display/passes/projectileFx.js';
 import { createArenaAudio, unlockArenaAudio } from './src/display/audio/arenaAudio.js';
+import { createAtlasIcon } from './src/display/ui/atlasIcon.js';
 import { createItemTooltip } from './src/display/ui/itemTooltip.js';
 import { createResourceBar } from './src/display/ui/resourceBars.js';
-import { ArrowAmmo, BowWeapon, Health, Mana, MeleeWeapon, Powerups, Spellbook, Position, Stamina } from './src/rules/components/index.js';
+import { ArrowAmmo, BowWeapon, Gold, Health, Mana, MeleeWeapon, Powerups, Spellbook, Position, Stamina } from './src/rules/components/index.js';
 import { createNetClient } from './src/net/client.js';
 import { DEFAULT_ROOM_ID } from './src/shared/net/protocol.js';
 import { samplePlayerCommand } from './src/input/samplePlayerCommand.js';
@@ -414,6 +420,20 @@ const playerId = isNetworked
   ? (sim.getPlayerEntity(netWelcome.peerId) ?? sim.addPlayer(netWelcome.peerId, 0, null, playerName))
   : sim.addPlayer('local', 0, null, playerName);
 const world = sim.world;
+const offlineProgressKey = 'hack-arena.offline-progress';
+let offlineProgress = { gold: 0 };
+if (!isNetworked) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(offlineProgressKey));
+    if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+      const gold = Number.isSafeInteger(saved.gold) && saved.gold >= 0 ? saved.gold : 0;
+      offlineProgress = { ...saved, gold };
+    }
+  } catch (error) {
+    console.warn('Could not load offline progress', error);
+  }
+  world.get(playerId, Gold).count = offlineProgress.gold;
+}
 const interpolation = isNetworked
   ? createSnapshotInterpolator({ sim, intervalMs: 1000 / (netWelcome.snapshotHz || 10) })
   : null;
@@ -459,9 +479,18 @@ function syncSpellSlots(book) {
       : spell.mana.perTick != null ? `${spell.mana.perTick} mana/tick` : `${spell.mana.cost || 0} mana`;
     if (spell.staminaCost) btn.dataset.resource = 'stamina';
     btn.title = `${spell.name} · ${costText} · ${spell.description ?? spell.cast.mode.replace('_', ' ')}`;
-    btn.innerHTML = spell.glyph + '<span class="spell-key">' + (i + 1) + '</span>'
-      + (spell.ammoType === 'arrow' ? '<span class="spell-ammo">—</span>' : '');
-    if (spell.staminaCost) {
+    const icon = createAtlasIcon(spellId === 'poison_orb' ? 'venom_orb' : spellId, spell.name);
+    if (icon) btn.append(icon);
+    const key = document.createElement('span');
+    key.className = 'spell-key';
+    key.textContent = String(i + 1);
+    btn.append(key);
+    if (spell.ammoType === 'arrow') {
+      const ammo = document.createElement('span');
+      ammo.className = 'spell-ammo';
+      btn.append(ammo);
+    }
+    if (spell.staminaCost || !icon) {
       const name = document.createElement('span');
       name.className = 'spell-name';
       name.textContent = spell.name;
@@ -556,6 +585,15 @@ const loop = createFixedTickLoop({
       }
       sim.setPlayerInput('local', command);
       sim.step(dt);
+      const gold = world.get(playerId, Gold).count;
+      if (gold !== offlineProgress.gold) {
+        offlineProgress = { ...offlineProgress, gold };
+        try {
+          localStorage.setItem(offlineProgressKey, JSON.stringify(offlineProgress));
+        } catch (error) {
+          console.warn('Could not save offline progress', error);
+        }
+      }
     }
     cameraSystem(world, dt);
     const networkInput = isNetworked

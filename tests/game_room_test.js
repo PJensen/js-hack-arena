@@ -1,4 +1,6 @@
 import { assert, assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
+import { Health, Position } from '../public/src/rules/components/index.js';
+import { spawnGold } from '../public/src/rules/spawner.js';
 import { MESSAGE, decodeMessage, encodeMessage } from '../public/src/shared/net/protocol.js';
 import { GameRoom } from '../worker/index.js';
 
@@ -12,8 +14,20 @@ class FakeSocket {
   addEventListener(type, listener) { this.listeners.set(type, listener); }
 }
 
+function makeRoomState(kv = new Map()) {
+  return {
+    id: { toString: () => 'test-room' },
+    storage: {
+      kv: {
+        get: (key) => structuredClone(kv.get(key)),
+        put: (key, value) => kv.set(key, structuredClone(value)),
+      },
+    },
+  };
+}
+
 Deno.test('game room: every connected socket receives both players immediately', () => {
-  const room = new GameRoom({ id: { toString: () => 'test-room' } }, {});
+  const room = new GameRoom(makeRoomState(), {});
   const first = new FakeSocket();
   const second = new FakeSocket();
 
@@ -39,7 +53,7 @@ function latestSnapshot(socket) {
 }
 
 Deno.test('game room: a starter Cleave consumes stamina and broadcasts the swing', () => {
-  const room = new GameRoom({ id: { toString: () => 'test-room' } }, {});
+  const room = new GameRoom(makeRoomState(), {});
   const socket = new FakeSocket();
   room.accept(socket, { userId: 'user-1', displayName: 'First' });
   try {
@@ -61,5 +75,50 @@ Deno.test('game room: a starter Cleave consumes stamina and broadcasts the swing
     assert(swing.payload.caster.startsWith('player:'));
   } finally {
     room.leave(socket);
+  }
+});
+
+Deno.test('game room: earned gold follows the account into a fresh run', () => {
+  const key = 'player-progress:user-1';
+  const saved = new Map([[key, { unlocks: ['example'] }]]);
+  const room = new GameRoom(makeRoomState(saved), {});
+  const first = new FakeSocket();
+  room.accept(first, { userId: 'user-1', displayName: 'First' });
+  try {
+    const welcome = first.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    const { peerId } = welcome;
+    assertEquals(welcome.snapshot.entities.find(({ owner }) => owner === peerId).state.gold, 0);
+    const sim = room.ensureSim();
+    const player = sim.getPlayerEntity(peerId);
+    const { x, y } = sim.world.get(player, Position);
+    spawnGold(sim.world, x, y);
+    room.step();
+    assertEquals(saved.get(key), { unlocks: ['example'], gold: 1 });
+
+    sim.world.get(player, Health).hp = 0;
+    room.step();
+    room.broadcastSnapshot();
+    const { state } = latestSnapshot(first).entities.find(({ owner }) => owner === peerId);
+    assertEquals(state.hp, 0);
+    assertEquals(state.gold, 1);
+  } finally {
+    room.leave(first);
+  }
+
+  const nextRoom = new GameRoom(makeRoomState(saved), {});
+  const returning = new FakeSocket();
+  const otherAccount = new FakeSocket();
+  try {
+    nextRoom.accept(returning, { userId: 'user-1', displayName: 'Renamed' });
+    const restored = returning.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    const player = restored.snapshot.entities.find(({ owner }) => owner === restored.peerId).state;
+    assertEquals(player.gold, 1);
+    assertEquals(player.hp, player.maxHp);
+    nextRoom.accept(otherAccount, { userId: 'user-2', displayName: 'Renamed' });
+    const other = otherAccount.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    assertEquals(other.snapshot.entities.find(({ owner }) => owner === other.peerId).state.gold, 0);
+  } finally {
+    nextRoom.leave(returning);
+    nextRoom.leave(otherAccount);
   }
 });
