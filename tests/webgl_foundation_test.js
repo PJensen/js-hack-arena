@@ -71,6 +71,18 @@ Deno.test('gore: wraiths dissolve and retained dungeon marks stay within budget'
   assert(gore.fragments.every(({ settled }) => settled));
 });
 
+Deno.test('gore: a dead Floating Eye sprays violet ichor and leaves gelatinous fragments', () => {
+  const gore = createGorePass({ grid: { distanceMove: () => 60 }, seed: 11 });
+  gore.add({ x: 25, y: 0, amount: 12, killed: true, targetTheme: 'floating_eye' });
+  assert(gore.drops.length > 0);
+  assert(gore.fragments.length > 0);
+  assert(gore.fragments.every(({ material, color }) => material.gel && color[2] > color[0] && color[0] > color[1]));
+  for (let i = 0; i < 60; i++) gore.step(0.025);
+  assertEquals(gore.drops.length, 0);
+  assert(gore.fragments.every(({ settled }) => settled));
+  assert(gore.stains.length > 1 && gore.stains.every(({ color }) => color[2] > color[0] && color[0] > color[1]));
+});
+
 Deno.test('combat numbers: batch close hits by target and render distinct healing and periodic damage', () => {
   const pass = createFloatTextPass();
   const labels = [];

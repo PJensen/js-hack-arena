@@ -881,6 +881,7 @@ Deno.test('arena sim: floating eye gaze needs sustained sight and replicates tim
   step(1);
   assertEquals(sync().gazeCharge, 1);
   assertEquals(conditionIds(replica), ['paralyzed']);
+  assertEquals(replica.getPlayerSnapshot('peer-a').state.conditions[0].duration, 2.5);
   assertEquals([...sim.world.query(Projectile)].length, 0);
 
   sim.setPlayerInput('peer-a', { moveY: 1, aimX: 1, spellSlot: 2, fire: true });
@@ -888,12 +889,19 @@ Deno.test('arena sim: floating eye gaze needs sustained sight and replicates tim
   assertEquals(position.y, 100);
   assert(sim.captureSnapshot().events.some(({ type }) => type === 'spell.cast'));
   sim.setPlayerInput('peer-a', { moveY: 1 });
-  step(26);
+  step(47);
+  assertEquals(conditionIds(sim), ['paralyzed']);
+  assertEquals(position.y, 100);
+  step(3);
   assertEquals(conditionIds(sim), []);
   assert(position.y > 100);
-  sim.world.get(eye, Health).hp = 0;
+  applyDamage(sim.world, eye, sim.world.get(eye, Health).hp, { sourceId: player, damageType: 'physical' });
   step(1);
   assertEquals(sim.world.alive.has(eye), false);
+  const kills = [];
+  replica.world.on('damage.dealt', (event) => { if (event.killed) kills.push(event.targetTheme); });
+  replica.applySnapshot(sim.captureSnapshot());
+  assertEquals(kills, ['floating_eye']);
   step(chargeTicks);
   assertEquals([...sim.world.query(AI)].length, 0);
 });
