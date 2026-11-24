@@ -113,6 +113,7 @@ export function createArenaSimulation({
   mode = SIM_MODE.AUTHORITY,
   enemyCount = 1,
   enemyGroupSize = 1,
+  encounterSites,
   patrolRoutes = [],
   enemySpawnExclusionRadius = 0,
   starterHasteRing = false,
@@ -156,37 +157,16 @@ export function createArenaSimulation({
     if (mode === SIM_MODE.AUTHORITY && !populationStarted) {
       populationStarted = true;
       const groupSize = Math.max(1, enemyGroupSize);
-      const spawnBuffer = 64 + groupSize * 24;
-      for (let i = 0; i < enemyCount; i++) {
-        const route = patrolRoutes[i % Math.max(1, patrolRoutes.length)];
-        const points = route?.points?.filter((point) =>
-          Math.hypot(point.x - spawn.x, point.y - spawn.y) > enemySpawnExclusionRadius
-        );
-        const safePoints = points?.filter((point) =>
-          Math.hypot(point.x - spawn.x, point.y - spawn.y) > enemySpawnExclusionRadius + spawnBuffer
-        );
-        const angle = (i / Math.max(1, enemyCount)) * Math.PI * 2;
-        const fallbackDistance = enemySpawnExclusionRadius > 0
-          ? enemySpawnExclusionRadius + spawnBuffer
-          : 180;
-        const origin = safePoints?.reduce((farthest, point) => {
-          const pointDistance = Math.hypot(point.x - spawn.x, point.y - spawn.y);
-          const farthestDistance = farthest ? Math.hypot(farthest.x - spawn.x, farthest.y - spawn.y) : -Infinity;
-          return pointDistance > farthestDistance ? point : farthest;
-        }, null) || {
-          x: spawn.x + Math.cos(angle) * (fallbackDistance + i * 30),
-          y: spawn.y + Math.sin(angle) * (fallbackDistance + i * 30),
-        };
-        for (let member = 0; member < groupSize; member++) {
-          const mobId = spawnEnemy(world, grid, origin.x + member * 24, origin.y + member * 24, i, member, points?.length ? points : [origin]);
-          ensureNetworkId(mobId, 'mob');
-        }
+      const sites = encounterSites ?? buildDefaultEnemySites(spawn, enemyCount, groupSize, patrolRoutes, enemySpawnExclusionRadius);
+      for (const [index, { x, y, patrolPoints }] of sites.entries()) {
+        const mobId = spawnEnemy(world, grid, x, y, Math.floor(index / groupSize), index % groupSize, patrolPoints);
+        ensureNetworkId(mobId, 'mob');
       }
       if (starterHasteRing) {
         const ringPosition = findOpenNear(grid, spawn.x + 48, spawn.y);
         ensureNetworkId(spawnRing(world, ringPosition.x, ringPosition.y), 'item');
       }
-      if (enemyCount > 0) revision += 1;
+      if (sites.length) revision += 1;
     }
     return entityId;
   }
@@ -803,6 +783,38 @@ function spawnDrop(world, drop, x, y) {
   if (drop.type === 'legendary_sword') return spawnLegendarySword(world, x, y);
   if (drop.type === 'legendary_bow') return spawnLegendaryBow(world, x, y);
   return null;
+}
+
+function buildDefaultEnemySites(spawn, count, groupSize, routes, exclusionRadius) {
+  const sites = [];
+  const spawnBuffer = 64 + groupSize * 24;
+  const fallbackDistance = exclusionRadius > 0 ? exclusionRadius + spawnBuffer : 180;
+  const distanceFromSpawn = (point) => Math.hypot(point.x - spawn.x, point.y - spawn.y);
+  for (let group = 0; group < count; group++) {
+    const route = routes[group % routes.length];
+    const patrolPoints = route?.points?.filter((point) => distanceFromSpawn(point) > exclusionRadius) ?? [];
+    let farthestDistance = exclusionRadius + spawnBuffer;
+    const angle = (group / count) * Math.PI * 2;
+    let origin = {
+      x: spawn.x + Math.cos(angle) * (fallbackDistance + group * 30),
+      y: spawn.y + Math.sin(angle) * (fallbackDistance + group * 30),
+    };
+    for (const point of patrolPoints) {
+      const distance = distanceFromSpawn(point);
+      if (distance > farthestDistance) {
+        origin = point;
+        farthestDistance = distance;
+      }
+    }
+    for (let member = 0; member < groupSize; member++) {
+      sites.push({
+        x: origin.x + member * 24,
+        y: origin.y + member * 24,
+        patrolPoints: patrolPoints.length ? patrolPoints : [origin],
+      });
+    }
+  }
+  return sites;
 }
 
 function spawnEnemy(world, grid, x, y, group, member, patrolPoints) {

@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
-import { Conditions, Health, Position } from '../public/src/rules/components/index.js';
+import { AI, Conditions, Health, Position } from '../public/src/rules/components/index.js';
 import { SIM_MODE, createArenaSimulation } from '../public/src/rules/sim/arenaSim.js';
 import { spawnGold, spawnRing } from '../public/src/rules/spawner.js';
 import { MESSAGE, decodeMessage, encodeMessage } from '../public/src/shared/net/protocol.js';
@@ -46,6 +46,64 @@ Deno.test('game room: every connected socket receives both players immediately',
 
   room.leave(first);
   room.leave(second);
+});
+
+Deno.test('game room: encounters stay spread out while some mobs patrol', () => {
+  const room = new GameRoom(makeRoomState(), {});
+  const socket = new FakeSocket();
+  room.accept(socket, { userId: 'user-1', displayName: 'First' });
+  try {
+    const cave = room.ensureCave();
+    const [entrance] = cave.spawns;
+    const sim = room.ensureSim();
+    const offline = createArenaSimulation({ ...cave, seed: room.seed, enemyGroupSize: 3 });
+    offline.addPlayer('offline');
+    const mobStates = (snapshot) => snapshot.entities.filter(({ kind }) => kind === 'mob').map(({ state }) => state);
+    assertEquals(mobStates(latestSnapshot(socket)), mobStates(offline.captureSnapshot()));
+
+    const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const mobs = [...sim.world.query(AI, Position)].map(([id, ai, pos]) => ({ id, ai, pos, home: { ...pos } }));
+    assertEquals(mobs.length, 9);
+    assertEquals(mobs.filter(({ ai }) => ai.patrolPoints.length > 1).length, 3);
+    const assertSpread = () => {
+      for (const [index, { ai, pos }] of mobs.entries()) {
+        assertEquals(ai.target, null);
+        assert(distance(pos, entrance) > 320);
+        assert(cave.grid.distanceMove(pos.x, pos.y) >= 20);
+        assert(mobs.slice(index + 1).every((other) => distance(pos, other.pos) > 500));
+      }
+    };
+    assertSpread();
+
+    // Patrols have time to turn around repeatedly while the player stays at the entrance.
+    const moved = new Set();
+    for (let tick = 0; tick < 1200; tick++) {
+      room.step();
+      for (const { id, ai, pos, home } of mobs) {
+        if (ai.patrolPoints.length) {
+          assert(distance(pos, home) <= 64);
+          if (distance(pos, home) > 32) moved.add(id);
+        } else {
+          assertEquals(pos, home);
+        }
+      }
+    }
+    assertEquals(moved.size, 3);
+    assertSpread();
+
+    const { peerId } = socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    const playerId = sim.getPlayerEntity(peerId);
+    const [nearby] = mobs;
+    Object.assign(sim.world.get(playerId, Position), nearby.pos);
+    room.step();
+    assertEquals(nearby.ai.target, playerId);
+
+    sim.world.get(nearby.id, Health).hp = 0;
+    for (let tick = 0; tick < 20; tick++) room.step();
+    assertEquals([...sim.world.query(AI)].length, 8);
+  } finally {
+    room.leave(socket);
+  }
 });
 
 Deno.test('game room: a ring equips through pickup intent and swapping drops the previous ring', () => {

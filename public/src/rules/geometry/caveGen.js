@@ -3,6 +3,7 @@
 // erode its chambers and passages with coherent noise before baking clearance.
 
 import { findOpen } from './landmarks.js';
+import { sweepMaxFree } from './sweep.js';
 
 export function mulberry32(seed) {
   let t = seed >>> 0;
@@ -313,6 +314,48 @@ export function generateCave(opts = {}) {
   return { grid, bounds: { w: width, h: height }, spawns, routes };
 }
 
+const ARENA_ENEMY_COUNT = 9;
+const ENTRANCE_EXCLUSION_RADIUS = 320;
+const PATROL_DISTANCE = 64;
+const MOB_CLEARANCE = 20;
+const pointDistance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+function placeArenaEncounters({ grid, routes, spawns: [start] }) {
+  const candidates = routes.map(({ to }) => to);
+  if (routes.length) candidates.push(routes[0].from);
+  const rooms = candidates.filter((room) =>
+    pointDistance(room, start) > ENTRANCE_EXCLUSION_RADIUS + PATROL_DISTANCE + MOB_CLEARANCE &&
+    grid.distanceMove(room.x, room.y) >= MOB_CLEARANCE
+  ).sort((a, b) => pointDistance(a, start) - pointDistance(b, start));
+  const sites = [];
+  while (sites.length < ARENA_ENEMY_COUNT && rooms.length) {
+    // Start near the entrance, then fill the largest gaps between encounters.
+    let next = 0;
+    let bestSpacing = 0;
+    if (sites.length) {
+      for (const [index, room] of rooms.entries()) {
+        const spacing = Math.min(...sites.map((site) => pointDistance(room, site)));
+        if (spacing > bestSpacing) {
+          next = index;
+          bestSpacing = spacing;
+        }
+      }
+    }
+    const [room] = rooms.splice(next, 1);
+    const patrolEnd = sites.length % 3 === 1 ? findPatrolEnd(grid, room) : null;
+    sites.push({ ...room, patrolPoints: patrolEnd ? [patrolEnd, room] : [] });
+  }
+  return sites;
+}
+
+function findPatrolEnd(grid, room) {
+  for (const [dx, dy] of [[PATROL_DISTANCE, 0], [0, PATROL_DISTANCE], [-PATROL_DISTANCE, 0], [0, -PATROL_DISTANCE]]) {
+    const end = { x: room.x + dx, y: room.y + dy };
+    if (sweepMaxFree(grid, room.x, room.y, end.x, end.y, MOB_CLEARANCE) === 1) return end;
+  }
+  return null;
+}
+
 // Shared by the browser and authoritative rooms. Keep the field dimensions
 // close to the original grid while doubling the world scale.
 export function generateArenaCave(seed) {
@@ -324,5 +367,5 @@ export function generateArenaCave(seed) {
   const start = cave.spawns[0];
   const hearth = findOpen(cave.grid, start.x, start.y - 76, 24, 38) ??
     findOpen(cave.grid, start.x, start.y + 76, 24, 38);
-  return { ...cave, campfires: hearth ? [hearth] : [] };
+  return { ...cave, campfires: hearth ? [hearth] : [], encounterSites: placeArenaEncounters(cave) };
 }

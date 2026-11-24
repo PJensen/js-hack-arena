@@ -282,10 +282,8 @@ export class GameRoom {
         grid: caveData.grid,
         spawns: caveData.spawns,
         campfires: caveData.campfires,
-        enemyCount: 3,
         enemyGroupSize: 3,
-        patrolRoutes: caveData.routes,
-        enemySpawnExclusionRadius: 320,
+        encounterSites: caveData.encounterSites,
         starterHasteRing: true,
       });
     }
