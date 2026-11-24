@@ -78,8 +78,13 @@ export function createAISystem(ctx) {
           vel.vx = -(dx / dist) * movementSpeed;
           vel.vy = -(dy / dist) * movementSpeed;
         } else if (tooFar || melee) {
-          vel.vx = (dx / dist) * movementSpeed * (melee ? 1 : 0.6);
-          vel.vy = (dy / dist) * movementSpeed * (melee ? 1 : 0.6);
+          let approachSpeed = movementSpeed * (melee ? 1 : 0.6);
+          if (ai.plantAtContact) {
+            const contact = col.radius + (world.get(ai.target, Collider)?.radius ?? 0) + 1;
+            approachSpeed = Math.min(approachSpeed, Math.max(0, dist - contact) / dt);
+          }
+          vel.vx = (dx / dist) * approachSpeed;
+          vel.vy = (dy / dist) * approachSpeed;
         } else {
           vel.vx = -(dy / dist) * movementSpeed * 0.4;
           vel.vy =  (dx / dist) * movementSpeed * 0.4;

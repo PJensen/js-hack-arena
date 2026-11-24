@@ -36,30 +36,34 @@ function resolvePair(world, a, b, cooldowns, time) {
   const dy = b.position.y - a.position.y;
   const distance = Math.hypot(dx, dy);
   const overlap = a.collider.radius + b.collider.radius - distance;
-  if (overlap <= 0) return;
-
-  const nx = distance > 0.01 ? dx / distance : 1;
-  const ny = distance > 0.01 ? dy / distance : 0;
-  const push = overlap * 0.5;
-  a.position.x -= nx * push;
-  a.position.y -= ny * push;
-  b.position.x += nx * push;
-  b.position.y += ny * push;
+  if (overlap < -2) return;
 
   const aPlayer = world.has(a.id, PlayerTag);
   const bPlayer = world.has(b.id, PlayerTag);
-  const aMob = world.has(a.id, AI);
-  const bMob = world.has(b.id, AI);
-  if (!((aPlayer && bMob) || (bPlayer && aMob))) return;
+  const aAI = world.get(a.id, AI);
+  const bAI = world.get(b.id, AI);
+  const contactMelee = (aPlayer && bAI) || (bPlayer && aAI);
+  const plantedContact = contactMelee?.plantAtContact;
+  if (!plantedContact) {
+    if (overlap <= 0) return;
+    const nx = distance > 0.01 ? dx / distance : 1;
+    const ny = distance > 0.01 ? dy / distance : 0;
+    const push = overlap * 0.5;
+    a.position.x -= nx * push;
+    a.position.y -= ny * push;
+    b.position.x += nx * push;
+    b.position.y += ny * push;
+  }
+  if (!contactMelee) return;
 
   const key = Math.min(a.id, b.id) + ':' + Math.max(a.id, b.id);
   if (time - (cooldowns.get(key) ?? -Infinity) < BUMP_COOLDOWN) return;
   cooldowns.set(key, time);
 
   const playerId = aPlayer ? a.id : b.id;
-  const mobId = aMob ? a.id : b.id;
+  const mobId = aAI ? a.id : b.id;
   dealDamage(world, mobId, playerId, positionOf(aPlayer ? a : b));
-  dealDamage(world, playerId, mobId, positionOf(aMob ? a : b));
+  dealDamage(world, playerId, mobId, positionOf(aAI ? a : b));
 }
 
 function dealDamage(world, sourceId, targetId, position) {

@@ -851,13 +851,24 @@ Deno.test("arena sim: a spider patrols, chases, poisons on contact, and stays de
   assert(position.x > 450);
   assertEquals(meleeHits.length, 0);
   playerPosition.x = position.x - 48;
-  for (let i = 0; i < 7; i++) sim.step();
+  const startX = playerPosition.x;
+  const chaseStart = position.x;
+  sim.step();
+  assertAlmostEquals(chaseStart - position.x, 90 * SIM_DT);
+  for (let i = 0; i < 6; i++) sim.step();
   assertEquals(ai.target, player);
   assert(health.hp < 100);
   assert(sim.world.get(player, Auras).active.some((condition) => condition.id === 'poisoned'));
   const bites = meleeHits.filter(({ sourceTheme }) => sourceTheme === 'spider');
   assertEquals(bites.map(({ source, target }) => [source, target]), [[spider, player]]);
   assertEquals(bites[0].conditionId, 'poisoned');
+  assertEquals(playerPosition.x, startX);
+  const plantedX = position.x;
+  sim.setPlayerInput('peer-a', { moveX: 1 });
+  sim.step();
+  assertEquals(playerPosition.x, startX + 200 * SIM_DT);
+  assertEquals(position.x, plantedX);
+  sim.setPlayerInput('peer-a', {});
 
   playerPosition.x = 100;
   applyDamage(sim.world, spider, 1000);

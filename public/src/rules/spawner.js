@@ -152,10 +152,11 @@ export function spawnTank(world, grid, nearX, nearY, targetId, patrolPoints = []
 export function spawnSpider(world, grid, nearX, nearY, targetId, patrolPoints = []) {
   return spawnMob(world, grid, nearX, nearY, targetId, {
     name: 'Cave Spider', glyph: '🕷', theme: 'spider', radius: 11,
-    speed: 154, hp: 38, mana: 0, manaRegen: 0,
+    speed: 90, hp: 38, mana: 0, manaRegen: 0,
     light: SPIDER_LIGHT,
     behavior: AIBehavior.MELEE, preferredDist: 10, castRate: 4.5,
-    projSpeed: 230, webSpit: true, meleeDamage: 8, weapon: 'Venom Bite', conditionId: ConditionId.POISONED, aggroRange: 285,
+    projSpeed: 230, webSpit: true, plantAtContact: true,
+    meleeDamage: 8, weapon: 'Venom Bite', conditionId: ConditionId.POISONED, aggroRange: 285,
     patrolPoints, searchRadius: 64,
   });
 }
@@ -183,6 +184,7 @@ function spawnMob(world, grid, nearX, nearY, targetId, config) {
     castRate: config.castRate,
     projSpeed: config.projSpeed,
     webSpit: config.webSpit ?? false,
+    plantAtContact: config.plantAtContact ?? false,
     aggroRange: config.aggroRange ?? 300,
     patrolPoints: config.patrolPoints || [],
     patrolIndex: 0,
