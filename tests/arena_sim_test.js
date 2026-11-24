@@ -430,6 +430,7 @@ Deno.test("arena sim: charged spells spend mana and mana regenerates", () => {
   const playerId = sim.addPlayer('peer-a');
   const mana = sim.world.get(playerId, Mana);
   const book = sim.world.get(playerId, Spellbook);
+  assertEquals(mana.mana, 100);
 
   sim.setPlayerInput('peer-a', { seq: 1, aimX: 0.5, fire: true, spellSlot: 0 });
   for (let i = 0; i < 6; i++) sim.step();
@@ -442,7 +443,9 @@ Deno.test("arena sim: charged spells spend mana and mana regenerates", () => {
 
   const afterCast = mana.mana;
   for (let i = 0; i < 10; i++) sim.step();
-  assert(mana.mana > afterCast);
+  assertAlmostEquals(mana.mana - afterCast, 1.5);
+  for (let i = 0; i < 100; i++) sim.step();
+  assertEquals(mana.mana, 100);
 });
 
 Deno.test("arena sim: spell cycle advances the active spell", () => {

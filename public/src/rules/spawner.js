@@ -93,7 +93,7 @@ export function spawnPlayer(world, x, y, name = 'Player') {
   world.add(id, Input);
   world.add(id, Actor,    { kind: ActorKind.PLAYER, team: 'friendly', name, glyph: '@' });
   world.add(id, Health,   { hp: 100, maxHp: 100 });
-  world.add(id, Mana,     { mana: 100, maxMana: 100, regenPerSecond: 5 });
+  world.add(id, Mana,     { mana: 100, maxMana: 100, regenPerSecond: 3 });
   world.add(id, Stamina);
   world.add(id, Powerups);
   world.add(id, Conditions);
