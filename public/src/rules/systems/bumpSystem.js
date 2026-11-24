@@ -72,10 +72,11 @@ function dealDamage(world, sourceId, targetId, position) {
     sourceId, x: position.x, y: position.y, damageType: 'physical',
   });
   const conditionId = weapon?.conditionId;
+  let appliedCondition = false;
   if (damage > 0 && health.hp > 0 && conditionId) {
     const active = world.get(targetId, Conditions)?.active;
     if (!active?.some((condition) => condition.id === conditionId)) {
-      applyCondition(world, targetId, conditionId, sourceId);
+      appliedCondition = applyCondition(world, targetId, conditionId, sourceId);
     }
   }
   world.emit('melee.hit', {
@@ -87,6 +88,7 @@ function dealDamage(world, sourceId, targetId, position) {
     y: position.y,
     fromX: world.get(sourceId, Position)?.x ?? position.x,
     fromY: world.get(sourceId, Position)?.y ?? position.y,
+    ...(appliedCondition && { conditionId }),
   });
 }
 

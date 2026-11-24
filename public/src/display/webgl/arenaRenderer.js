@@ -411,7 +411,27 @@ export function createWebGLArenaRenderer(deps) {
   }
   world.on('melee.hit', (event) => {
     meleeSwings.push({ ...event, age: 0, duration: 0.22 });
+    if (event.conditionId === ConditionId.POISONED) spawnVenomSplash(event);
   });
+
+  function spawnVenomSplash({ x, y, fromX, fromY }) {
+    const direction = Math.atan2(y - fromY, x - fromX);
+    const count = motionPreference.matches ? 6 : 14;
+    for (let i = 0; i < count; i++) {
+      const spread = Math.sin(i * 2.4) * 1.65;
+      const angle = direction + spread;
+      const speed = 34 + (i % 4) * 19;
+      fx.pool.spawn({
+        x, y: y - 5,
+        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 31,
+        ax: 0, ay: 155,
+        life: 0.35 + (i % 5) * 0.055,
+        size0: 4.4 + (i % 4) * 0.7, size1: 1.25,
+        r: 0.5 + (i % 3) * 0.15, g: 1, b: 0.1,
+        a0: 1, a1: 0,
+      });
+    }
+  }
 
   function displayPosition(id, position) {
     return meleeImpact.actorPosition(id, presentation?.position(id, position) ?? position);
@@ -818,12 +838,19 @@ export function createWebGLArenaRenderer(deps) {
           );
         }
         drawLines(new Float32Array(points), [1, 0.94, 0.8, 0.84 * fade], 2);
-      } else if (condition.visual === 'poisoned') {
-        drawDisc(position.x, position.y, collider.radius + 2 + pulse * 2, [0.12, 0.7, 0.2, 0.25], [0.3, 1, 0.42, 0.62]);
-        for (let drop = 0; drop < 3; drop++) {
-          const offset = (drop - 1) * collider.radius * 0.62;
-          const fall = (now * (10 + drop * 2) + entityId * 0.31) % (collider.radius * 1.5);
-          drawDisc(position.x + offset, position.y - collider.radius * 0.3 + fall, 1.5, [0.24, 1, 0.35, 0.8], [0.24, 1, 0.35, 0.8]);
+      } else if (condition.id === ConditionId.POISONED) {
+        const fade = Math.min(1, condition.remaining / 0.45);
+        const r = collider.radius;
+        for (let drop = 0; drop < 6; drop++) {
+          const side = drop < 3 ? -1 : 1;
+          const time = motionPreference.matches ? 0 : now;
+          const fall = (time * 1.35 + drop * 0.29 + entityId * 0.31) % 1;
+          const x = position.x + side * r * (0.74 + 0.36 * fall);
+          const y = position.y + r * (1.9 * fall * fall - 0.57);
+          const color = [0.65, 1, 0.12, fade * (1 - 0.66 * fall)];
+          const size = 1.9 + (drop % 3) * 0.56;
+          drawLines(new Float32Array([x - side * 1.8, y - 3.4, x, y]), color);
+          drawDisc(x, y, size, color, color);
         }
       } else if (condition.id === 'bleeding') {
         for (let drop = 0; drop < 3; drop++) {

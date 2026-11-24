@@ -856,6 +856,7 @@ Deno.test("arena sim: a spider patrols, chases, poisons on contact, and stays de
   assert(sim.world.get(player, Auras).active.some((condition) => condition.id === 'poisoned'));
   const bites = meleeHits.filter(({ sourceTheme }) => sourceTheme === 'spider');
   assertEquals(bites.map(({ source, target }) => [source, target]), [[spider, player]]);
+  assertEquals(bites[0].conditionId, 'poisoned');
 
   playerPosition.x = 100;
   applyDamage(sim.world, spider, 1000);
@@ -872,6 +873,7 @@ Deno.test("arena sim: a spider patrols, chases, poisons on contact, and stays de
   replica.applySnapshot(snapshot);
   replica.applySnapshot(snapshot);
   assertEquals(replayedBites.map(({ x, y }) => [x, y]), bites.map(({ x, y }) => [x, y]));
+  assertEquals(replayedBites[0].conditionId, 'poisoned');
 });
 
 Deno.test('arena sim: a web shot roots on impact, permits casting, and wears off', () => {
