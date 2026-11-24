@@ -6,6 +6,7 @@ export const ItemSlot = Object.freeze({
   HAND:    'hand',
   MELEE:   'melee',
   RANGED:  'ranged',
+  RING:    'ring',
   OFFHAND: 'offhand',
 });
 

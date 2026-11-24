@@ -280,6 +280,7 @@ export class GameRoom {
         enemyGroupSize: 3,
         patrolRoutes: caveData.routes,
         enemySpawnExclusionRadius: 320,
+        starterHasteRing: true,
       });
     }
     return this.sim;

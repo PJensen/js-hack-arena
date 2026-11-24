@@ -1,11 +1,11 @@
-// Consumables are collected by walking over them; weapons require an explicit
+// Consumables are collected by walking over them; gear requires an explicit
 // intent from their comparison card. Replaced equipment is dropped nearby.
 import {
   ArrowAmmo, BowWeapon, Collider, Consumable, Facing, Gold, GroundItem, Health,
   Input, ItemInfo, ItemSlot, Mana, MeleeWeapon, PickupLock, Position, Powerups,
-  Spellbook, SpellId, WeaponPickup,
+  Ring, Spellbook, SpellId, WeaponPickup,
 } from '../components/index.js';
-import { findOpenNear, spawnWeaponPickup } from '../spawner.js';
+import { findOpenNear, spawnRing, spawnWeaponPickup } from '../spawner.js';
 
 export function createPickupSystem({ grid = null } = {}) {
   return function pickupSystem(world, dt) {
@@ -30,8 +30,8 @@ export function createPickupSystem({ grid = null } = {}) {
 
       let selected = null;
       let selectedDistance = Infinity;
-      for (const [itemId, ipos, _collider, info] of world.query(Position, Collider, GroundItem, ItemInfo)) {
-        if (!world.has(itemId, WeaponPickup) || toDestroy.has(itemId)) continue;
+      for (const [itemId, ipos, _collider, _ground, info] of world.query(Position, Collider, GroundItem, ItemInfo)) {
+        if (toDestroy.has(itemId) || (!world.has(itemId, WeaponPickup) && !world.has(itemId, Ring))) continue;
         const lock = world.get(itemId, PickupLock);
         if (lock?.owner === player.id && lock.remaining > 0) continue;
         const targetDistance = Math.hypot(ipos.x - targetX, ipos.y - targetY);
@@ -41,13 +41,13 @@ export function createPickupSystem({ grid = null } = {}) {
         selectedDistance = targetDistance;
       }
       if (selected) {
-        equipWeapon(world, player, selected.itemId, selected.ipos, selected.info, grid);
+        equipGear(world, player, selected, grid);
         toDestroy.add(selected.itemId);
       }
     }
 
     for (const [itemId, ipos, icol] of world.query(Position, Collider, GroundItem)) {
-      if (toDestroy.has(itemId) || world.has(itemId, WeaponPickup)) continue;
+      if (toDestroy.has(itemId) || world.has(itemId, WeaponPickup) || world.has(itemId, Ring)) continue;
       const lock = world.get(itemId, PickupLock);
       const info = world.get(itemId, ItemInfo);
       for (const player of players) {
@@ -71,12 +71,20 @@ export function pickupSystem(world, dt) {
   return createPickupSystem()(world, dt);
 }
 
-function equipWeapon(world, player, itemId, itemPosition, info, grid) {
+function equipGear(world, player, { itemId, ipos, info }, grid) {
+  const ring = world.get(itemId, Ring);
   const pickup = world.get(itemId, WeaponPickup);
-  const slot = pickup.slot || info?.slot;
-  const dropPosition = getDropPosition(world, player, itemPosition, grid);
+  const slot = ring ? ItemSlot.RING : pickup.slot || info.slot;
+  const dropPosition = getDropPosition(world, player, ipos, grid);
 
-  if (slot === ItemSlot.MELEE) {
+  if (ring) {
+    const current = world.get(player.id, Ring);
+    if (current.name) {
+      const dropped = spawnRing(world, dropPosition.x, dropPosition.y, current);
+      lockDroppedGear(world, dropped, player.id);
+    }
+    Object.assign(current, ring);
+  } else if (slot === ItemSlot.MELEE) {
     const current = world.get(player.id, MeleeWeapon);
     if (current && current.name !== 'Fists') {
       dropEquippedWeapon(world, dropPosition, player.id, {
@@ -116,6 +124,10 @@ function equipWeapon(world, player, itemId, itemPosition, info, grid) {
 
 function dropEquippedWeapon(world, position, ownerId, weapon) {
   const id = spawnWeaponPickup(world, position.x, position.y, weapon);
+  lockDroppedGear(world, id, ownerId);
+}
+
+function lockDroppedGear(world, id, ownerId) {
   world.add(id, PickupLock, { owner: ownerId, remaining: 0.75 });
 }
 

@@ -1,7 +1,7 @@
 import {
   Actor, ActorKind, BowWeapon, Conditions, AuraEmitter, Collider,
-  Consumable, Facing, Gold, GroundItem, Health, Input, ItemInfo, Mana, MeleeWeapon,
-  PickupLock, PlayerTag, PointLight, Position, Powerups, Projectile, Spellbook,
+  Consumable, Facing, Gold, GroundItem, Health, Input, ItemInfo, ItemSlot, Mana, MeleeWeapon,
+  PickupLock, PlayerTag, PointLight, Position, Powerups, Projectile, Ring, Spellbook,
   Velocity, WeaponPickup,
 } from '../../rules/components/index.js';
 import { AI } from '../../rules/components/AI.js';
@@ -1038,18 +1038,21 @@ export function createWebGLArenaRenderer(deps) {
     }
     overlay.textAlign = 'left'; overlay.textBaseline = 'bottom'; overlay.font = `800 ${Math.round(9 * ratio)}px ui-monospace,monospace`;
     overlay.fillStyle = 'rgba(210,240,255,.68)'; overlay.fillText('THE DEEP', left + 7 * ratio, top - 4 * ratio);
-    updateNearbyWeaponTooltip(width, height, ratio, shownPlayer);
+    updateNearbyGearTooltip(width, height, shownPlayer);
   }
 
-  function updateNearbyWeaponTooltip(width, height, ratio, shownPlayer) {
+  function updateNearbyGearTooltip(width, height, shownPlayer) {
     const previewRadius = 132;
     let candidate = null;
-    for (const [id, position, _ground, info, pickup] of world.query(Position, GroundItem, ItemInfo, WeaponPickup)) {
+    for (const [id, position, _ground, info] of world.query(Position, GroundItem, ItemInfo)) {
+      const pickup = world.get(id, WeaponPickup);
+      const ring = world.get(id, Ring);
+      if (!pickup && !ring) continue;
       const lock = world.get(id, PickupLock);
       if (lock?.owner === playerId && lock.remaining > 0) continue;
       const distance = Math.hypot(position.x - shownPlayer.x, position.y - shownPlayer.y);
       if (distance > previewRadius || !inView(position.x, position.y, 20)) continue;
-      if (!candidate || distance < candidate.distance) candidate = { id, position, info, pickup, distance };
+      if (!candidate || distance < candidate.distance) candidate = { position, info, pickup, ring, distance };
     }
     if (!candidate) {
       itemTooltip?.hide();
@@ -1058,7 +1061,12 @@ export function createWebGLArenaRenderer(deps) {
 
     const currentMelee = world.get(playerId, MeleeWeapon);
     const currentBow = world.get(playerId, BowWeapon);
-    const rows = candidate.pickup.slot === 'ranged'
+    const rows = candidate.ring
+      ? [{
+        kind: 'equip', label: 'Equip: ', value: `${Math.round(candidate.ring.haste * 100)}% haste`,
+        change: compareDirection(candidate.ring.haste, world.get(playerId, Ring)?.haste ?? 0),
+      }]
+      : candidate.pickup.slot === 'ranged'
       ? [
         {
           label: 'Arrow Physical', value: candidate.pickup.damage,
@@ -1079,7 +1087,7 @@ export function createWebGLArenaRenderer(deps) {
     const sy = ((candidate.position.y - view[1]) / view[3] + 0.5) * height;
     const rect = canvas.getBoundingClientRect();
     itemTooltip?.update({
-      info: candidate.info,
+      info: { ...candidate.info, slot: candidate.pickup?.slot || candidate.info.slot },
       rows,
       target: { x: candidate.position.x, y: candidate.position.y },
       anchorX: rect.left + sx * rect.width / width,
@@ -1236,7 +1244,7 @@ export function createWebGLArenaRenderer(deps) {
         shown.x - 3, shown.y - 5, shown.x - 1, shown.y - shaft,
         shown.x + 3, shown.y - 5, shown.x + 1, shown.y - shaft,
       ]), [glow[0], glow[1], glow[2], 0.06 + pulse * 0.045], 2.5);
-      const itemColor = world.has(id, WeaponPickup)
+      const itemColor = weapon || info.slot === ItemSlot.RING
         ? rarityColor(info.rarity)
         : consumable?.effect === 'add_arrows' ? [1, 0.78, 0.40, 1]
           : consumable?.effect === 'mana' ? [0.34, 0.72, 1, 1] : [1, 0.32, 0.5, 1];

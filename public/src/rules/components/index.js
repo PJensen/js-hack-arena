@@ -20,6 +20,7 @@ export { PointLight } from './PointLight.js';
 export { AI, AIBehavior } from './AI.js';
 export { Inventory } from './Inventory.js';
 export { ItemInfo, ItemSlot } from './ItemInfo.js';
+export { Ring } from './Ring.js';
 export { PlayerTag } from './PlayerTag.js';
 export { Spellbook, SpellId } from './Spellbook.js';
 export { Consumable } from './Consumable.js';

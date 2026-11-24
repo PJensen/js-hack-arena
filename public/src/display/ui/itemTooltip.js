@@ -2,6 +2,7 @@
 // anchor point; this module owns the presentation and future UI expansion.
 
 import { createAtlasIcon } from './atlasIcon.js';
+import { ItemSlot } from '../../rules/components/ItemInfo.js';
 
 const RARITY_COLORS = Object.freeze({
   common: '#e8f1fa',
@@ -14,6 +15,15 @@ const RARITY_COLORS = Object.freeze({
 
 function rarityColor(rarity) {
   return RARITY_COLORS[String(rarity || 'common').toLowerCase()] || RARITY_COLORS.common;
+}
+
+export function weaponTooltipName(info) {
+  const name = info?.name?.trim();
+  if (name && name.toLowerCase() !== 'item') return name;
+  if (info?.slot === ItemSlot.MELEE) return 'Sword';
+  if (info?.slot === ItemSlot.RANGED) return 'Bow';
+  if (info?.slot === ItemSlot.RING) return 'Ring';
+  return 'Unknown weapon';
 }
 
 function weaponIconId(info) {
@@ -35,6 +45,7 @@ function weaponIconId(info) {
 function makeRow(row) {
   const element = document.createElement('div');
   element.className = 'arena-item-tooltip-row';
+  if (row.kind === 'equip') element.classList.add('arena-item-tooltip-effect');
 
   const label = document.createElement('span');
   label.textContent = row.label;
@@ -59,6 +70,11 @@ export function createItemTooltip({ root, onActivate } = {}) {
   tip.className = 'arena-item-tooltip';
   tip.setAttribute('aria-label', 'Nearby item');
   tip.hidden = true;
+
+  // Keep the joystick's document handlers from canceling native button taps.
+  const keepTooltipTouch = (event) => event.stopPropagation();
+  tip.addEventListener('touchstart', keepTooltipTouch, { passive: true });
+  tip.addEventListener('touchmove', keepTooltipTouch, { passive: true });
 
   const header = document.createElement('div');
   header.className = 'arena-item-tooltip-header';
@@ -95,11 +111,12 @@ export function createItemTooltip({ root, onActivate } = {}) {
       return;
     }
 
+    const titleText = weaponTooltipName(model.info);
     const iconId = weaponIconId(model.info);
-    const nextKey = JSON.stringify([model.info?.name, iconId, model.info?.rarity, model.rows, model.actionLabel]);
+    const nextKey = JSON.stringify([titleText, iconId, model.info?.rarity, model.rows, model.actionLabel]);
     if (nextKey !== contentKey) {
       const color = rarityColor(model.info?.rarity);
-      name.textContent = model.info?.name || 'Unknown item';
+      name.textContent = titleText;
       name.style.color = color;
       rarity.textContent = String(model.info?.rarity || 'common').toUpperCase();
       rarity.style.color = color;

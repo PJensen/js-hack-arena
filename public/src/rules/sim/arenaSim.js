@@ -25,6 +25,7 @@ import {
   Position,
   Projectile,
   PickupLock,
+  Ring,
   Spellbook,
   Stamina,
   Velocity,
@@ -51,6 +52,7 @@ import {
   spawnMelee,
   spawnPlayer,
   spawnPotion,
+  spawnRing,
   spawnSword,
   spawnSpider,
   SPIDER_LIGHT,
@@ -109,6 +111,7 @@ export function createArenaSimulation({
   enemyGroupSize = 1,
   patrolRoutes = [],
   enemySpawnExclusionRadius = 0,
+  starterHasteRing = false,
 } = {}) {
   if (!grid) throw new Error('arena simulation requires a collision grid');
   if (!Object.values(SIM_MODE).includes(mode)) throw new Error(`invalid arena simulation mode: ${mode}`);
@@ -174,6 +177,10 @@ export function createArenaSimulation({
           const mobId = spawnEnemy(world, grid, origin.x + member * 24, origin.y + member * 24, i, member, points?.length ? points : [origin]);
           ensureNetworkId(mobId, 'mob');
         }
+      }
+      if (starterHasteRing) {
+        const ringPosition = findOpenNear(grid, spawn.x + 48, spawn.y);
+        ensureNetworkId(spawnRing(world, ringPosition.x, ringPosition.y), 'item');
       }
       if (enemyCount > 0) revision += 1;
     }
@@ -323,6 +330,7 @@ export function createArenaSimulation({
     const powerups = world.get(entityId, Powerups);
     const weapon = world.get(entityId, MeleeWeapon);
     const bow = world.get(entityId, BowWeapon);
+    const ring = world.get(entityId, Ring);
     const ammo = world.get(entityId, ArrowAmmo);
     const actor = world.get(entityId, Actor);
     return {
@@ -358,6 +366,7 @@ export function createArenaSimulation({
           equipped: bow.equipped, name: bow.name, glyph: bow.glyph,
           rarity: bow.rarity, damage: bow.damage, infiniteArrows: bow.infiniteArrows,
         },
+        ring: ring.name ? { ...ring } : null,
         arrowCount: ammo.count,
         gold: world.get(entityId, Gold).count,
         conditions: projectConditions(world, entityId),
@@ -430,6 +439,7 @@ export function createArenaSimulation({
     const info = world.get(entityId, ItemInfo);
     const consumable = world.get(entityId, Consumable);
     const weapon = world.get(entityId, WeaponPickup);
+    const ring = world.get(entityId, Ring);
     const pickupLock = world.get(entityId, PickupLock);
     return {
       id: ensureNetworkId(entityId, 'item'),
@@ -445,6 +455,7 @@ export function createArenaSimulation({
         weapon: weapon ? {
           slot: weapon.slot, damage: weapon.damage, infiniteArrows: weapon.infiniteArrows,
         } : null,
+        ring: ring ? { ...ring } : null,
         pickupLock: pickupLock?.remaining > 0 ? {
           owner: ensureNetworkId(pickupLock.owner, 'player'),
           remaining: pickupLock.remaining,
@@ -494,6 +505,7 @@ export function createArenaSimulation({
       });
       if (state.effect) world.add(entityId, Consumable, { effect: state.effect, potency: state.potency, spellId: state.spellId });
       if (state.weapon) world.add(entityId, WeaponPickup, state.weapon);
+      if (state.ring) world.add(entityId, Ring, state.ring);
       if (state.pickupLock) world.add(entityId, PickupLock, { owner: null, remaining: state.pickupLock.remaining });
       world.add(entityId, PointLight, replicaItemLight(state.effect, state.rarity));
     } else if (record.kind === 'aura_field') {
@@ -564,6 +576,7 @@ export function createArenaSimulation({
       const weapon = world.get(entityId, MeleeWeapon);
       Object.assign(weapon, state.weapon);
       Object.assign(world.get(entityId, BowWeapon), state.rangedWeapon);
+      Object.assign(world.get(entityId, Ring), state.ring ?? Ring.defaults);
       world.get(entityId, ArrowAmmo).count = state.arrowCount;
       world.get(entityId, Gold).count = state.gold;
       world.get(entityId, Conditions).active = state.conditions.map(replicaCondition);
@@ -856,6 +869,7 @@ function normalizePlayerState(id, state) {
       rarity: String(weapon.rarity || ''),
     },
     rangedWeapon: normalizeBowState(id, state.rangedWeapon),
+    ring: normalizeRingState(id, state.ring),
     arrowCount: nonNegativeInteger(state.arrowCount ?? 10, `${id}.arrowCount`),
     gold: nonNegativeInteger(state.gold ?? 0, `${id}.gold`),
   };
@@ -870,6 +884,19 @@ function normalizeBowState(id, value) {
     rarity: String(bow.rarity || ''),
     damage: finiteNumber(bow.damage ?? 0, `${id}.rangedWeapon.damage`),
     infiniteArrows: Boolean(bow.infiniteArrows),
+  };
+}
+
+function normalizeRingState(id, ring) {
+  if (ring == null) return null;
+  if (typeof ring !== 'object' || Array.isArray(ring)) {
+    throw new Error(`simulation ${id}.ring must be an object`);
+  }
+  return {
+    name: String(ring.name ?? Ring.defaults.name),
+    glyph: String(ring.glyph ?? Ring.defaults.glyph),
+    rarity: String(ring.rarity ?? Ring.defaults.rarity),
+    haste: Math.max(0, finiteNumber(ring.haste, `${id}.ring.haste`)),
   };
 }
 
@@ -927,7 +954,7 @@ function normalizeItemState(id, state) {
   return {
     x: finiteNumber(state.x, `${id}.x`), y: finiteNumber(state.y, `${id}.y`),
     radius: finiteNumber(state.radius, `${id}.radius`),
-    name: String(state.name), glyph: String(state.glyph),
+    name: String(state.name ?? ''), glyph: String(state.glyph),
     slot: String(state.slot || 'none'),
     count: nonNegativeInteger(state.count ?? 1, `${id}.count`),
     rarity: String(state.rarity || ''),
@@ -935,6 +962,7 @@ function normalizeItemState(id, state) {
     potency: finiteNumber(state.potency, `${id}.potency`),
     spellId: state.spellId == null ? null : String(state.spellId),
     weapon,
+    ring: normalizeRingState(id, state.ring),
     pickupLock: state.pickupLock == null ? null : normalizePickupLock(id, state.pickupLock),
     auraEmitter: normalizeAuraEmitter(id, state.auraEmitter),
   };

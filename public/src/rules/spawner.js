@@ -6,6 +6,7 @@ import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, H
 import { auras as auraCatalog } from './data/auraCatalog.js';
 import { ConditionId } from './data/conditionCatalog.js';
 import { Gold } from './components/Gold.js';
+import { Ring } from './components/Ring.js';
 
 export const GOLD_LIGHT = Object.freeze({ radius: 36, r: 255, g: 190, b: 45 });
 export const SPIDER_LIGHT = Object.freeze({ radius: 56, r: 148, g: 98, b: 70 });
@@ -95,6 +96,7 @@ export function spawnPlayer(world, x, y, name = 'Player') {
   world.add(id, PointLight, { radius: 350, r: 255, g: 190, b: 120 });
   world.add(id, MeleeWeapon, { damage: 5, name: 'Fists', glyph: '\u270A', rarity: '' });
   world.add(id, BowWeapon);
+  world.add(id, Ring);
   world.add(id, ArrowAmmo, { count: 10 });
   world.add(id, Gold);
   world.add(id, Spellbook, {
@@ -299,6 +301,19 @@ export function spawnWeaponPickup(world, x, y, {
   world.add(id, GroundItem);
   world.add(id, Collider, { radius: 10 });
   world.add(id, PointLight, light || lightForRarity(rarity));
+  return id;
+}
+
+export function spawnRing(world, x, y, {
+  name = 'Haste Ring', glyph = Ring.defaults.glyph, rarity = 'epic', haste = 0.05,
+} = {}) {
+  const id = world.create();
+  world.add(id, Position, { x, y });
+  world.add(id, ItemInfo, { name, glyph, slot: ItemSlot.RING, rarity });
+  world.add(id, Ring, { name, glyph, rarity, haste });
+  world.add(id, GroundItem);
+  world.add(id, Collider, { radius: 10 });
+  world.add(id, PointLight, lightForRarity(rarity));
   return id;
 }
 

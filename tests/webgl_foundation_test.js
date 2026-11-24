@@ -2,6 +2,7 @@ import { assert, assertAlmostEquals, assertEquals } from "https://deno.land/std@
 import { multiply, perspective } from '../public/src/display/webgl/math.js';
 import { ParticleFX, ParticlePool } from '../public/src/display/webgl/particles.js';
 import { MAX_DYNAMIC_LIGHTS } from '../public/src/display/webgl/arenaRenderer.js';
+import { weaponTooltipName } from '../public/src/display/ui/itemTooltip.js';
 import { createMeleeImpact } from '../public/src/display/passes/meleeImpact.js';
 import { createFloatTextPass } from '../public/src/display/passes/floatText.js';
 import { createGorePass, GORE_LIMITS } from '../public/src/display/passes/gore.js';
@@ -10,6 +11,12 @@ import { buildTerrainMesh } from '../public/src/display/webgl/terrainMesh.js';
 import { createDungeonDecorations } from '../public/src/display/worldDecorations.js';
 import { biolum, emberLight, torchLight } from '../public/src/display/lightPatterns.js';
 import { generateArenaCave, generateCave } from '../public/src/rules/geometry/caveGen.js';
+
+Deno.test('weapon tooltip: authored names take precedence over weapon type fallbacks', () => {
+  assertEquals(weaponTooltipName({ name: 'Shadow Longbow', slot: 'ranged' }), 'Shadow Longbow');
+  assertEquals(weaponTooltipName({ name: ' Item ', slot: 'melee' }), 'Sword');
+  assertEquals(weaponTooltipName({ slot: 'ranged' }), 'Bow');
+});
 
 Deno.test('spider mesh: four legs lift at a time and the standing pose holds still', () => {
   const first = new Float32Array(34 * 16);

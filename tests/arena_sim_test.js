@@ -4,9 +4,9 @@ import {
   assertEquals,
   assertThrows,
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
-import { AI, Actor, Auras, Facing, Gold, Health, Input, ItemInfo, Mana, PointLight, Position, Powerups, Projectile, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
+import { AI, Actor, Auras, Facing, Gold, Health, Input, ItemInfo, Mana, PointLight, Position, Powerups, Projectile, Ring, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
-import { GOLD_LIGHT, spawnEpicChest, spawnFuryRune, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnSpider, spawnSpellbook, spawnWardRune } from '../public/src/rules/spawner.js';
+import { GOLD_LIGHT, spawnEpicChest, spawnEpicSword, spawnFuryRune, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
 import { applyAura, applyDamage, getStatMultiplier } from '../public/src/rules/effects.js';
 import { SpellCastMode, spells as spellCatalog } from '../public/src/rules/data/spellCatalog.js';
 import {
@@ -495,6 +495,47 @@ Deno.test("arena sim: every spell uses the global cooldown and its own cooldown"
   assert(sim.captureSnapshot().events.some((event) => event.type === 'spell.denied' && event.payload.reason === 'global_cooldown'));
 });
 
+Deno.test('arena sim: ring haste changes follow-up timing and retains individual cooldowns', () => {
+  const cases = [
+    [0, 0.45, 9],
+    [0.05, 0.45 / 1.05, 9],
+    [0.125, 0.4, 8],
+    [1, 0.25, 5],
+  ];
+  for (const [haste, cooldown, followUpTick] of cases) {
+    for (const followUp of ['rend', 'ice_armor']) {
+      const sim = makeOpenSim(123, { enemyCount: 0 });
+      const player = sim.addPlayer('peer-a');
+      const book = sim.world.get(player, Spellbook);
+      if (!book.spells.includes(followUp)) book.spells.push(followUp);
+      const slot = book.spells.indexOf(followUp);
+      if (haste) {
+        spawnRing(sim.world, 130, 100, { haste });
+        sim.setPlayerInput('peer-a', { seq: 1, pickupX: 130, pickupY: 100 });
+        sim.step();
+      }
+
+      sim.setPlayerInput('peer-a', { seq: 2, aimX: 1, fire: true, spellSlot: 2 });
+      sim.step();
+      assertAlmostEquals(book.cooldown, cooldown, 1e-9);
+      assertEquals(book.cooldowns.cleave, 1.4);
+      sim.setPlayerInput('peer-a', { seq: 3, fire: false });
+      for (let i = 1; i < followUpTick; i++) sim.step();
+      assert(book.cooldown > 0);
+
+      sim.setPlayerInput('peer-a', { seq: 4, aimX: 1, fire: true, spellSlot: slot });
+      sim.step();
+      const snapshot = sim.captureSnapshot();
+      assert(snapshot.events.some(({ type, payload }) => type === 'spell.cast' && payload.spellId === followUp));
+      assertAlmostEquals(book.cooldowns.cleave, 1.4 - followUpTick * SIM_DT, 1e-9);
+
+      const replica = makeOpenSim(123, { mode: SIM_MODE.REPLICA });
+      replica.applySnapshot(snapshot);
+      assertEquals(replica.world.get(replica.getPlayerEntity('peer-a'), Ring).haste, haste);
+    }
+  }
+});
+
 Deno.test("arena sim: fixed cast-time spells can be interrupted before resolution", () => {
   const sim = makeOpenSim(908, { enemyCount: 0 });
   const playerId = sim.addPlayer('peer-a');
@@ -583,6 +624,27 @@ Deno.test("arena sim: Regeneration authors healing over time as a buff effect", 
   for (let i = 0; i < 21; i++) sim.step();
   assertEquals(health.hp, 54);
   assertEquals(mana.mana, 74);
+});
+
+Deno.test('arena sim: swapping weapons preserves their names, glyphs, rarity, and damage', () => {
+  const sim = makeOpenSim(123, { enemyCount: 0 });
+  sim.addPlayer('peer-a');
+  spawnEpicSword(sim.world, 130, 100);
+  spawnSword(sim.world, 100, 135);
+
+  sim.setPlayerInput('peer-a', { seq: 1, pickupX: 130, pickupY: 100 });
+  sim.step();
+  const epic = { name: 'Void Reaver', glyph: '†', rarity: 'epic', damage: 42 };
+  assertEquals(sim.captureSnapshot().entities.find(({ kind }) => kind === 'player').state.weapon, epic);
+
+  sim.setPlayerInput('peer-a', { seq: 2, pickupX: 100, pickupY: 135 });
+  sim.step();
+  const { entities } = sim.captureSnapshot();
+  assertEquals(entities.find(({ kind }) => kind === 'player').state.weapon.name, 'Steel Blade');
+  const drops = entities.filter(({ kind }) => kind === 'item');
+  assertEquals(drops.length, 1);
+  const { name, glyph, rarity, weapon } = drops[0].state;
+  assertEquals({ name, glyph, rarity, damage: weapon.damage }, epic);
 });
 
 Deno.test("arena sim: health pickups heal injuries and wait when health is full", () => {

@@ -36,6 +36,10 @@
     .arena-item-tooltip-rows { display:grid; gap:4px; padding:8px 0 6px; }
     .arena-item-tooltip-row { display:grid; grid-template-columns:1fr auto 16px; gap:4px; color:rgba(222,234,247,.8); }
     .arena-item-tooltip-row strong { color:#f6f9ff; font-weight:800; }
+    .arena-item-tooltip-effect { display:flex; align-items:baseline; color:#b8e6b8; }
+    .arena-item-tooltip-effect > span:first-child { color:#d9ffd9; font-weight:800; }
+    .arena-item-tooltip-effect strong { color:inherit; font-weight:inherit; }
+    .arena-item-tooltip-effect .arena-item-tooltip-change { margin-left:auto; }
     .arena-item-tooltip-change { font-weight:900; text-align:right; }
     .arena-item-tooltip-change.up { color:#6ff08c; }
     .arena-item-tooltip-change.down { color:#ff7777; }
@@ -405,6 +409,7 @@ const sim = createArenaSimulation({
   enemyGroupSize: 3,
   patrolRoutes: routes,
   enemySpawnExclusionRadius: 320,
+  starterHasteRing: true,
 });
 let renderer = null;
 let pendingWeaponPickup = null;

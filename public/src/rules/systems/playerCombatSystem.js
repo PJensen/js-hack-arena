@@ -1,6 +1,6 @@
 import {
   Actor, AI, ArrowAmmo, BowWeapon, Collider, Health, Input, Lifetime, Mana, MeleeWeapon, PlayerTag,
-  Position, Powerups, Projectile, Spellbook, Stamina, Velocity,
+  Position, Powerups, Projectile, Ring, Spellbook, Stamina, Velocity,
 } from '../components/index.js';
 import {
   DeliveryKind, SpellCastMode, TargetingType, spells as spellCatalog,
@@ -9,6 +9,7 @@ import { isActionLocked } from '../effects.js';
 import { applyImpacts, canReceiveImpacts, resolveImpacts } from '../impacts.js';
 
 const STAMINA_RECOVERY_DELAY = 0.65;
+const MIN_HASTED_GLOBAL_COOLDOWN = 0.25;
 
 export function createPlayerCombatSystem({ grid }) {
   const damagedTargets = new Set();
@@ -84,7 +85,7 @@ export function createPlayerCombatSystem({ grid }) {
         book.castPhase = 'channeling';
         book.channelRemaining = spell.cast.channelDuration;
         book.charging = true;
-        engageCooldowns(book, spellId, spell);
+        engageCooldowns(world, playerId, book, spell);
         emitCast(world, playerId, spellId, position, book, 1, 0);
       } else {
         book.castPhase = spell.cast.mode === SpellCastMode.CHARGED ? 'charging' : 'casting';
@@ -200,7 +201,7 @@ function resolveCast(world, grid, playerId, book, position, spell, power) {
     stamina.recoveryDelay = STAMINA_RECOVERY_DELAY;
   }
   spendAmmo(world, playerId, spell);
-  engageCooldowns(book, spellId, spell);
+  engageCooldowns(world, playerId, book, spell);
   emitCast(world, playerId, spellId, position, book, power, manaCost, meleeArc);
   finishCast(book);
   return true;
@@ -378,13 +379,17 @@ function captureAim(book, input, position, spell) {
   book.castTargetY = position.y + book.chargeAimY / magnitude * range;
 }
 
-function engageCooldowns(book, spellId, spell) {
-  book.cooldown = Math.max(book.cooldown, spell.globalCooldown);
-  book.cooldowns[spellId] = Math.max(book.cooldowns[spellId] || 0, spell.cooldown || 0);
+function engageCooldowns(world, playerId, book, spell) {
+  const haste = world.get(playerId, Ring)?.haste ?? 0;
+  const floor = Math.min(spell.globalCooldown, MIN_HASTED_GLOBAL_COOLDOWN);
+  const globalCooldown = Math.max(floor, spell.globalCooldown / (1 + haste));
+  book.cooldown = Math.max(book.cooldown, globalCooldown);
+  book.cooldowns[spell.id] = Math.max(book.cooldowns[spell.id] || 0, spell.cooldown || 0);
 }
 
 function tickCooldowns(book, dt) {
-  book.cooldown = Math.max(0, book.cooldown - dt);
+  const remaining = book.cooldown - dt;
+  book.cooldown = remaining > 1e-9 ? remaining : 0;
   for (const spellId of Object.keys(book.cooldowns)) {
     book.cooldowns[spellId] = Math.max(0, book.cooldowns[spellId] - dt);
     if (book.cooldowns[spellId] === 0) delete book.cooldowns[spellId];
