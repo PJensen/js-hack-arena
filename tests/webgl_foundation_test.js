@@ -4,10 +4,48 @@ import { ParticleFX, ParticlePool } from '../public/src/display/webgl/particles.
 import { MAX_DYNAMIC_LIGHTS } from '../public/src/display/webgl/arenaRenderer.js';
 import { createMeleeImpact } from '../public/src/display/passes/meleeImpact.js';
 import { createFloatTextPass } from '../public/src/display/passes/floatText.js';
+import { createGorePass, GORE_LIMITS } from '../public/src/display/passes/gore.js';
 import { buildTerrainMesh } from '../public/src/display/webgl/terrainMesh.js';
 import { createDungeonDecorations } from '../public/src/display/worldDecorations.js';
 import { biolum, emberLight, torchLight } from '../public/src/display/lightPatterns.js';
 import { generateArenaCave, generateCave } from '../public/src/rules/geometry/caveGen.js';
+
+Deno.test('gore: directional spray dries on the floor and 3D debris settles without expiring', () => {
+  const grid = { distanceMove: (x) => x < 50 ? 14 : 0 };
+  const gore = createGorePass({ grid, seed: 11 });
+  gore.add({ x: 25, y: 0, amount: 18, impactAngle: 0, spellId: 'rend', targetTheme: 'fire' });
+  assert(gore.drops.filter((drop) => drop.vx > 0).length > gore.drops.length / 2);
+  assertEquals(gore.fragments.length, 0);
+  gore.add({ x: 25, y: 0, amount: 12, impactAngle: 0, killed: true, targetTheme: 'frost' });
+  assert(gore.fragments.length > 0 && gore.fragments.every(({ material }) => material.gel));
+  gore.step(0.15);
+  assert(gore.fragments.every(({ height }) => height > 0));
+  for (let i = 0; i < 120; i++) gore.step(0.025);
+  assertEquals(gore.drops.length, 0);
+  assert(gore.fragments.every((chunk) => chunk.settled && chunk.x < 50));
+  assert(gore.stains.every((stain) => stain.x < 50));
+  const stains = gore.stains.length;
+  const fragments = gore.fragments.length;
+  gore.step(1800);
+  assertEquals(gore.stains.length, stains);
+  assertEquals(gore.fragments.length, fragments);
+});
+
+Deno.test('gore: wraiths dissolve and retained dungeon marks stay within budget', () => {
+  const grid = { distanceMove: () => 60 };
+  const wraith = createGorePass({ grid, seed: 7 });
+  wraith.add({ x: 0, y: 0, amount: 8, killed: true, targetTheme: 'shadow' });
+  assert(wraith.drops.length > 0);
+  wraith.step(1);
+  assertEquals([wraith.drops.length, wraith.stains.length, wraith.fragments.length], [0, 0, 0]);
+
+  const gore = createGorePass({ grid, seed: 7, reducedMotion: () => true });
+  for (let i = 0; i < 300; i++) gore.add({ x: 0, y: 0, amount: 12, killed: true, targetTheme: 'fire' });
+  assertEquals(gore.drops.length, 0);
+  assertEquals(gore.stains.length, GORE_LIMITS.stains);
+  assertEquals(gore.fragments.length, GORE_LIMITS.fragments);
+  assert(gore.fragments.every(({ settled }) => settled));
+});
 
 Deno.test('combat numbers: batch close hits by target and render distinct healing and periodic damage', () => {
   const pass = createFloatTextPass();

@@ -9,8 +9,10 @@ import { spells as spellCatalog } from '../../rules/data/spellCatalog.js';
 import { rarityTextColors } from '../../rules/data/lootTable.js';
 import { createMeleeImpact } from '../passes/meleeImpact.js';
 import { createFloatTextPass } from '../passes/floatText.js';
+import { createGorePass } from '../passes/gore.js';
 import { biolum, emberLight, torchLight } from '../lightPatterns.js';
 import { createWebGLDevice } from './device.js';
+import { createGoreRenderer } from './goreRenderer.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
 import { createCampfireMesh } from './campfireMesh.js';
 import { createGhostPipeMesh } from './ghostPipeMesh.js';
@@ -269,6 +271,7 @@ export function createWebGLArenaRenderer(deps) {
   gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const goreRenderer = createGoreRenderer(device, QUAD);
 
   const campfireMesh = uploadPropMesh(device, createCampfireMesh());
   const ghostPipeMesh = uploadPropMesh(device, createGhostPipeMesh());
@@ -324,10 +327,10 @@ export function createWebGLArenaRenderer(deps) {
   let disposed = false;
   const bolts = [];
   const meleeSwings = [];
-  const bloodDecals = [];
   let lastFrameTime = performance.now() * 0.001;
   let combatTime = lastFrameTime;
   const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
+  const gore = createGorePass({ grid, seed: SEED, reducedMotion: () => motionPreference.matches });
   const combatNumbers = createFloatTextPass();
   const meleeImpact = createMeleeImpact({
     playerId,
@@ -344,13 +347,21 @@ export function createWebGLArenaRenderer(deps) {
   world.on('damage.dealt', (event) => {
     if (event.meleeArc) return;
     const target = presentation && !Object.hasOwn(event, 'targetNetworkId') ? null : event.target;
-    addCombatNumber({ ...event, target, amount: event.hpLost ?? event.amount });
+    const hit = { ...event, target, amount: event.hpLost ?? event.amount };
+    addCombatNumber(hit);
+    if (hit.killed || (hit.damageType === 'physical' && !hit.periodic)) {
+      gore.add({ ...hit, targetTheme: hit.targetTheme ?? world.get(target, Actor)?.theme });
+    }
   });
 
   function presentMeleeContact(swing) {
     for (const hit of swing.hits) {
       spawnMeleeSparks(hit, swing);
       addCombatNumber(hit);
+      gore.add({
+        ...hit, spellId: swing.spellId,
+        impactAngle: Math.atan2(hit.y - swing.y, hit.x - swing.x),
+      });
     }
     world.emit('melee.contact.fx', { ...swing.hits[0], rend: swing.rend, targets: swing.hits.length });
   }
@@ -386,20 +397,6 @@ export function createWebGLArenaRenderer(deps) {
   }
   world.on('melee.hit', (event) => {
     meleeSwings.push({ ...event, age: 0, duration: 0.22 });
-    for (let i = 0; i < 7; i++) {
-      const seed = Math.sin((event.sequence || 1) * 31.7 + i * 91.3) * 43758.5453;
-      const unit = seed - Math.floor(seed);
-      const angle = unit * Math.PI * 2;
-      const distance = 2 + ((unit * 7.13) % 1) * 13;
-      bloodDecals.push({
-        x: event.x + Math.cos(angle) * distance,
-        y: event.y + Math.sin(angle) * distance,
-        radius: 1.5 + ((unit * 13.7) % 1) * 3.2,
-        age: 0,
-        duration: 24,
-      });
-    }
-    if (bloodDecals.length > 160) bloodDecals.splice(0, bloodDecals.length - 160);
   });
 
   function displayPosition(id, position) {
@@ -1105,6 +1102,7 @@ export function createWebGLArenaRenderer(deps) {
     const combatDt = meleeImpact.advance(renderDt);
     combatTime += combatDt;
     combatNumbers.step(combatDt);
+    gore.step(combatDt);
     stepParticles?.(combatDt);
     const punch = meleeImpact.cameraResponse();
     const renderScale = cam.scale * punch.zoom;
@@ -1138,13 +1136,7 @@ export function createWebGLArenaRenderer(deps) {
 
     drawDungeonDecorations(now, renderDt);
 
-    for (let i = bloodDecals.length - 1; i >= 0; i--) {
-      const decal = bloodDecals[i];
-      decal.age += renderDt;
-      if (decal.age >= decal.duration) { bloodDecals.splice(i, 1); continue; }
-      const alpha = Math.min(0.78, (1 - decal.age / decal.duration) * 0.9);
-      drawDisc(decal.x, decal.y, decal.radius, [0.24, 0.008, 0.018, alpha], [0.38, 0.015, 0.025, alpha]);
-    }
+    goreRenderer.drawFloor(gore, view, inView);
 
     for (const [id, _playerTag, position, collider] of world.query(PlayerTag, Position, Collider)) {
       const shown = displayPosition(id, position);
@@ -1201,6 +1193,7 @@ export function createWebGLArenaRenderer(deps) {
       drawGlyph(projectile.style === 'arrow' ? '→' : projectile.style === 'poison' ? '☠' : (enemy ? '✦' : '❄'), shown.x, shown.y, projectileSize, [1, 1, 1, 0.95]);
     }
 
+    goreRenderer.drawAirborne(gore, view, inView);
     // Lighting is a full-world GPU composition pass. Everything except the
     // intentionally luminous VFX and HUD participates in darkness and color.
     drawLighting(collectLights(now));

@@ -1,5 +1,5 @@
 import {
-  AI, ArrowAmmo, BowWeapon, Collider, Health, Input, Lifetime, Mana, MeleeWeapon, PlayerTag,
+  Actor, AI, ArrowAmmo, BowWeapon, Collider, Health, Input, Lifetime, Mana, MeleeWeapon, PlayerTag,
   Position, Powerups, Projectile, Spellbook, Stamina, Velocity,
 } from '../components/index.js';
 import {
@@ -282,7 +282,10 @@ function castMeleeArc(world, grid, playerId, origin, book, spell, impacts) {
       x: position.x, y: position.y, spellId: spell.id, damageType: spell.element, meleeArc: true,
     });
     if (health.hp < before) {
-      hits.push({ target: id, x: position.x, y: position.y, amount: before - health.hp, killed: health.hp === 0 });
+      hits.push({
+        target: id, x: position.x, y: position.y, amount: before - health.hp, killed: health.hp === 0,
+        targetTheme: world.get(id, Actor)?.theme,
+      });
     }
   }
   return { range, halfAngle, hits };

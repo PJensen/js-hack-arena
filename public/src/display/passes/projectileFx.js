@@ -1,12 +1,10 @@
 // Client-owned presentation derived from authoritative projectile entities and
 // gameplay events. Nothing in this module can affect combat state.
-import { ActorKind, PointLight, Position, Projectile, Velocity } from '../../rules/components/index.js';
+import { PointLight, Position, Projectile, Velocity } from '../../rules/components/index.js';
 import {
   ARROW_TRAIL,
   FROST_TRAIL,
   SHADOW_TRAIL,
-  deathBurst,
-  bloodSplatter,
   impactBurst,
   spellTrail,
   wallBurst,
@@ -17,13 +15,9 @@ export function createProjectileFxController({ world, fx, runtimeEvents }) {
 
   world.on('projectile.hit', (event) => burst(event, impactBurst(event.color, Math.atan2(event.vy, event.vx))));
   world.on('projectile.wall', (event) => burst(event, wallBurst(event.color)));
-  world.on('entity.died', (event) => {
-    if (event.kind === ActorKind.MOB) burst(event, deathBurst('#a050ff'));
-  });
   world.on('spell.cast', () => {
     runtimeEvents.casts += 1;
   });
-  world.on('melee.hit', (event) => burst(event, bloodSplatter()));
 
   function burst(event, preset) {
     const key = `burst:${event.sequence ?? performance.now()}:${event.x}:${event.y}`;

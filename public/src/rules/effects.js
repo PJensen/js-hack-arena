@@ -42,6 +42,7 @@ export function getStatMultiplier(world, targetId, stat, context = {}) {
 
 export function applyDamage(world, targetId, rawAmount, {
   sourceId = null, damageType = null, x = null, y = null, spellId = null, periodic = false, meleeArc = false,
+  impactAngle = null,
 } = {}) {
   const health = world.get(targetId, Health);
   if (!health || health.dead || health.hp <= 0) return 0;
@@ -52,10 +53,13 @@ export function applyDamage(world, targetId, rawAmount, {
   const hpLost = Math.min(health.hp, amount);
   health.hp -= hpLost;
   const position = world.get(targetId, Position);
+  const source = world.get(sourceId, Position);
   world.emit('damage.dealt', {
     target: targetId, source: sourceId, amount,
     x: x ?? position?.x ?? 0, y: y ?? position?.y ?? 0,
     damageType, spellId, periodic, hpLost, killed: health.hp === 0,
+    targetTheme: world.get(targetId, Actor)?.theme,
+    impactAngle: impactAngle ?? (source && position ? Math.atan2(position.y - source.y, position.x - source.x) : null),
     ...(meleeArc && { meleeArc }),
   });
   return amount;

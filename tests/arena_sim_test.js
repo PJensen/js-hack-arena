@@ -114,6 +114,8 @@ Deno.test("arena sim: Cleave hits its arc, respects walls and spends replicated 
   assertEquals(casts[0].playerId, replicaPlayer);
   assertAlmostEquals(casts[0].meleeArc.halfAngle * 360 / Math.PI, 140.4);
   assertEquals(casts[0].meleeArc.range, 70);
+  assertEquals(casts[0].meleeArc.hits.map(({ targetTheme }) => targetTheme), ['fire', 'fire']);
+  assertEquals(damage[0].impactAngle, 0);
   assertEquals(damage.map(({ target, meleeArc, hpLost }) => [target, meleeArc, hpLost]),
     casts[0].meleeArc.hits.map(({ target, amount }) => [target, true, amount]));
   assertEquals(casts[0].meleeArc.hits.map(({ target, x, y }) => {

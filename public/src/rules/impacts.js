@@ -29,6 +29,7 @@ export function applyImpacts(world, targetId, sourceId, impacts, context = {}) {
         spellId: context.spellId,
         periodic: context.periodic,
         meleeArc: context.meleeArc,
+        impactAngle: context.impactAngle,
       }) > 0 || applied;
     } else if (impact.kind === ImpactKind.HEAL) {
       applied = applyHealing(world, targetId, impact.amount, {
