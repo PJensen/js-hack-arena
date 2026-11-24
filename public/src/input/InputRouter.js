@@ -22,6 +22,11 @@ export function spellSlotFromKeyboardEvent(event = {}) {
   return /^[1-9]$/.test(key) ? Number(key) - 1 : null;
 }
 
+export function keyFromKeyboardEvent(event = {}) {
+  if (event.code === 'Space' || event.key === 'Spacebar') return ' ';
+  return typeof event.key === 'string' ? event.key.toLowerCase() : '';
+}
+
 class Joystick {
   constructor(baseEl, knobEl, markerEl) {
     this.base = baseEl;
@@ -187,8 +192,12 @@ export function createInputRouter({
   on(document, 'touchend', (e) => releaseTouches(e.changedTouches));
   on(document, 'touchcancel', (e) => releaseTouches(e.changedTouches));
 
-  on(window, 'keydown', (e) => { keys[e.key.toLowerCase()] = true; });
-  on(window, 'keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+  on(window, 'keydown', (e) => {
+    const key = keyFromKeyboardEvent(e);
+    keys[key] = true;
+    if (key === ' ') e.preventDefault();
+  });
+  on(window, 'keyup', (e) => { keys[keyFromKeyboardEvent(e)] = false; });
 
   on(canvas, 'pointerdown', (e) => {
     mouse.active = true;
