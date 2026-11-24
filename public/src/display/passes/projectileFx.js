@@ -13,8 +13,12 @@ import {
 export function createProjectileFxController({ world, fx, runtimeEvents }) {
   const activeTrails = new Set();
 
-  world.on('projectile.hit', (event) => burst(event, impactBurst(event.color, Math.atan2(event.vy, event.vx))));
-  world.on('projectile.wall', (event) => burst(event, wallBurst(event.color)));
+  world.on('projectile.hit', (event) => {
+    if (event.style !== 'web') burst(event, impactBurst(event.color, Math.atan2(event.vy, event.vx)));
+  });
+  world.on('projectile.wall', (event) => {
+    if (event.style !== 'web') burst(event, wallBurst(event.color));
+  });
   world.on('spell.cast', () => {
     runtimeEvents.casts += 1;
   });

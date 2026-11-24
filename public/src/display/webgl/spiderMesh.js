@@ -35,8 +35,8 @@ export function createSpiderMesh(device) {
   }
   gl.bindVertexArray(null);
 
-  function draw(view, x, y, heading, radius, phase, stride) {
-    const count = writeSpiderPose(scratch, phase, stride);
+  function draw(view, x, y, heading, radius, phase, stride, rear) {
+    const count = writeSpiderPose(scratch, phase, stride, rear);
     gl.useProgram(program);
     gl.uniform4fv(uniforms.view, view);
     gl.uniform2f(uniforms.origin, x, y);
@@ -54,12 +54,13 @@ export function createSpiderMesh(device) {
   return { draw };
 }
 
-export function writeSpiderPose(output, phase, stride) {
+export function writeSpiderPose(output, phase, stride, rear = 0) {
   let count = 0;
   const bob = Math.sin(phase * 2) * stride * 0.065;
   ellipsoid(-0.55, 0.74 + bob, 0, 0.82, 0.47, 0.58, [0.35, 0.19, 0.15, 0]);
   ellipsoid(-0.79, 1.045 + bob, 0, 0.48, 0.17, 0.37, [0.64, 0.27, 0.10, 0]);
-  ellipsoid(0.39, 0.55 + bob, 0, 0.54, 0.33, 0.43, [0.29, 0.18, 0.13, 0]);
+  const headLift = rear * 0.58;
+  ellipsoid(0.39, 0.55 + bob + headLift, 0, 0.54, 0.33, 0.43, [0.29, 0.18, 0.13, 0]);
   const front = [1.58, 0.62, -0.59, -1.62];
   const spread = [1.34, 1.76, 1.77, 1.46];
   for (const side of [-1, 1]) {
@@ -68,16 +69,17 @@ export function writeSpiderPose(output, phase, stride) {
       const swing = Math.max(0, (cycle - 0.58) / 0.42);
       const reach = stride * (cycle < 0.58 ? 1 - 2 * cycle / 0.58 : -Math.cos(Math.PI * swing)) * 0.37;
       const lift = Math.sin(Math.PI * swing) * stride * 0.30;
-      const hip = [0.50 - leg * 0.26, 0.47 + bob, side * 0.34];
-      const knee = [front[leg] * 0.61 + reach * 0.38, 0.82 + bob + lift * 0.4, side * spread[leg] * 0.65];
-      const foot = [front[leg] + reach, 0.07 + lift, side * spread[leg]];
+      const forelegLift = leg === 0 ? rear * 0.9 : 0;
+      const hip = [0.50 - leg * 0.26, 0.47 + bob + headLift * (1 - leg / 4), side * 0.34];
+      const knee = [front[leg] * 0.61 + reach * 0.38, 0.82 + bob + lift * 0.4 + forelegLift, side * spread[leg] * 0.65];
+      const foot = [front[leg] + reach - forelegLift * 0.33, 0.07 + lift + forelegLift, side * spread[leg]];
       segment(hip, knee, 0.105, legShell);
       ellipsoid(...knee, 0.13, 0.105, 0.13, [0.44, 0.25, 0.16, 0]);
       segment(knee, foot, 0.075, legTip);
     }
-    ellipsoid(0.77, 0.70 + bob, side * 0.16, 0.095, 0.087, 0.077, eye);
-    ellipsoid(0.70, 0.68 + bob, side * 0.29, 0.065, 0.058, 0.057, eye);
-    segment([0.75, 0.47 + bob, side * 0.20], [1.06, 0.28 + bob, side * 0.27], 0.075, legShell);
+    ellipsoid(0.77, 0.70 + bob + headLift, side * 0.16, 0.095, 0.087, 0.077, eye);
+    ellipsoid(0.70, 0.68 + bob + headLift, side * 0.29, 0.065, 0.058, 0.057, eye);
+    segment([0.75, 0.47 + bob + headLift, side * 0.20], [1.06, 0.28 + bob + headLift, side * 0.27], 0.075, legShell);
   }
   return count;
 

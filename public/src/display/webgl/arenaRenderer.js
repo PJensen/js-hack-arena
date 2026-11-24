@@ -4,7 +4,7 @@ import {
   PickupLock, PlayerTag, PointLight, Position, Powerups, Projectile, Ring, Spellbook,
   Velocity, WeaponPickup,
 } from '../../rules/components/index.js';
-import { AI } from '../../rules/components/AI.js';
+import { AI, WEB_WINDUP_SECONDS } from '../../rules/components/AI.js';
 import { AuraId } from '../../rules/data/auraCatalog.js';
 import { ConditionId, conditions as conditionCatalog } from '../../rules/data/conditionCatalog.js';
 import { spells as spellCatalog } from '../../rules/data/spellCatalog.js';
@@ -48,6 +48,7 @@ import { createCubeMesh } from './cubeMesh.js';
 import { PROJECTILE_VERTEX } from './shaders/projectile.vert.js';
 import { FROST_BOLT_FRAGMENT } from './shaders/frostBolt.frag.js';
 import { WEB_SHOT_FRAGMENT } from './shaders/webShot.frag.js';
+import { WEB_SNARE_FRAGMENT } from './shaders/webSnare.frag.js';
 import { CHARGE_FRAGMENT } from './shaders/charge.frag.js';
 import { MELEE_ARC_VERTEX } from './shaders/meleeArc.vert.js';
 import { MELEE_ARC_FRAGMENT } from './shaders/meleeArc.frag.js';
@@ -243,6 +244,9 @@ export function createWebGLArenaRenderer(deps) {
   lootShaft.time = uniform(gl, lootShaft.program, 'u_time');
   const frostBolt = directionalProgram(device, FROST_BOLT_FRAGMENT);
   const webShot = directionalProgram(device, WEB_SHOT_FRAGMENT);
+  const webSnare = worldProgram(device, WEB_SNARE_FRAGMENT);
+  webSnare.release = uniform(gl, webSnare.program, 'u_release');
+  webSnare.variant = uniform(gl, webSnare.program, 'u_variant');
   const charge = worldProgram(device, CHARGE_FRAGMENT);
   charge.theme = uniform(gl, charge.program, 'u_theme');
   charge.time = uniform(gl, charge.program, 'u_time');
@@ -821,23 +825,18 @@ export function createWebGLArenaRenderer(deps) {
           drawGlyph('★', position.x + Math.cos(angle) * (collider.radius + 5), position.y - collider.radius - 8 + Math.sin(angle) * 4, 8, [1, 0.9, 0.24, 1]);
         }
       } else if (condition.id === ConditionId.IMMOBILIZED) {
-        const { x, y } = position;
         const r = collider.radius;
-        const fade = Math.min(1, condition.remaining / 0.25);
-        const spread = 1 + 0.08 * Math.max(0, 1 - (condition.duration - condition.remaining) / 0.18) * pulse;
-        const points = [];
-        // Crossed strands wrap the feet and fan out to anchors on the floor.
-        for (let strand = -1; strand <= 1; strand++) {
-          const offset = strand * r * 0.29;
-          const left = x - r * 1.45 * spread;
-          const right = x + r * 1.45 * spread;
-          points.push(
-            left, y + r * 0.94 + offset, x + r * 0.62, y + r * 0.24 - offset,
-            right, y + r * 0.94 - offset, x - r * 0.62, y + r * 0.24 + offset,
-            left + r * 0.22, y + r * 1.1 + offset, right - r * 0.22, y + r * 1.1 + offset,
-          );
-        }
-        drawLines(new Float32Array(points), [1, 0.94, 0.8, 0.84 * fade], 2);
+        const age = Math.max(0, condition.duration - condition.remaining);
+        const spread = motionPreference.matches ? 1 : 1 - 0.42 * Math.exp(-age * 19);
+        const release = Math.max(0, 1 - condition.remaining / 0.25);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.useProgram(webSnare.program);
+        gl.bindVertexArray(quadVao);
+        setWorld(webSnare, position.x, position.y + r * 0.99, r * 5.8 * spread, r * 3 * spread);
+        gl.uniform1f(webSnare.release, release);
+        gl.uniform1f(webSnare.variant, entityId % 2 === 0 ? 1 : -1);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
       } else if (condition.id === ConditionId.POISONED) {
         const fade = Math.min(1, condition.remaining / 0.45);
         const r = collider.radius;
@@ -1273,8 +1272,10 @@ export function createWebGLArenaRenderer(deps) {
       if (actor.theme === 'spider') {
         if (!inView(shown.x, shown.y, collider.radius * 2)) continue;
         const stride = motionPreference.matches ? 0 : Math.min(1, speed / 125);
+        const windup = world.get(id, AI)?.webWindup ?? 0;
+        const rear = windup > 0 ? Math.min(1, 0.3 + (1 - windup / WEB_WINDUP_SECONDS) * 1.4) : 0;
         drawDisc(shown.x, shown.y, collider.radius * 1.1, [0.02, 0.012, 0.013, 0.27], [0, 0, 0, 0]);
-        spiderMesh.draw(view, shown.x, shown.y, facing, collider.radius * 1.06, combatTime * 10 + id * 0.91, stride);
+        spiderMesh.draw(view, shown.x, shown.y, facing, collider.radius * 1.06, combatTime * 10 + id * 0.91, stride, rear);
         if (actor.rare) drawGlyph('★', shown.x + collider.radius * 0.72, shown.y - collider.radius * 0.95, 10, [1, 0.78, 0.18, 1]);
         continue;
       }
@@ -1295,6 +1296,7 @@ export function createWebGLArenaRenderer(deps) {
       if (actor.rare) drawGlyph('★', shown.x + collider.radius * 0.72, shown.y + bob - collider.radius * 0.78, 10, [1, 0.78, 0.18, 1]);
       drawDisc(shown.x + Math.cos(facing) * collider.radius, shown.y + Math.sin(facing) * collider.radius, 2, [1, 0.57, 0.8, 1], [1, 0.57, 0.8, 1]);
     }
+    const webShots = [];
     for (const [id, position, collider, projectile] of world.query(Position, Collider, Projectile)) {
       const shown = displayPosition(id, position);
       const enemy = projectile.team === 'enemies' || world.has(projectile.owner, AI);
@@ -1306,7 +1308,7 @@ export function createWebGLArenaRenderer(deps) {
       if (projectile.style === 'web') {
         const velocity = world.get(id, Velocity);
         const angle = Math.atan2(velocity?.vy ?? 0, velocity?.vx ?? 1);
-        drawDirectionalProjectile(webShot, shown.x, shown.y, angle, 37, 17, now + id * 0.07, 1);
+        webShots.push({ x: shown.x, y: shown.y, angle, phase: id * 0.07 });
         continue;
       }
       if (projectile.style === 'frost' || projectile.trailColor === '#8cd8ff') {
@@ -1330,6 +1332,9 @@ export function createWebGLArenaRenderer(deps) {
     // intentionally luminous VFX and HUD participates in darkness and color.
     drawLighting(collectLights(now, presentBurning(now, renderDt), campfires));
     drawDecorationEmission(now);
+    for (const { x, y, angle, phase } of webShots) {
+      drawDirectionalProjectile(webShot, x, y, angle, 36, 16, now + phase, 0.94);
+    }
 
     // Loot signals are intentionally emissive: shafts remain readable through
     // dungeon darkness, with height and color communicating rarity.

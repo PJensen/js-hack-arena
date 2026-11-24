@@ -399,6 +399,7 @@ export function createArenaSimulation({
         hp: health.hp, maxHp: health.maxHp, dead: health.dead,
         mana: mana.mana, maxMana: mana.maxMana, manaRegen: mana.regenPerSecond,
         name: actor.name, glyph: actor.glyph, theme: actor.theme, rare: actor.rare,
+        webWindup: world.get(entityId, AI)?.webWindup ?? 0,
         conditions: projectConditions(world, entityId),
         auraEmitter: projectAuraEmitter(world, entityId),
       },
@@ -492,7 +493,7 @@ export function createArenaSimulation({
       world.add(entityId, Health, { hp: state.hp, maxHp: state.maxHp, dead: state.dead });
       world.add(entityId, Mana, { mana: state.mana, maxMana: state.maxMana, regenPerSecond: state.manaRegen });
       world.add(entityId, Actor, { kind: ActorKind.MOB, team: state.team, name: state.name, glyph: state.glyph, theme: state.theme, rare: state.rare });
-      world.add(entityId, AI, { target: null });
+      world.add(entityId, AI, { target: null, webWindup: state.webWindup });
       world.add(entityId, Conditions, { active: state.conditions.map(replicaCondition) });
       world.add(entityId, PointLight, lightForTheme(state.theme));
     } else if (record.kind === 'projectile') {
@@ -600,6 +601,7 @@ export function createArenaSimulation({
       actor.glyph = state.glyph;
       actor.theme = state.theme;
       actor.rare = state.rare;
+      world.get(entityId, AI).webWindup = state.webWindup;
       world.get(entityId, Conditions).active = state.conditions.map(replicaCondition);
     } else if (record.kind === 'projectile') {
       const projectile = world.get(entityId, Projectile);
@@ -910,6 +912,7 @@ function normalizeMobState(id, state) {
     ...normalizeBodyState(id, state),
     name: normalizeActorName(state.name), glyph: String(state.glyph),
     theme: String(state.theme || 'shadow'), rare: Boolean(state.rare),
+    webWindup: Math.max(0, finiteNumber(state.webWindup ?? 0, `${id}.webWindup`)),
     conditions: normalizeConditions(id, state.conditions ?? state.auras),
     auraEmitter: normalizeAuraEmitter(id, state.auraEmitter),
   };

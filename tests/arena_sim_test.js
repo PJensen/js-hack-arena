@@ -901,14 +901,21 @@ Deno.test('arena sim: a web shot roots on impact, permits casting, and wears off
   applyAura(sim.world, spider, 'immobilized', null, 3);
 
   sim.step();
+  assertEquals([...sim.world.query(Projectile)].length, 0);
+  const replica = makeOpenSim(922, { mode: SIM_MODE.REPLICA });
+  replica.applySnapshot(sim.captureSnapshot());
+  assert([...replica.world.query(AI)].some(([, ai]) => ai.webWindup > 0));
+  for (let i = 0; i < 6; i++) sim.step();
+  assertEquals([...sim.world.query(Projectile)].length, 0);
+  sim.step();
   assertEquals([...sim.world.query(Projectile)].map(([, shot]) => shot.style), ['web']);
   assertEquals(sim.getPlayerSnapshot('peer-a').state.conditions, []);
   for (let i = 0; i < 15; i++) sim.step();
   assertEquals(events.map(({ target, style }) => [target, style]), [[player, 'web']]);
   assertEquals(sim.world.get(player, Health).hp, 100);
-  const replica = makeOpenSim(922, { mode: SIM_MODE.REPLICA });
   replica.applySnapshot(sim.captureSnapshot());
   assertEquals(replica.getPlayerSnapshot('peer-a').state.conditions.map(({ id }) => id), ['immobilized']);
+  assert([...replica.world.query(AI)].every(([, ai]) => ai.webWindup === 0));
 
   const casts = [];
   sim.world.on('spell.cast', ({ spellId }) => casts.push(spellId));
@@ -937,7 +944,7 @@ Deno.test('arena sim: a web shot misses a sidestep and stops at intervening wall
     applyAura(sim.world, spider, 'immobilized', null, 3);
     const walls = [];
     sim.world.on('projectile.wall', (event) => walls.push(event));
-    sim.step();
+    for (let i = 0; i < 8; i++) sim.step();
     assertEquals([...sim.world.query(Projectile)].length, 1);
     wall = !dodge;
     if (dodge) sim.setPlayerInput('peer-a', { moveY: 1 });
@@ -946,6 +953,23 @@ Deno.test('arena sim: a web shot misses a sidestep and stops at intervening wall
     assertEquals(sim.getPlayerSnapshot('peer-a').state.conditions, []);
     assertEquals(walls.map(({ style, radius }) => [style, radius]), dodge ? [] : [['web', 0]]);
   }
+});
+
+Deno.test('arena sim: the spider plants its feet and commits its aim during Web Spit', () => {
+  const sim = makeOpenSim(925, { enemyCount: 0 });
+  sim.addPlayer('peer-a');
+  const spider = spawnSpider(sim.world, { distanceMove: () => 100 }, 260, 100, null);
+  const position = sim.world.get(spider, Position);
+  Object.assign(position, { x: 260, y: 100 });
+  sim.step();
+  assert(sim.world.get(spider, AI).webWindup > 0);
+  sim.setPlayerInput('peer-a', { moveY: 1 });
+  for (let i = 0; i < 7; i++) sim.step();
+  assertEquals(position, { x: 260, y: 100 });
+  assert([...sim.world.query(Projectile, Position)].some(([, shot, pos]) => shot.style === 'web' && pos.y === 100));
+  sim.setPlayerInput('peer-a', {});
+  sim.step();
+  assert(position.x < 260);
 });
 
 Deno.test('mob preview: spawns the selected mob once on reachable ground near the player', () => {

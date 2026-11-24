@@ -6,6 +6,8 @@ export const AIBehavior = Object.freeze({
   MELEE:  'melee',
 });
 
+export const WEB_WINDUP_SECONDS = 0.35;
+
 export const AI = defineComponent('AI', {
   behavior:       AIBehavior.CASTER,
   target:         null,
@@ -14,6 +16,7 @@ export const AI = defineComponent('AI', {
   castRate:       1.2,
   projSpeed:      250,
   webSpit:        false,
+  webWindup:      0,
   plantAtContact: false,
   aggroRange:     300,
   sight:          true,

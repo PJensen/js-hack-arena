@@ -5,6 +5,7 @@ import { astar } from '../ai/pathfind.js';
 import { getStatMultiplier, isActionLocked } from '../effects.js';
 import { ConditionId } from '../data/conditionCatalog.js';
 import { ImpactKind } from '../data/spellCatalog.js';
+import { WEB_WINDUP_SECONDS } from '../components/AI.js';
 
 const PATH_REFRESH = 0.5;        // recompute every 0.5s
 
@@ -36,6 +37,7 @@ export function createAISystem(ctx) {
       if (targetHealth?.dead || targetHealth?.hp <= 0) ai.target = null;
 
       if (ai.target == null) {
+        ai.webWindup = 0;
         let nearest = null;
         let nearestDistance = Infinity;
         for (const [candidate, candidatePosition, candidateHealth] of players) {
@@ -66,6 +68,12 @@ export function createAISystem(ctx) {
       if (ai.sight) {
         // ── Has LOS — tactical behaviour ──
         aiPaths.delete(id);  // drop path, we can see them
+        ai.castCooldown -= dt;
+        if (ai.webSpit && stepWebSpit(world, id, ai, pos, fac, dx, dy, dist, dt, castLocked)) {
+          vel.vx = 0;
+          vel.vy = 0;
+          continue;
+        }
 
         const melee = ai.behavior === AIBehavior.MELEE;
         const tooClose = !melee && dist < ai.preferredDist * 0.7;
@@ -93,22 +101,9 @@ export function createAISystem(ctx) {
         fac.angle = Math.atan2(dy, dx);
 
         // Cast
-        ai.castCooldown -= dt;
         const mana = world.get(id, Mana);
         const manaCost = 10;
-        if (!castLocked && ai.castCooldown <= 0 && ai.webSpit && dist >= 55 && dist <= 200) {
-          ai.castCooldown = ai.castRate;
-          const shot = world.create();
-          world.add(shot, Position, { x: pos.x, y: pos.y });
-          world.add(shot, Velocity, { vx: Math.cos(fac.angle) * ai.projSpeed, vy: Math.sin(fac.angle) * ai.projSpeed });
-          world.add(shot, Projectile, {
-            damage: 0, owner: id, team: 'enemies', speed: ai.projSpeed, style: 'web',
-            burstColor: '#eee8d9',
-            impacts: [{ kind: ImpactKind.APPLY_CONDITION, conditionId: ConditionId.IMMOBILIZED }],
-          });
-          world.add(shot, Lifetime, { ttl: 0.9 });
-          world.add(shot, Collider, { radius: 5 });
-        } else if (!castLocked && !melee && ai.castCooldown <= 0 && (!mana || mana.mana >= manaCost)) {
+        if (!castLocked && !melee && ai.castCooldown <= 0 && (!mana || mana.mana >= manaCost)) {
           ai.castCooldown = ai.castRate;
           if (mana) mana.mana -= manaCost;
           const angle = Math.atan2(dy, dx);
@@ -129,6 +124,7 @@ export function createAISystem(ctx) {
           world.add(boltId, Collider,   { radius: 5 });
         }
       } else {
+        ai.webWindup = 0;
         // ── No LOS — A* pathfind ──
         let cached = aiPaths.get(id);
         if (!cached || cached.age > PATH_REFRESH || cached.path.length === 0) {
@@ -166,6 +162,35 @@ export function createAISystem(ctx) {
       }
     }
   };
+}
+
+function stepWebSpit(world, id, ai, pos, facing, dx, dy, distance, dt, castLocked) {
+  if (castLocked) {
+    ai.webWindup = 0;
+    return false;
+  }
+  if (ai.webWindup > 0) {
+    ai.webWindup = Math.max(0, ai.webWindup - dt);
+    if (ai.webWindup > 1e-6) return true;
+    ai.webWindup = 0;
+    const vx = Math.cos(facing.angle) * ai.projSpeed;
+    const vy = Math.sin(facing.angle) * ai.projSpeed;
+    const shot = world.create();
+    world.add(shot, Position, { x: pos.x, y: pos.y });
+    world.add(shot, Velocity, { vx, vy });
+    world.add(shot, Projectile, {
+      damage: 0, owner: id, team: 'enemies', speed: ai.projSpeed, style: 'web',
+      impacts: [{ kind: ImpactKind.APPLY_CONDITION, conditionId: ConditionId.IMMOBILIZED }],
+    });
+    world.add(shot, Lifetime, { ttl: 0.9 });
+    world.add(shot, Collider, { radius: 5 });
+    return true;
+  }
+  if (ai.castCooldown > 0 || distance < 55 || distance > 200) return false;
+  ai.castCooldown = ai.castRate + WEB_WINDUP_SECONDS;
+  ai.webWindup = WEB_WINDUP_SECONDS;
+  facing.angle = Math.atan2(dy, dx);
+  return true;
 }
 
 function patrol(grid, pos, vel, ai, movementSpeed, moveLocked, dt, radius) {
