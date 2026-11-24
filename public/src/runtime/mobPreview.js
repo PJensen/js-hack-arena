@@ -1,5 +1,5 @@
 import { sweepMaxFree } from '../rules/geometry/sweep.js';
-import { spawnBat, spawnCaster, spawnFloatingEye, spawnGasSpore, spawnMelee, spawnSpider, spawnTank } from '../rules/spawner.js';
+import { spawnBat, spawnCaster, spawnFlamingBat, spawnFloatingEye, spawnGasSpore, spawnMelee, spawnSpider, spawnTank } from '../rules/spawner.js';
 
 const spawners = new Map([
   ['spider', spawnSpider],
@@ -9,6 +9,7 @@ const spawners = new Map([
   ['floating_eye', spawnFloatingEye],
   ['gas_spore', spawnGasSpore],
   ['bat', spawnBat],
+  ['flaming_bat', spawnFlamingBat],
 ]);
 
 export const previewMobNames = [...spawners.keys()].join(', ');

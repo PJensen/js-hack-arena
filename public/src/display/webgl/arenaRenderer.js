@@ -40,6 +40,7 @@ import { createLightFragment } from './shaders/light.frag.js';
 import { ELEMENT_FRAGMENT } from './shaders/element.frag.js';
 import { POTION_GLOW_FRAGMENT } from './shaders/potionGlow.frag.js';
 import { FLAME_FRAGMENT } from './shaders/flame.frag.js';
+import { BAT_FLAME_FRAGMENT } from './shaders/batFlame.frag.js';
 import { CAMPFIRE_VERTEX } from './shaders/campfire.vert.js';
 import { PROP_MESH_FRAGMENT } from './shaders/propMesh.frag.js';
 import { MUSHROOM_FRAGMENT } from './shaders/mushroom.frag.js';
@@ -64,7 +65,7 @@ import { SPORE_CLOUD_FRAGMENT } from './shaders/sporeCloud.frag.js';
 export const MAX_DYNAMIC_LIGHTS = 24;
 
 function hasRaisedStatusBar(theme) {
-  return theme === 'spider' || theme === 'floating_eye' || theme === 'gas_spore' || theme === 'bat';
+  return theme === 'spider' || theme === 'floating_eye' || theme === 'gas_spore' || theme === 'bat' || theme === 'flaming_bat';
 }
 
 function compareDirection(next, current) {
@@ -193,6 +194,9 @@ export function createWebGLArenaRenderer(deps) {
   const disc = worldProgram(device, DISC_FRAGMENT);
   disc.color = uniform(gl, disc.program, 'u_color');
   disc.stroke = uniform(gl, disc.program, 'u_stroke');
+  const batFlame = worldProgram(device, BAT_FLAME_FRAGMENT);
+  batFlame.time = uniform(gl, batFlame.program, 'u_time');
+  batFlame.alpha = uniform(gl, batFlame.program, 'u_alpha');
   const glyph = worldProgram(device, GLYPH_FRAGMENT);
   glyph.atlas = uniform(gl, glyph.program, 'u_atlas');
   glyph.frame = uniform(gl, glyph.program, 'u_frame');
@@ -391,6 +395,7 @@ export function createWebGLArenaRenderer(deps) {
   let torchParticleAccumulator = 0;
   let torchParticleSequence = 0;
   let burningParticleAccumulator = 0;
+  let batEmberAccumulator = 0;
 
   world.on('spell.bolt', (event) => {
     bolts.push({ ...event, age: 0, duration: 0.18 });
@@ -549,6 +554,29 @@ export function createWebGLArenaRenderer(deps) {
     gl.uniform1f(flame.time, time);
     gl.uniform1f(flame.alpha, alpha);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  function drawBatFlame(x, y, width, height, time, alpha) {
+    gl.useProgram(batFlame.program);
+    gl.bindVertexArray(quadVao);
+    setWorld(batFlame, x, y - height * 0.32, width, height);
+    gl.uniform1f(batFlame.time, time);
+    gl.uniform1f(batFlame.alpha, alpha);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  function drawBatFlamePuff({ x, y, emitter }, now) {
+    const progress = 1 - emitter.remaining / emitter.duration;
+    const radius = emitter.radius;
+    const still = motionPreference.matches;
+    const alpha = Math.min(1, emitter.remaining / 0.36);
+    const spread = still ? radius * 0.34 : radius * (0.19 + progress * 0.39);
+    const height = still ? 25 : 21 + 18 * Math.sin(Math.PI * progress);
+    drawDisc(x, y, radius, [0.75, 0.16, 0.025, 0.08 * alpha], [1, 0.47, 0.13, 0.20 * alpha]);
+    for (const side of [-1, 0, 1]) {
+      const scale = 1 - Math.abs(side) * 0.26;
+      drawBatFlame(x + side * spread, y + Math.abs(side) * 4, 25 * scale, height * scale, (still ? 0 : now) + side * 2.6, alpha * 0.85);
+    }
   }
 
   function drawDirectionalProjectile(shader, x, y, angle, length, width, time, alpha) {
@@ -719,6 +747,8 @@ export function createWebGLArenaRenderer(deps) {
         intensity = 1.12 + 0.12 * Math.sin(now * 19 + id * 2.3);
       } else if (world.has(id, GroundItem)) {
         intensity = 0.72 + 0.16 * Math.sin(now * 2.1 + id * 1.7);
+      } else if (world.get(id, Actor)?.theme === 'flaming_bat') {
+        intensity = motionPreference.matches ? 1.25 : 1.48 * emberLight(now, id * 0.73);
       } else if (world.has(id, AI)) {
         intensity = 0.58 + 0.08 * Math.sin(now * 1.3 + id * 0.9);
       }
@@ -942,7 +972,7 @@ export function createWebGLArenaRenderer(deps) {
   }
 
   function drawAuraEmitter(emitter, position, now, entityId) {
-    if (emitter.id === AuraId.CAMPFIRE) return;
+    if (emitter.id === AuraId.CAMPFIRE || emitter.id === AuraId.BAT_FLAME_PUFF) return;
     if (!emitter?.active || emitter.radius <= 0) return;
     if (emitter.id === AuraId.SPORE_CLOUD) {
       if (!inView(position.x, position.y, emitter.radius * 1.35)) return;
@@ -1281,6 +1311,10 @@ export function createWebGLArenaRenderer(deps) {
     const now = performance.now() * 0.001;
     const renderDt = Math.min(0.05, Math.max(0, now - lastFrameTime));
     lastFrameTime = now;
+    batEmberAccumulator += renderDt;
+    const emberTick = batEmberAccumulator >= 0.035;
+    if (emberTick) batEmberAccumulator %= 0.035;
+    const emitBatEmbers = emberTick && !motionPreference.matches;
     const combatDt = meleeImpact.advance(renderDt);
     combatTime += combatDt;
     combatNumbers.step(combatDt);
@@ -1317,8 +1351,10 @@ export function createWebGLArenaRenderer(deps) {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 
     const campfires = [];
+    const batFlamePuffs = [];
     for (const [, { x, y }, emitter] of world.query(Position, AuraEmitter)) {
       if (emitter.id === AuraId.CAMPFIRE && emitter.active) campfires.push({ x, y, phase: x * 0.013 + y * 0.017 });
+      if (emitter.id === AuraId.BAT_FLAME_PUFF && emitter.active && inView(x, y, 80)) batFlamePuffs.push({ x, y, emitter });
     }
     drawDungeonDecorations(now, renderDt, campfires);
 
@@ -1335,24 +1371,41 @@ export function createWebGLArenaRenderer(deps) {
     }
     const gazeRays = [];
     const batShrieks = [];
+    const batFlames = [];
     for (const [id, position, collider, actor] of world.query(Position, Collider, Actor)) {
       if (actor.kind !== ActorKind.MOB) continue;
       const shown = displayPosition(id, position);
       const velocity = world.get(id, Velocity);
       const speed = Math.hypot(velocity?.vx || 0, velocity?.vy || 0);
       const facing = world.get(id, Facing)?.angle ?? 0;
-      if (actor.theme === 'bat') {
+      const flaming = actor.theme === 'flaming_bat';
+      if (actor.theme === 'bat' || flaming) {
         const ai = world.get(id, AI);
         const windup = ai?.shriekWindup ?? 0;
         const pulse = ai?.shriekPulse ?? 0;
-        if (!inView(shown.x, shown.y, pulse > 0 ? BAT_SHRIEK_RADIUS : 42)) continue;
+        if (!inView(shown.x, shown.y, pulse > 0 ? BAT_SHRIEK_RADIUS : flaming ? 64 : 42)) continue;
         const shriek = windup > 0 ? 1 - windup / BAT_SHRIEK_WINDUP : 0;
         const still = motionPreference.matches;
         const phase = combatTime * 26 + id * 1.43;
-        const height = still ? 0.61 : 0.60 + Math.sin(phase - 0.75) * 0.17 + shriek * 0.25;
+        const height = still ? 0.61 : 0.60 + Math.sin(phase - 0.75) * 0.17 + shriek * 0.25 - (flaming && speed < 24 ? 0.19 : 0);
         const flap = still ? 0.14 : 0.19 + Math.sin(phase) * (0.73 - shriek * 0.38);
+        const bank = flaming ? (still ? 0.28 : 0.34 + Math.sin(phase * 0.27) * 0.22) : 0;
         drawDisc(shown.x, shown.y + 3, collider.radius * 0.91, [0.06, 0.02, 0.07, 0.45], [0, 0, 0, 0]);
-        drawBat(view, shown.x, shown.y, collider.radius, facing, height, flap, shriek);
+        const heat = flaming ? (still ? 0.92 : 0.86 + Math.sin(phase * 0.63) * 0.12) : 0;
+        const anchors = drawBat(view, shown.x, shown.y, collider.radius, facing + bank, height, flap, shriek, heat);
+        if (anchors) {
+          for (const [index, anchor] of anchors.entries()) {
+            const flicker = Math.sin(phase * 1.37 + index * 1.7);
+            batFlames.push({ ...anchor, heat, phase: (still ? 0 : now) + id * 0.63 + index * 2.9, flicker: still ? 0 : flicker });
+            if (!emitBatEmbers || !anchor.tip) continue;
+            fx.pool.spawn({
+              x: anchor.x, y: anchor.y - 3, vx: (anchor.x - shown.x) * 0.85 - (velocity?.vx ?? 0) * 0.12,
+              vy: -27 - flicker * 9, ay: -9,
+              life: 0.37 + 0.14 * Math.abs(flicker), size0: 3.2, size1: 0.6,
+              r: 1, g: 0.49 + flicker * 0.22, b: 0.095, a0: 0.94, a1: 0,
+            });
+          }
+        }
         if (windup > 0 || pulse > 0) batShrieks.push({ ...shown, height: collider.radius * (height + 0.8), windup, pulse });
         if (actor.rare) drawGlyph('★', shown.x + collider.radius, shown.y - collider.radius * 1.95, 10, [1, 0.78, 0.18, 1]);
         continue;
@@ -1434,6 +1487,9 @@ export function createWebGLArenaRenderer(deps) {
     // Lighting is a full-world GPU composition pass. Everything except the
     // intentionally luminous VFX and HUD participates in darkness and color.
     const actorLights = presentBurning(now, renderDt);
+    for (const { x, y, emitter } of batFlamePuffs) {
+      actorLights.push({ x, y, radius: 80, intensity: 1.42 * emitter.remaining / emitter.duration, r: 1, g: 0.34, b: 0.09 });
+    }
     for (const { from, to, charge } of gazeRays) {
       const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / 32));
       for (let i = 0; i <= steps; i++) {
@@ -1449,6 +1505,10 @@ export function createWebGLArenaRenderer(deps) {
     drawDecorationEmission(now);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     for (const ray of gazeRays) drawGazeRay(ray, now);
+    for (const { x, y, tip, heat, phase, flicker } of batFlames) {
+      drawBatFlame(x, y, tip ? 11 : 16, (tip ? 22 : 27) + flicker * 5, phase, heat * 0.92);
+    }
+    for (const puff of batFlamePuffs) drawBatFlamePuff(puff, now);
     for (const { x, y, height, windup, pulse } of batShrieks) {
       if (windup > 0) {
         const charge = 1 - windup / BAT_SHRIEK_WINDUP;

@@ -11,6 +11,7 @@ export function deathSystem(world, _dt) {
     health.hp = 0;
     health.dead = true;
     if (actor.theme === 'gas_spore') spawnAuraField(world, position.x, position.y, AuraId.SPORE_CLOUD);
+    if (actor.theme === 'flaming_bat') spawnAuraField(world, position.x, position.y, AuraId.BAT_FLAME_PUFF);
     world.emit('entity.died', {
       id,
       kind: actor.kind,

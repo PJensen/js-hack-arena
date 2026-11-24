@@ -6,7 +6,7 @@ import {
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { AI, Actor, Auras, Facing, Gold, Health, Input, ItemInfo, Mana, PointLight, Position, Powerups, Projectile, Ring, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
-import { GOLD_LIGHT, spawnAuraField, spawnBat, spawnEpicChest, spawnEpicSword, spawnFloatingEye, spawnFuryRune, spawnGasSpore, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
+import { GOLD_LIGHT, spawnAuraField, spawnBat, spawnEpicChest, spawnEpicSword, spawnFlamingBat, spawnFloatingEye, spawnFuryRune, spawnGasSpore, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
 import { BAT_SHRIEK_WINDUP, GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
 import { applyAura, applyDamage, getStatMultiplier } from '../public/src/rules/effects.js';
 import { SpellCastMode, spells as spellCatalog } from '../public/src/rules/data/spellCatalog.js';
@@ -823,7 +823,7 @@ Deno.test("arena sim: authored packs include a spider without increasing the ene
   sim.addPlayer('peer-a');
   const mobs = [...sim.world.query(AI, Actor, Health, Position)].map(([, ai, actor, health, position]) => ({ ai, actor, health, position }));
   assertEquals(mobs.length, 9);
-  assertEquals([...new Set(mobs.map((mob) => mob.actor.name))].sort(), ['Bat', 'Cave Spider', 'Floating Eye', 'Gas Spore', 'Gelatinous Cube', 'Goblin Raider', 'Wraith']);
+  assertEquals([...new Set(mobs.map((mob) => mob.actor.name))].sort(), ['Bat', 'Cave Spider', 'Flaming Bat', 'Floating Eye', 'Gas Spore', 'Gelatinous Cube', 'Goblin Raider', 'Wraith']);
   assert(mobs.find((mob) => mob.actor.name === 'Gelatinous Cube').health.maxHp >= 180);
   assertEquals(mobs.find((mob) => mob.actor.name === 'Gelatinous Cube').actor.glyph, '■');
   const spider = mobs.find((mob) => mob.actor.theme === 'spider');
@@ -947,6 +947,51 @@ Deno.test('arena sim: a passive Gas Spore ruptures once and the cloud only damag
   position.x = cloud.state.x - radius + 1;
   step(16);
   assertEquals(health.hp, 94);
+  assertEquals([...sim.world.query(AI)].length, 0);
+});
+
+Deno.test('arena sim: Flaming Bat ignites on contact and leaves one short-lived fire hazard', () => {
+  const sim = makeOpenSim(927, { enemyCount: 0 });
+  const player = sim.addPlayer('peer-a');
+  const bat = spawnFlamingBat(sim.world, { distanceMove: () => 100 }, 180, 100, null);
+  const position = sim.world.get(player, Position);
+  const health = sim.world.get(player, Health);
+  const replica = makeOpenSim(927, { mode: SIM_MODE.REPLICA });
+  const puffs = ({ entities }) => entities.filter(({ state }) => state.auraEmitter?.id === 'bat_flame_puff');
+  const fireTicks = () => sim.captureSnapshot().events.filter(({ type, payload }) =>
+    type === 'damage.dealt' && payload.periodic && payload.damageType === 'fire');
+  const step = (ticks) => {
+    for (let i = 0; i < ticks; i++) sim.step();
+  };
+
+  step(11);
+  assertEquals(sim.world.get(bat, AI).target, player);
+  assert(health.hp < 100);
+  assertEquals(sim.getPlayerSnapshot('peer-a').state.conditions.map(({ id }) => id), ['burning']);
+  assertEquals(puffs(sim.captureSnapshot()), []);
+  sim.world.get(player, Auras).active = [];
+  applyDamage(sim.world, bat, 100, { sourceId: player });
+  step(1);
+  assertEquals(sim.world.alive.has(bat), false);
+
+  const snapshot = sim.captureSnapshot();
+  const [puff] = puffs(snapshot);
+  assertEquals(puffs(snapshot).length, 1);
+  replica.applySnapshot(snapshot);
+  assertEquals(puffs(replica.captureSnapshot()), [puff]);
+  const { radius } = puff.state.auraEmitter;
+  position.x = puff.state.x - radius - 1;
+  step(6);
+  assertEquals(fireTicks(), []);
+  position.x = puff.state.x - radius + 1;
+  step(6);
+  assertEquals(fireTicks().map(({ payload }) => payload.hpLost), [3]);
+  position.x = puff.state.x - radius - 1;
+  step(20);
+  assertEquals(fireTicks().length, 1);
+  const expired = sim.captureSnapshot();
+  replica.applySnapshot(expired);
+  assertEquals(puffs(replica.captureSnapshot()), []);
   assertEquals([...sim.world.query(AI)].length, 0);
 });
 
@@ -1167,7 +1212,7 @@ Deno.test('mob preview: spawns the selected mob once on reachable ground near th
   };
   const names = {
     spider: 'Cave Spider', goblin: 'Goblin Raider', wraith: 'Wraith', cube: 'Gelatinous Cube',
-    floating_eye: 'Floating Eye', gas_spore: 'Gas Spore', bat: 'Bat',
+    floating_eye: 'Floating Eye', gas_spore: 'Gas Spore', bat: 'Bat', flaming_bat: 'Flaming Bat',
   };
   for (const [key, name] of Object.entries(names)) {
     const sim = makeOpenSim(924, { grid, enemyCount: 0 });

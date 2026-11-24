@@ -45,6 +45,8 @@ import {
   spawnEpicBow,
   spawnEpicChest,
   spawnEpicSword,
+  spawnFlamingBat,
+  FLAMING_BAT_LIGHT,
   spawnFloatingEye,
   FLOATING_EYE_LIGHT,
   spawnGasSpore,
@@ -105,7 +107,12 @@ const PRESENTATION_EVENTS = Object.freeze([
   'terrain.carved',
 ]);
 const EVENT_HISTORY_LIMIT = 96;
-const ENEMY_PACKS = [[spawnCaster, spawnBat, spawnCaster], [spawnMelee, spawnSpider], [spawnTank, spawnFloatingEye, spawnGasSpore], [spawnSpider]];
+const ENEMY_PACKS = [
+  [spawnCaster, spawnBat, spawnCaster],
+  [spawnMelee, spawnSpider, spawnFlamingBat],
+  [spawnTank, spawnFloatingEye, spawnGasSpore],
+  [spawnSpider],
+];
 
 /**
  * Authoritative gameplay world or client-side replica of one.
@@ -1205,6 +1212,7 @@ function lightForTheme(theme) {
   if (theme === 'floating_eye') return FLOATING_EYE_LIGHT;
   if (theme === 'gas_spore') return GAS_SPORE_LIGHT;
   if (theme === 'bat') return BAT_LIGHT;
+  if (theme === 'flaming_bat') return FLAMING_BAT_LIGHT;
   return { radius: 105, r: 145, g: 70, b: 220 };
 }
 

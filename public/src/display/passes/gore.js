@@ -7,6 +7,7 @@ const slime = { drop: [0.22, 0.88, 0.57], stain: [0.14, 0.53, 0.36], fragment: [
 const ichor = { drop: [0.68, 0.66, 0.24], stain: [0.42, 0.37, 0.11], fragment: [0.43, 0.32, 0.22] };
 const eyeIchor = { drop: [0.85, 0.30, 0.98], stain: [0.63, 0.16, 0.68], fragment: [0.76, 0.37, 0.84], gel: true };
 const spectral = { drop: [0.68, 0.38, 0.97], spectral: true };
+const charred = { drop: [1, 0.39, 0.075], stain: [0.23, 0.12, 0.075], fragment: [0.40, 0.17, 0.085] };
 
 export function createGorePass({ grid, seed, reducedMotion = () => false }) {
   const stains = [];
@@ -17,7 +18,8 @@ export function createGorePass({ grid, seed, reducedMotion = () => false }) {
   function add({ x, y, amount, killed, targetTheme, impactAngle, spellId }) {
     if (!(amount > 0) || !Number.isFinite(x) || !Number.isFinite(y)) return;
     const material = targetTheme === 'frost' || targetTheme === 'gas_spore' ? slime : targetTheme === 'shadow' ? spectral :
-      targetTheme === 'spider' ? ichor : targetTheme === 'floating_eye' ? eyeIchor : flesh;
+      targetTheme === 'spider' ? ichor : targetTheme === 'floating_eye' ? eyeIchor :
+      targetTheme === 'flaming_bat' ? charred : flesh;
     const strength = Math.min(1.7, 0.7 + amount / 22);
     const direction = Number.isFinite(impactAngle) ? impactAngle : rng.float(0, 2 * Math.PI);
     const fan = killed ? 1.6 : spellId === 'rend' || spellId === 'arrow' ? 0.43 : 1.05;

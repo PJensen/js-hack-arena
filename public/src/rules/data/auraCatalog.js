@@ -7,6 +7,7 @@ export const AuraId = Object.freeze({
   HASTE_TOTEM: 'haste_totem',
   CAMPFIRE: 'campfire',
   SPORE_CLOUD: 'spore_cloud',
+  BAT_FLAME_PUFF: 'bat_flame_puff',
 });
 
 // Spatial fields share the same generic effect operations as conditions.
@@ -30,6 +31,17 @@ export const auras = Object.freeze({
     targets: 'all',
     effects: Object.freeze([
       Object.freeze({ kind: EffectKind.PERIODIC_DAMAGE, damageType: 'poison', amount: 6, interval: 0.65 }),
+    ]),
+  }),
+  [AuraId.BAT_FLAME_PUFF]: Object.freeze({
+    id: AuraId.BAT_FLAME_PUFF,
+    name: 'Bat Flame',
+    radius: 28,
+    duration: 1.1,
+    targets: 'hostile',
+    team: 'hostile',
+    effects: Object.freeze([
+      Object.freeze({ kind: EffectKind.PERIODIC_DAMAGE, damageType: 'fire', amount: 3, interval: 0.25 }),
     ]),
   }),
   [AuraId.CHILLING_PRESENCE]: Object.freeze({

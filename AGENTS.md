@@ -11,7 +11,7 @@
 
 ## Mob previews
 
-- Open `/?spawn=spider&seed=42` to verify a spider at the entrance in an isolated offline run. The available `spawn` values are `spider`, `goblin`, `wraith`, `cube`, `floating_eye`, `gas_spore`, and `bat`.
+- Open `/?spawn=spider&seed=42` to verify a spider at the entrance in an isolated offline run. The available `spawn` values are `spider`, `goblin`, `wraith`, `cube`, `floating_eye`, `gas_spore`, `bat`, and `flaming_bat`.
 - Register new mobs in `public/src/runtime/mobPreview.js` so agents can verify their movement, attacks, and effects directly. Test at phone and desktop sizes.
 
 ## Visual effects

@@ -8,6 +8,7 @@ uniform float u_heading;
 uniform float u_size;
 uniform float u_height;
 uniform float u_flap;
+uniform vec2 u_hinge;
 out vec3 v_normal;
 flat out float v_material;
 
@@ -16,7 +17,7 @@ void main() {
   vec3 normal = a_normal;
   float side = a_style.y;
   if (side != 0.0) {
-    vec2 hinge = vec2(0.82, side * 0.23);
+    vec2 hinge = vec2(u_hinge.x, side * u_hinge.y);
     vec2 wing = point.yz - hinge;
     float c = cos(u_flap), s = sin(u_flap) * side;
     mat2 rotation = mat2(c, -s, s, c);

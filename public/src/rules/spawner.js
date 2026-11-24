@@ -13,6 +13,7 @@ export const SPIDER_LIGHT = Object.freeze({ radius: 56, r: 148, g: 98, b: 70 });
 export const FLOATING_EYE_LIGHT = Object.freeze({ radius: 76, r: 192, g: 86, b: 255 });
 export const GAS_SPORE_LIGHT = Object.freeze({ radius: 66, r: 167, g: 101, b: 180 });
 export const BAT_LIGHT = Object.freeze({ radius: 55, r: 151, g: 118, b: 196 });
+export const FLAMING_BAT_LIGHT = Object.freeze({ radius: 100, r: 255, g: 108, b: 35 });
 
 /**
  * Find open ground near a point using the grid.
@@ -192,6 +193,16 @@ export function spawnBat(world, grid, nearX, nearY, targetId, patrolPoints = [])
   });
 }
 
+export function spawnFlamingBat(world, grid, nearX, nearY, targetId, patrolPoints = []) {
+  return spawnMob(world, grid, nearX, nearY, targetId, {
+    name: 'Flaming Bat', glyph: 'b', theme: 'flaming_bat', radius: 10,
+    speed: 115, hp: 18, mana: 0, manaRegen: 0,
+    light: FLAMING_BAT_LIGHT, behavior: AIBehavior.MELEE, preferredDist: 10,
+    plantAtContact: true, meleeDamage: 4, weapon: 'Ember Bite',
+    conditionId: ConditionId.BURNING, aggroRange: 185, patrolPoints, searchRadius: 64,
+  });
+}
+
 function spawnMob(world, grid, nearX, nearY, targetId, config) {
   const pos = findOpenNear(grid, nearX, nearY, config.searchRadius ?? 400);
   const rare = world.rand() < 0.09;
@@ -212,7 +223,7 @@ function spawnMob(world, grid, nearX, nearY, targetId, config) {
     behavior: config.behavior,
     target: targetId,
     preferredDist: config.preferredDist ?? AI.defaults.preferredDist,
-    castRate: config.castRate,
+    castRate: config.castRate ?? AI.defaults.castRate,
     projSpeed: config.projSpeed ?? AI.defaults.projSpeed,
     webSpit: config.webSpit ?? false,
     plantAtContact: config.plantAtContact ?? false,

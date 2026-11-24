@@ -66,6 +66,7 @@ Deno.test('game room: encounters stay spread out while some mobs patrol', () => 
     assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'floating_eye').length, 1);
     assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'gas_spore').length, 1);
     assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'bat').length, 1);
+    assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'flaming_bat').length, 1);
 
     const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     const mobs = [...sim.world.query(AI, Position)].map(([id, ai, pos]) => ({ id, ai, pos, home: { ...pos } }));
@@ -129,6 +130,14 @@ Deno.test('game room: encounters stay spread out while some mobs patrol', () => 
     const cloud = latestSnapshot(socket).entities.find(({ state }) => state.auraEmitter?.id === 'spore_cloud');
     assertEquals(cloud?.kind, 'aura_field');
     assertEquals([cloud.state.x, cloud.state.y], [spore.state.x, spore.state.y]);
+
+    const [flamingBat] = [...sim.world.query(Actor)].find(([, actor]) => actor.theme === 'flaming_bat');
+    applyDamage(sim.world, flamingBat, 40, { sourceId: playerId });
+    room.step();
+    room.step();
+    const fireSnapshot = latestSnapshot(socket);
+    assertEquals(fireSnapshot.entities.some(({ state }) => state.theme === 'flaming_bat'), false);
+    assertEquals(fireSnapshot.entities.filter(({ state }) => state.auraEmitter?.id === 'bat_flame_puff').length, 1);
   } finally {
     room.leave(socket);
   }
