@@ -209,12 +209,11 @@ export function createInputRouter({
   on(canvas, 'pointermove', (e) => {
     mouse.x = e.clientX;
     mouse.y = e.clientY;
-    if (mouse.down) mouse.active = true;
+    mouse.active = true;
   });
 
   const stopMouse = () => {
     mouse.down = false;
-    mouse.active = false;
   };
 
   on(window, 'pointerup', stopMouse);
