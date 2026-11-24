@@ -32,7 +32,7 @@ void main() {
     float angle = atan(v_slice.y, v_slice.x);
     float rim = 1.0 - smoothstep(0.004, 0.024, abs(radius - 0.985));
     rim *= 0.45 + 0.55 * smoothstep(-0.1, 0.65, cos(angle * 22.0));
-    out_color = vec4(0.79, 0.90, 0.38, rim * mix(0.28, 0.55, fade));
+    out_color = vec4(0.79, 0.90, 0.38, rim * mix(0.12, 0.24, fade));
     return;
   }
 
