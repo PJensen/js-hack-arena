@@ -3,4 +3,5 @@ export const EffectKind = Object.freeze({
   ACTION_LOCK: 'action_lock',
   PERIODIC_DAMAGE: 'periodic_damage',
   PERIODIC_HEAL: 'periodic_heal',
+  APPLY_CONDITION: 'apply_condition',
 });

@@ -3,16 +3,17 @@
 import { findOpen } from '../rules/geometry/landmarks.js';
 
 export function createDungeonDecorations({
-  grid, routes = [], spawns = [], seed = 1, campfire: hearth = null,
+  grid, routes = [], spawns = [], seed = 1, campfires = [],
 }) {
   const rng = mulberry32(seed ^ 0x51a7f00d);
   const torches = [];
   const start = spawns[0];
+  const hearth = campfires[0];
 
   const placeTorch = (x, y, routeIndex = -1) => {
     const open = findOpen(grid, x, y, 75);
     if (!open) return;
-    if (hearth && Math.hypot(hearth.x - open.x, hearth.y - open.y) < 125) return;
+    if (campfires.some((fire) => Math.hypot(fire.x - open.x, fire.y - open.y) < 125)) return;
     if (torches.some((torch) => Math.hypot(torch.x - open.x, torch.y - open.y) < 240)) return;
     torches.push({ ...open, routeIndex, phase: rng() * Math.PI * 2 });
   };
@@ -24,9 +25,8 @@ export function createDungeonDecorations({
     route.points.forEach((point) => placeTorch(point.x, point.y, routeIndex));
   });
 
-  const campfire = hearth ? Object.freeze({ ...hearth, phase: rng() * Math.PI * 2 }) : null;
   // If both flanks are solid, try the end of the room opposite the hearth.
-  const farSide = hearth && hearth.y > start.y ? -1 : 1;
+  const farSide = hearth && start && hearth.y > start.y ? -1 : 1;
   const patch = start && (
     findOpen(grid, start.x - 152, start.y + 32, 24, 24) ??
     findOpen(grid, start.x + 152, start.y + 32, 24, 24) ??
@@ -43,12 +43,12 @@ export function createDungeonDecorations({
       const open = findOpen(grid, start.x + dx, start.y + dy, 24, 24);
       if (!open) continue;
       if (patch && Math.hypot(patch.x - open.x, patch.y - open.y) < 120) continue;
-      if (hearth && Math.hypot(hearth.x - open.x, hearth.y - open.y) < 108) continue;
+      if (campfires.some((fire) => Math.hypot(fire.x - open.x, fire.y - open.y) < 108)) continue;
       ghostPipe = Object.freeze({ ...open, phase: rng() * Math.PI * 2 });
       break;
     }
   }
-  return Object.freeze({ torches: Object.freeze(torches), campfire, mushroom, ghostPipe });
+  return Object.freeze({ torches: Object.freeze(torches), mushroom, ghostPipe });
 }
 
 function mulberry32(seed) {

@@ -5,6 +5,7 @@ import {
   Velocity, WeaponPickup,
 } from '../../rules/components/index.js';
 import { AI } from '../../rules/components/AI.js';
+import { AuraId } from '../../rules/data/auraCatalog.js';
 import { ConditionId, conditions as conditionCatalog } from '../../rules/data/conditionCatalog.js';
 import { spells as spellCatalog } from '../../rules/data/spellCatalog.js';
 import { rarityTextColors } from '../../rules/data/lootTable.js';
@@ -629,7 +630,7 @@ export function createWebGLArenaRenderer(deps) {
     return new Float32Array(points);
   }
 
-  function collectLights(now, burningLights) {
+  function collectLights(now, burningLights, campfires) {
     const candidates = burningLights;
     for (const [id, position, source] of world.query(Position, PointLight)) {
       if (!source.enabled) continue;
@@ -665,8 +666,7 @@ export function createWebGLArenaRenderer(deps) {
         r: 1, g: 0.48, b: 0.18,
       });
     }
-    const campfire = decorations?.campfire;
-    if (campfire) {
+    for (const campfire of campfires) {
       const y = campfire.y - 8;
       const intensity = emberLight(now, campfire.phase);
       const radius = 185 * (0.77 + 0.25 * intensity);
@@ -839,6 +839,7 @@ export function createWebGLArenaRenderer(deps) {
   }
 
   function drawAuraEmitter(emitter, position, now, entityId) {
+    if (emitter.id === AuraId.CAMPFIRE) return;
     if (!emitter?.active || emitter.radius <= 0) return;
     const pulse = 0.5 + 0.5 * Math.sin(now * 3.2 + entityId * 0.47);
     const rawColor = emitter.visual?.color;
@@ -949,12 +950,12 @@ export function createWebGLArenaRenderer(deps) {
     return lights;
   }
 
-  function drawDungeonDecorations(now, renderDt) {
+  function drawDungeonDecorations(now, renderDt, campfires) {
     torchParticleAccumulator += renderDt;
     const emitParticles = torchParticleAccumulator >= 0.055;
     if (emitParticles) torchParticleAccumulator %= 0.055;
-    const campfire = decorations?.campfire;
-    if (campfire && inView(campfire.x, campfire.y, 90)) {
+    for (const campfire of campfires) {
+      if (!inView(campfire.x, campfire.y, 90)) continue;
       gl.useProgram(campfireProgram);
       gl.uniform4fv(campfireLocations.view, view);
       gl.uniform2f(campfireLocations.position, campfire.x, campfire.y);
@@ -1045,7 +1046,7 @@ export function createWebGLArenaRenderer(deps) {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
-  function drawOverlay(width, height, ratio, shownPlayer) {
+  function drawOverlay(width, height, ratio, shownPlayer, campfires) {
     if (!overlay || !overlayCanvas) return;
     if (overlayCanvas.width !== width || overlayCanvas.height !== height) {
       overlayCanvas.width = width; overlayCanvas.height = height;
@@ -1086,8 +1087,7 @@ export function createWebGLArenaRenderer(deps) {
     const mapPoint = (x, y) => [left + 7 * ratio + x / bounds.w * (size - 14 * ratio), top + 7 * ratio + y / bounds.h * (size - 14 * ratio)];
     overlay.fillStyle = 'rgba(255,151,48,.75)';
     for (const torch of decorations?.torches || []) { const [x, y] = mapPoint(torch.x, torch.y); overlay.fillRect(x - ratio, y - ratio, ratio * 2, ratio * 2); }
-    const campfire = decorations?.campfire;
-    if (campfire) {
+    for (const campfire of campfires) {
       const [x, y] = mapPoint(campfire.x, campfire.y);
       overlay.fillStyle = 'rgba(255,190,72,.95)';
       overlay.fillRect(x - 2 * ratio, y - 2 * ratio, ratio * 4, ratio * 4);
@@ -1200,7 +1200,11 @@ export function createWebGLArenaRenderer(deps) {
     gl.uniform2i(caveLocations.gridSize, grid.cols, grid.rows);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-    drawDungeonDecorations(now, renderDt);
+    const campfires = [];
+    for (const [, { x, y }, emitter] of world.query(Position, AuraEmitter)) {
+      if (emitter.id === AuraId.CAMPFIRE && emitter.active) campfires.push({ x, y, phase: x * 0.013 + y * 0.017 });
+    }
+    drawDungeonDecorations(now, renderDt, campfires);
 
     goreRenderer.drawFloor(gore, view, inView);
 
@@ -1270,7 +1274,7 @@ export function createWebGLArenaRenderer(deps) {
     goreRenderer.drawAirborne(gore, view, inView);
     // Lighting is a full-world GPU composition pass. Everything except the
     // intentionally luminous VFX and HUD participates in darkness and color.
-    drawLighting(collectLights(now, presentBurning(now, renderDt)));
+    drawLighting(collectLights(now, presentBurning(now, renderDt), campfires));
     drawDecorationEmission(now);
 
     // Loot signals are intentionally emissive: shafts remain readable through
@@ -1452,7 +1456,7 @@ export function createWebGLArenaRenderer(deps) {
     hud.zoomReadout.textContent = `zoom: ${cam.scale.toFixed(2)}x  particles:${fx.pool.count}`;
     hud.readL.textContent = router.left.active ? `L x:${playerInput.moveX.toFixed(2)} y:${playerInput.moveY.toFixed(2)}` : (Math.abs(keyboard.mx) + Math.abs(keyboard.my) ? `KB ${keyboard.mx},${keyboard.my}` : 'L stick idle');
     hud.readR.textContent = router.right.active ? `R x:${playerInput.aimX.toFixed(2)} y:${playerInput.aimY.toFixed(2)}` : 'R stick idle';
-    drawOverlay(width, height, ratio, shownPlayer);
+    drawOverlay(width, height, ratio, shownPlayer, campfires);
   }
 
   return Object.freeze({

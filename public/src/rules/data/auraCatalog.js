@@ -1,14 +1,26 @@
 import { EffectKind } from './effectCatalog.js';
+import { ConditionId } from './conditionCatalog.js';
 export { EffectKind };
 
 export const AuraId = Object.freeze({
   CHILLING_PRESENCE: 'chilling_presence',
   HASTE_TOTEM: 'haste_totem',
+  CAMPFIRE: 'campfire',
 });
 
 // Spatial fields share the same generic effect operations as conditions.
 // Their radius, relationship, and visual describe the emitter, not recipients.
 export const auras = Object.freeze({
+  [AuraId.CAMPFIRE]: Object.freeze({
+    id: AuraId.CAMPFIRE,
+    name: 'Campfire',
+    radius: 16,
+    includeCollider: true,
+    targets: 'all',
+    effects: Object.freeze([
+      Object.freeze({ kind: EffectKind.APPLY_CONDITION, conditionId: ConditionId.BURNING }),
+    ]),
+  }),
   [AuraId.CHILLING_PRESENCE]: Object.freeze({
     id: AuraId.CHILLING_PRESENCE,
     name: 'Chilling Presence',

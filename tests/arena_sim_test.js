@@ -6,7 +6,7 @@ import {
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { AI, Actor, Auras, Facing, Gold, Health, Input, ItemInfo, Mana, PointLight, Position, Powerups, Projectile, Ring, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
-import { GOLD_LIGHT, spawnEpicChest, spawnEpicSword, spawnFuryRune, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
+import { GOLD_LIGHT, spawnAuraField, spawnEpicChest, spawnEpicSword, spawnFuryRune, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
 import { applyAura, applyDamage, getStatMultiplier } from '../public/src/rules/effects.js';
 import { SpellCastMode, spells as spellCatalog } from '../public/src/rules/data/spellCatalog.js';
 import {
@@ -472,6 +472,39 @@ Deno.test("arena sim: generic aura effects modify rules and expire", () => {
   applyAura(sim.world, playerId, 'poisoned', playerId, 1);
   for (let i = 0; i < 13; i++) sim.step(0.05);
   assert(health.hp < beforePoison);
+});
+
+Deno.test('arena sim: multiple campfires and a temporary area can apply the same burning condition', () => {
+  const campfires = [{ x: 185, y: 100 }, { x: 260, y: 100 }];
+  const sim = makeOpenSim(905, { campfires, enemyCount: 0 });
+  const id = sim.addPlayer('peer-a');
+  const position = sim.world.get(id, Position);
+  const health = sim.world.get(id, Health);
+  const burning = () => sim.getPlayerSnapshot('peer-a').state.conditions;
+  assertEquals(sim.captureSnapshot().entities.filter(({ kind }) => kind === 'aura_field').length, 2);
+  sim.step();
+  assertEquals(burning(), []);
+
+  for (const { x } of campfires) {
+    position.x = x + 25;
+    sim.step();
+    assertEquals(burning().map(({ id }) => id), ['burning']);
+    position.x = 100;
+    for (let i = 0; i < 61; i++) sim.step();
+    assertEquals(burning(), []);
+  }
+
+  spawnAuraField(sim.world, 125, 100, {
+    id: 'burning_pool',
+    radius: 28,
+    effects: [{ kind: 'apply_condition', conditionId: 'burning', duration: 1 }],
+  }, { duration: 0.8 });
+  const hpBeforePool = health.hp;
+  for (let i = 0; i < 21; i++) sim.step();
+  assertEquals(burning().map(({ id, duration }) => [id, duration]), [['burning', 1]]);
+  assertEquals(health.hp, hpBeforePool - 2);
+  for (let i = 0; i < 21; i++) sim.step();
+  assertEquals(burning(), []);
 });
 
 Deno.test("arena sim: '?' spellbooks teach mana-powered abilities", () => {

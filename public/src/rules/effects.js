@@ -1,4 +1,4 @@
-import { Actor, ActorKind, AuraEmitter, AuraMemberships, Conditions, Health, Position, Powerups } from './components/index.js';
+import { Actor, ActorKind, AuraEmitter, AuraMemberships, Collider, Conditions, Health, Position, Powerups } from './components/index.js';
 import { conditions as conditionCatalog } from './data/conditionCatalog.js';
 import { EffectKind } from './data/effectCatalog.js';
 
@@ -104,7 +104,27 @@ export function effectSystem(world, dt) {
   }
 
   for (const [targetId, memberships] of world.query(AuraMemberships)) {
-    for (const membership of memberships.active) tickPeriodicEffects(world, targetId, membership, dt);
+    for (const membership of memberships.active) {
+      tickPeriodicEffects(world, targetId, membership, dt);
+      for (const effect of membership.effects) {
+        if (effect.kind === EffectKind.APPLY_CONDITION) refreshCondition(world, targetId, membership.source, effect);
+      }
+    }
+  }
+}
+
+function refreshCondition(world, targetId, sourceId, { conditionId, duration }) {
+  const health = world.get(targetId, Health);
+  const definition = conditionCatalog[conditionId];
+  if (!definition || !health || health.dead || health.hp <= 0) return;
+  const existing = world.get(targetId, Conditions)?.active.find(({ id }) => id === conditionId);
+  const lifetime = positiveDuration(duration, definition.duration);
+  if (existing) {
+    // Sustained contact extends the condition without restarting its damage timer.
+    existing.remaining = Math.max(existing.remaining, lifetime);
+    existing.duration = Math.max(existing.duration, lifetime);
+  } else {
+    applyCondition(world, targetId, conditionId, sourceId, lifetime);
   }
 }
 
@@ -133,6 +153,7 @@ export function projectAuraEmitter(world, entityId) {
     id: String(emitter.id || ''),
     name: String(emitter.name || emitter.id || 'Aura'),
     radius: Math.max(0, finiteNumber(emitter.radius, 0)),
+    includeCollider: Boolean(emitter.includeCollider),
     targets: emitter.targets || 'all',
     team: emitter.team || null,
     effects: cloneEffects(emitter.effects),
@@ -159,22 +180,24 @@ function updateAuraMemberships(world, dt) {
     }
     const radius = Math.max(0, finiteNumber(emitter.radius, 0));
     if (radius <= 0) continue;
-    emitters.push({ id, position, emitter, radiusSquared: radius * radius });
+    emitters.push({ id, position, emitter, radius });
   }
 
   const actors = [...world.query(Position, Actor)];
-  for (const [targetId, position, actor] of actors) {
+  for (const [targetId, position] of actors) {
     const health = world.get(targetId, Health);
     const old = world.get(targetId, AuraMemberships)?.active || [];
     const previous = new Map(old.map((membership) => [membership.emitterId, membership]));
     const next = [];
     if (!health || (!health.dead && health.hp > 0)) {
-      for (const { id, position: sourcePosition, emitter, radiusSquared } of emitters) {
+      const targetRadius = world.get(targetId, Collider)?.radius ?? 0;
+      for (const { id, position: sourcePosition, emitter, radius } of emitters) {
         const sourceTeam = emitter.team || actorTeam(world, id);
         if (!isTargeted(emitter.targets, sourceTeam, actorTeam(world, targetId))) continue;
         const dx = position.x - sourcePosition.x;
         const dy = position.y - sourcePosition.y;
-        if (dx * dx + dy * dy > radiusSquared) continue;
+        const reach = radius + (emitter.includeCollider ? targetRadius : 0);
+        if (dx * dx + dy * dy > reach * reach) continue;
 
         const existing = previous.get(id);
         next.push(existing && existing.id === emitter.id

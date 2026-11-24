@@ -6,6 +6,7 @@ export const AuraEmitter = defineComponent('AuraEmitter', {
   id: '',
   name: '',
   radius: 0,
+  includeCollider: false,
   targets: 'all',
   team: null,
   effects: [],

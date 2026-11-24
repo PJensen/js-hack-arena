@@ -99,8 +99,13 @@ Deno.test('game room: walking through the campfire applies and replicates timed 
   room.accept(socket, { userId: 'user-1', displayName: 'First' });
   try {
     const { peerId } = socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
-    const { grid, campfire } = room.ensureCave();
+    const { grid, campfires: [campfire] } = room.ensureCave();
     assert(campfire);
+    const field = latestSnapshot(socket).entities.find(({ state }) => state.auraEmitter?.id === 'campfire');
+    assert(field);
+    assertEquals(field.kind, 'aura_field');
+    assertEquals([field.state.x, field.state.y], [campfire.x, campfire.y]);
+    assertEquals(field.state.auraEmitter.effects[0].conditionId, 'burning');
     const sim = room.ensureSim();
     const position = sim.world.get(sim.getPlayerEntity(peerId), Position);
     const distance = () => Math.hypot(campfire.x - position.x, campfire.y - position.y);

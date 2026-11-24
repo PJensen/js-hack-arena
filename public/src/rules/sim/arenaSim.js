@@ -31,10 +31,12 @@ import {
   Velocity,
 } from '../components/index.js';
 import { epicChestTable, epicChestTotalWeight, mobDropTable, mobDropTotalWeight, rollTable } from '../data/lootTable.js';
+import { AuraId } from '../data/auraCatalog.js';
 import { effectSystem, projectConditions, projectAuraEmitter } from '../effects.js';
 import { createGridCarver } from '../geometry/carve.js';
 import {
   spawnArrows,
+  spawnAuraField,
   spawnBow,
   spawnCaster,
   spawnEpicBow,
@@ -62,7 +64,6 @@ import {
 } from '../spawner.js';
 import { createAISystem } from '../systems/aiSystem.js';
 import { createBumpSystem } from '../systems/bumpSystem.js';
-import { createCampfireSystem } from '../systems/campfireSystem.js';
 import { deathSystem } from '../systems/deathSystem.js';
 import { createMovementSystem } from '../systems/movementSystem.js';
 import { manaSystem } from '../systems/manaSystem.js';
@@ -107,7 +108,7 @@ export function createArenaSimulation({
   seed,
   grid,
   spawns = [],
-  campfire = null,
+  campfires = [],
   mode = SIM_MODE.AUTHORITY,
   enemyCount = 1,
   enemyGroupSize = 1,
@@ -132,17 +133,17 @@ export function createArenaSimulation({
   let populationStarted = false;
 
   if (mode === SIM_MODE.AUTHORITY) {
-    installAuthoritativeRules(world, grid, campfire);
+    installAuthoritativeRules(world, grid);
     installEventJournal(world, eventHistory, () => ({ tick, sequence: ++eventSequence }), projectEventPayload);
     installLootRules(world);
+    for (const { x, y } of campfires) spawnAuraField(world, x, y, AuraId.CAMPFIRE);
   }
 
   function addPlayer(peerId, _spawnIndex = 0, networkId = null, playerName = 'Adventurer') {
     const owner = normalizePeerId(peerId);
     if (playerByPeer.has(owner)) return playerByPeer.get(owner);
 
-    // The campfire marks the shared starting chamber, so every player begins
-    // at its authored spawn regardless of join order.
+    // Every player begins at the shared starting spawn regardless of join order.
     const spawn = spawns[0] || { x: 1000, y: 1000 };
     const entityId = spawnPlayer(world, spawn.x, spawn.y, normalizeActorName(playerName));
     world.add(entityId, PlayerTag);
@@ -752,7 +753,7 @@ export function normalizeSnapshot(snapshot) {
   return { version: SIM_SNAPSHOT_VERSION, tick, revision, entities, events };
 }
 
-function installAuthoritativeRules(world, grid, campfire) {
+function installAuthoritativeRules(world, grid) {
   const systems = [
     effectSystem,
     createMovementSystem({ grid }),
@@ -762,7 +763,6 @@ function installAuthoritativeRules(world, grid, campfire) {
     createAISystem({ grid }),
     createPlayerCombatSystem({ grid }),
     createBumpSystem(),
-    createCampfireSystem(campfire),
     createPickupSystem({ grid }),
     createProjectileSystem({ grid, carve: createGridCarver(grid) }),
     deathSystem,
@@ -1095,6 +1095,7 @@ function normalizeAuraEmitter(id, value) {
     id: String(value.id || ''),
     name: String(value.name || value.id || 'Aura'),
     radius,
+    includeCollider: Boolean(value.includeCollider),
     targets,
     team: value.team == null ? null : String(value.team),
     effects: value.effects.map((effect, index) => normalizeEffect(id, effect, index)),
@@ -1115,10 +1116,10 @@ function normalizeEffect(id, value, index) {
     throw new Error(`simulation ${id}.auraEmitter.effects[${index}] must be an object`);
   }
   const effect = { kind: String(value.kind || '') };
-  for (const key of ['stat', 'action', 'damageType']) {
+  for (const key of ['stat', 'action', 'damageType', 'conditionId']) {
     if (value[key] != null) effect[key] = String(value[key]);
   }
-  for (const key of ['value', 'amount', 'interval']) {
+  for (const key of ['value', 'amount', 'interval', 'duration']) {
     if (value[key] != null) effect[key] = finiteNumber(value[key], `${id}.auraEmitter.effects[${index}].${key}`);
   }
   effect.elapsed = 0;

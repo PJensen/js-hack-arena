@@ -45,6 +45,7 @@ export function attachAuraEmitter(world, entityId, aura, { team = null, duration
     id: String(definition.id || 'custom_aura'),
     name: String(definition.name || definition.id || 'Aura'),
     radius,
+    includeCollider: Boolean(definition.includeCollider),
     targets,
     team: effectiveTeam,
     effects: definition.effects.map((effect) => ({ ...effect, elapsed: 0 })),
