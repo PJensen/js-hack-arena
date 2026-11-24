@@ -17,6 +17,7 @@ void main() {
     falloff = pow(falloff, 2.8);
     illumination += u_light_colors[i] * falloff * source.w * 4.0;
   }
-  out_color = vec4(clamp(illumination, 0.0, 3.5), 1.0);
+  vec3 mapped = illumination / (vec3(0.55) + illumination);
+  out_color = vec4(mapped, 1.0);
 }`;
 }
