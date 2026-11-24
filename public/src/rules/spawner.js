@@ -4,7 +4,7 @@
 
 import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, Mana, Stamina, Powerups, FOV, PointLight, AI, AIBehavior, Projectile, Lifetime, Spellbook, SpellId, ItemInfo, ItemSlot, Consumable, GroundItem, MeleeWeapon, WeaponPickup, BowWeapon, ArrowAmmo, RecoverableArrows, Conditions, AuraEmitter } from './components/index.js';
 import { auras as auraCatalog } from './data/auraCatalog.js';
-import { ConditionId } from './data/conditionCatalog.js';
+import { ConditionId, HEALTH_POTION_AMOUNT } from './data/conditionCatalog.js';
 import { Gold } from './components/Gold.js';
 import { Ring } from './components/Ring.js';
 
@@ -258,14 +258,21 @@ export function spawnProjectile(world, { x, y, angle, speed, damage, owner, radi
   return id;
 }
 
-/**
- * Spawn a health potion on the ground. Glowing "!" glyph.
- */
-export function spawnPotion(world, x, y, potency = 30) {
+/** Spawn a common health potion that heals over time. */
+export function spawnPotion(world, x, y) {
+  return spawnHealthPotion(world, x, y, 'Health Potion', 'heal_over_time', HEALTH_POTION_AMOUNT);
+}
+
+/** Spawn an instant health potion for Epic Chest loot. */
+export function spawnInstantPotion(world, x, y, potency) {
+  return spawnHealthPotion(world, x, y, 'Instant Health Potion', 'heal', potency);
+}
+
+function spawnHealthPotion(world, x, y, name, effect, potency) {
   const id = world.create();
   world.add(id, Position, { x, y });
-  world.add(id, ItemInfo, { name: 'Health Potion', glyph: '!', slot: 'none', count: 1 });
-  world.add(id, Consumable, { effect: 'heal', potency });
+  world.add(id, ItemInfo, { name, glyph: '!', slot: 'none', count: 1 });
+  world.add(id, Consumable, { effect, potency });
   world.add(id, GroundItem);
   world.add(id, Collider, { radius: 10 });
   world.add(id, PointLight, { radius: 72, r: 255, g: 50, b: 80 });

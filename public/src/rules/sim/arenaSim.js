@@ -54,6 +54,7 @@ import {
   spawnGold,
   GOLD_LIGHT,
   findOpenNear,
+  spawnInstantPotion,
   spawnLegendaryBow,
   spawnLegendarySword,
   spawnFuryRune,
@@ -702,7 +703,7 @@ export function createArenaSimulation({
     targetWorld.on('entity.died', (event) => {
       if (event.kind === ActorKind.PLAYER) { retargetEnemies(); return; }
       if (event.kind !== ActorKind.MOB) return;
-      spawnPotion(targetWorld, event.x, event.y, 25);
+      spawnPotion(targetWorld, event.x, event.y);
       const drop = rollTable(mobDropTable, mobDropTotalWeight, targetWorld.rand);
       const itemId = spawnDrop(targetWorld, drop, event.x + targetWorld.rand() * 12 - 6, event.y + targetWorld.rand() * 12 - 6);
       if (itemId != null) ensureNetworkId(itemId, 'item');
@@ -792,7 +793,7 @@ function installEventJournal(world, history, nextIdentity, projectPayload) {
 
 function spawnDrop(world, drop, x, y) {
   if (!drop || drop.type === 'nothing') return null;
-  if (drop.type === 'potion') return spawnPotion(world, x, y, drop.potency);
+  if (drop.type === 'instant_potion') return spawnInstantPotion(world, x, y, drop.potency);
   if (drop.type === 'mana_potion') return spawnManaPotion(world, x, y, drop.potency);
   if (drop.type === 'bow') return spawnBow(world, x, y, drop.rarity);
   if (drop.type === 'sword') return spawnSword(world, x, y, drop.tier, drop.rarity);
@@ -1197,7 +1198,7 @@ function replicaItemLight(effect, rarity = '') {
   if (rarity === 'rare') return { radius: 70, r: 80, g: 140, b: 255 };
   if (rarity === 'epic') return { radius: 80, r: 200, g: 80, b: 255 };
   if (rarity === 'legendary') return { radius: 95, r: 255, g: 200, b: 50 };
-  if (effect === 'heal') return { radius: 60, r: 255, g: 50, b: 80 };
+  if (effect === 'heal' || effect === 'heal_over_time') return { radius: 60, r: 255, g: 50, b: 80 };
   if (effect === 'mana') return { radius: 72, r: 55, g: 145, b: 255 };
   if (effect === 'mana_regen') return { radius: 95, r: 65, g: 145, b: 255 };
   if (effect === 'haste') return { radius: 90, r: 55, g: 245, b: 190 };

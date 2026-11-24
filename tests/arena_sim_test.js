@@ -735,19 +735,53 @@ Deno.test('arena sim: swapping weapons preserves their names, glyphs, rarity, an
   assertEquals({ name, glyph, rarity, damage: weapon.damage }, epic);
 });
 
-Deno.test("arena sim: health pickups heal injuries and wait when health is full", () => {
+Deno.test("arena sim: common health potions heal in five ticks and cannot stack", () => {
   const sim = makeOpenSim(901, { enemyCount: 0 });
   const playerId = sim.addPlayer('peer-a');
   const position = sim.world.get(playerId, Position);
   const health = sim.world.get(playerId, Health);
-  const potionId = spawnPotion(sim.world, position.x, position.y, 25);
+  const potionId = spawnPotion(sim.world, position.x, position.y);
 
   sim.step();
   assert(sim.world.alive.has(potionId));
   health.hp = 60;
   sim.step();
-  assertEquals(health.hp, 85);
   assertEquals(sim.world.alive.has(potionId), false);
+  assertEquals(health.hp, 60);
+
+  const secondPotion = spawnPotion(sim.world, position.x, position.y);
+  for (let i = 0; i < 19; i++) sim.step();
+  assertEquals(health.hp, 60);
+  assert(sim.world.alive.has(secondPotion));
+  sim.step();
+  assertEquals(health.hp, 65);
+  sim.world.get(secondPotion, Position).x += 100;
+
+  for (let i = 0; i < 60; i++) sim.step();
+  assertEquals(health.hp, 80);
+  sim.step(2); // Only the last second of the effect is still active.
+  assertEquals(health.hp, 85);
+  assertEquals(sim.world.get(playerId, Auras).active.length, 0);
+});
+
+Deno.test("arena sim: Epic Chests can drop an instant health potion", () => {
+  const sim = makeOpenSim(901, { enemyCount: 0 });
+  const playerId = sim.addPlayer('peer-a');
+  const position = sim.world.get(playerId, Position);
+  const health = sim.world.get(playerId, Health);
+  sim.world.rand = () => 0.69;
+  spawnEpicChest(sim.world, position.x, position.y);
+  sim.step();
+
+  const potion = sim.captureSnapshot().entities.find(({ kind }) => kind === 'item');
+  assertEquals(potion.state.name, 'Instant Health Potion');
+  assertEquals(potion.state.potency, 50);
+  sim.step();
+  assert(sim.captureSnapshot().entities.some(({ id }) => id === potion.id));
+  health.hp = 60;
+  sim.step();
+  assertEquals(health.hp, 100);
+  assertEquals(sim.world.get(playerId, Auras).active.length, 0);
 });
 
 Deno.test("arena sim: confirmed damage and healing retain their amounts and target across replicas", () => {
@@ -755,8 +789,9 @@ Deno.test("arena sim: confirmed damage and healing retain their amounts and targ
   const player = authority.addPlayer('peer-a');
   const position = authority.world.get(player, Position);
   applyDamage(authority.world, player, 19, { damageType: 'poison', periodic: true });
-  spawnPotion(authority.world, position.x, position.y, 25);
+  spawnPotion(authority.world, position.x, position.y);
   authority.step();
+  for (let i = 0; i < 20; i++) authority.step();
   applyDamage(authority.world, player, 120);
   authority.step();
 
@@ -772,8 +807,8 @@ Deno.test("arena sim: confirmed damage and healing retain their amounts and targ
   assertEquals(events.map(({ target, amount, hpLost, periodic, killed }) =>
     [target, amount, hpLost, periodic, killed]), [
     [local, 19, 19, true, false],
-    [local, -19, undefined, undefined, undefined],
-    [local, 120, 100, false, true],
+    [local, -5, undefined, true, undefined],
+    [local, 120, 86, false, true],
   ]);
 });
 

@@ -1,10 +1,12 @@
 // Consumables are collected by walking over them; gear requires an explicit
 // intent from their comparison card. Replaced equipment is dropped nearby.
 import {
-  ArrowAmmo, BowWeapon, Collider, Consumable, Facing, Gold, GroundItem, Health,
+  ArrowAmmo, BowWeapon, Collider, Conditions, Consumable, Facing, Gold, GroundItem, Health,
   Input, ItemInfo, ItemSlot, Mana, MeleeWeapon, PickupLock, Position, Powerups,
   Ring, Spellbook, SpellId, WeaponPickup,
 } from '../components/index.js';
+import { ConditionId } from '../data/conditionCatalog.js';
+import { applyCondition, applyHealing } from '../effects.js';
 import { findOpenNear, spawnRing, spawnWeaponPickup } from '../spawner.js';
 
 export function createPickupSystem({ grid = null } = {}) {
@@ -148,14 +150,17 @@ function getDropPosition(world, player, itemPosition, grid) {
 
 function consumeItem(world, player, itemId, position, info, consumable) {
   const { hp, id } = player;
-  if (consumable.effect === 'heal') {
+  if (consumable.effect === 'heal_over_time') {
     if (hp.hp >= hp.maxHp) return false;
-    const healed = Math.min(consumable.potency, hp.maxHp - hp.hp);
-    hp.hp += healed;
-    world.emit('damage.dealt', {
-      target: id, source: itemId, amount: -healed,
-      x: player.pos.x, y: player.pos.y,
-    });
+    if (world.get(id, Conditions)?.active.some((condition) => condition.id === ConditionId.HEALTH_POTION)) return false;
+    applyCondition(world, id, ConditionId.HEALTH_POTION, id);
+    world.emit('item.pickup', { entity: id, item: info?.name, x: player.pos.x, y: player.pos.y });
+    return true;
+  }
+
+  if (consumable.effect === 'heal') {
+    const healed = applyHealing(world, id, consumable.potency, { sourceId: itemId });
+    if (healed === 0) return false;
     world.emit('item.pickup', { entity: id, item: info?.name, healed, x: player.pos.x, y: player.pos.y });
     return true;
   }

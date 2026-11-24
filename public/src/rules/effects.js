@@ -2,6 +2,8 @@ import { Actor, ActorKind, AuraEmitter, AuraMemberships, Collider, Conditions, H
 import { conditions as conditionCatalog } from './data/conditionCatalog.js';
 import { EffectKind } from './data/effectCatalog.js';
 
+const TIMER_EPSILON = 1e-9;
+
 export function applyCondition(world, targetId, conditionId, sourceId = null, duration = null) {
   const definition = conditionCatalog[conditionId];
   if (!definition || !world.alive.has(targetId)) return false;
@@ -93,8 +95,9 @@ export function effectSystem(world, dt) {
   updateAuraMemberships(world, dt);
   for (const [targetId, state] of world.query(Conditions)) {
     for (const condition of state.active) {
+      const remaining = condition.remaining;
       condition.remaining -= dt;
-      tickPeriodicEffects(world, targetId, condition, dt);
+      tickPeriodicEffects(world, targetId, condition, dt, remaining);
     }
     const expired = state.active.filter((condition) => condition.remaining <= 0);
     state.active = state.active.filter((condition) => condition.remaining > 0);
@@ -249,7 +252,7 @@ function forEachEffect(world, targetId, visit) {
   }
 }
 
-function tickPeriodicEffects(world, targetId, source, dt) {
+function tickPeriodicEffects(world, targetId, source, dt, remaining = Infinity) {
   for (const effect of source.effects || []) {
     if (effect.kind !== EffectKind.PERIODIC_DAMAGE && effect.kind !== EffectKind.PERIODIC_HEAL) continue;
     if (effect.kind === EffectKind.PERIODIC_DAMAGE) {
@@ -257,9 +260,11 @@ function tickPeriodicEffects(world, targetId, source, dt) {
       if (!health || health.dead || health.hp <= 0) continue;
     }
     const interval = Math.max(0.05, finiteNumber(effect.interval, 1));
-    effect.elapsed = finiteNumber(effect.elapsed, 0) + dt;
-    while (effect.elapsed >= interval) {
-      effect.elapsed -= interval;
+    const healing = effect.kind === EffectKind.PERIODIC_HEAL;
+    const tolerance = healing ? TIMER_EPSILON : 0;
+    effect.elapsed = finiteNumber(effect.elapsed, 0) + (healing ? Math.min(dt, remaining) : dt);
+    while (effect.elapsed + tolerance >= interval) {
+      effect.elapsed = Math.max(0, effect.elapsed - interval);
       const amount = Math.max(0, finiteNumber(effect.amount, 0)) * Math.max(1, source.stacks || 1);
       if (effect.kind === EffectKind.PERIODIC_DAMAGE) {
         if (world.get(targetId, Health)?.hp <= 0) break;

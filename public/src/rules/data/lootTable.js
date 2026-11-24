@@ -64,7 +64,7 @@ export const epicChestTable = [
   { weight: 20, type: 'epic_bow',        rarity: Rarity.EPIC },
   { weight: 20, type: 'sword',           tier: 2, rarity: Rarity.RARE },
   { weight: 15, type: 'arrows',          count: 10 },
-  { weight: 10, type: 'potion',          potency: 50 },
+  { weight: 10, type: 'instant_potion',  potency: 50 },
   { weight: 8,  type: 'mana_potion',     potency: 40 },
   { weight: 8,  type: 'fury_rune',       rarity: Rarity.RARE },
   { weight: 8,  type: 'ward_rune',       rarity: Rarity.RARE },

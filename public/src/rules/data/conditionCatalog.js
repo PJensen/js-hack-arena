@@ -1,5 +1,8 @@
 import { EffectKind } from './effectCatalog.js';
 
+export const HEALTH_POTION_AMOUNT = 25;
+const HEALTH_POTION_DURATION = 5;
+
 export const ConditionId = Object.freeze({
   FROZEN: 'frozen',
   STUNNED: 'stunned',
@@ -10,6 +13,7 @@ export const ConditionId = Object.freeze({
   BURNING: 'burning',
   ICE_ARMOR: 'ice_armor',
   REGENERATION: 'regeneration',
+  HEALTH_POTION: 'health_potion',
 });
 
 export const conditions = Object.freeze({
@@ -112,6 +116,17 @@ export const conditions = Object.freeze({
     visual: 'regeneration',
     effects: Object.freeze([
       Object.freeze({ kind: EffectKind.PERIODIC_HEAL, amount: 4, interval: 1 }),
+    ]),
+  }),
+  [ConditionId.HEALTH_POTION]: Object.freeze({
+    id: ConditionId.HEALTH_POTION,
+    name: 'Potion Healing',
+    glyph: '✚',
+    duration: HEALTH_POTION_DURATION,
+    disposition: 'beneficial',
+    visual: 'regeneration',
+    effects: Object.freeze([
+      Object.freeze({ kind: EffectKind.PERIODIC_HEAL, amount: HEALTH_POTION_AMOUNT / HEALTH_POTION_DURATION, interval: 1 }),
     ]),
   }),
 });

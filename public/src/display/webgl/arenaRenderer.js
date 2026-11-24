@@ -83,7 +83,8 @@ function rarityColor(rarity) {
 }
 
 function lootGlowColor(info, effect) {
-  if (effect === 'heal') return [1, 0.12, 0.28];
+  if (effect === 'heal_over_time') return [1, 0.12, 0.28];
+  if (effect === 'heal') return [1, 0.38, 0.14];
   if (effect === 'mana') return [0.18, 0.58, 1];
   if (effect === 'epic_chest') return [0.78, 0.24, 1];
   const rarity = String(info?.rarity || 'common').toLowerCase();
@@ -95,7 +96,7 @@ function lootGlowColor(info, effect) {
 }
 
 function lootShaftHeight(info, effect) {
-  if (effect === 'heal' || effect === 'mana') return 38;
+  if (effect === 'heal' || effect === 'heal_over_time' || effect === 'mana') return 38;
   if (effect === 'epic_chest') return 82;
   return { common: 32, uncommon: 44, rare: 60, epic: 82, legendary: 108 }[String(info?.rarity).toLowerCase()] || 32;
 }
@@ -665,7 +666,8 @@ export function createWebGLArenaRenderer(deps) {
     if (potion) {
       const blue = effect === 'mana';
       gl.uniform3f(loot.body, blue ? 0.2 : 0.95, blue ? 0.58 : 0.12, blue ? 1 : 0.34);
-      gl.uniform3f(loot.trim, 0.77, 0.9, 0.94);
+      if (effect === 'heal') gl.uniform3f(loot.trim, 1, 0.7, 0.26);
+      else gl.uniform3f(loot.trim, 0.77, 0.9, 0.94);
       gl.uniform3f(loot.detail, 0.57, 0.31, 0.16);
     } else if (model === 'chest') {
       gl.uniform3f(loot.body, 0.37, 0.17, 0.48);
@@ -1598,7 +1600,8 @@ export function createWebGLArenaRenderer(deps) {
         drawGlyph('$', shown.x, shown.y - 2 + bob, 19, [1, 0.78, 0.25, 0.95]);
         continue;
       }
-      const potion = effect === 'heal' || effect === 'mana';
+      const healthPotion = effect === 'heal' || effect === 'heal_over_time';
+      const potion = healthPotion || effect === 'mana';
       const model = weapon ? (weapon.slot === 'ranged' ? 'bow' : 'sword')
         : effect === 'epic_chest' ? 'chest' : potion ? 'potion' : null;
       if (model) models.push({ model, id, shown, info, effect });
@@ -1607,7 +1610,7 @@ export function createWebGLArenaRenderer(deps) {
       drawLootShaft(shown.x, shown.y + 5, shaft, glow, (motionPreference.matches ? 0 : now) + id * 0.29);
       if (consumable && effect !== 'epic_chest') {
         const potionTheme = consumable.effect === 'mana' ? 'electric' : 'fire';
-        const swirl = consumable.effect === 'heal' ? 0 : 1;
+        const swirl = healthPotion ? 0 : 1;
         drawPotionGlow(potionTheme, shown.x, shown.y, 16 + pulse * 2, now + id * 0.13, 0.9, swirl);
       }
       const itemColor = weapon || info.slot === ItemSlot.RING
