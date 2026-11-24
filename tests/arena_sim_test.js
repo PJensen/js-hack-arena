@@ -6,7 +6,7 @@ import {
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { AI, Actor, Auras, Facing, Gold, Health, Input, ItemInfo, Mana, PointLight, Position, Powerups, Projectile, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
-import { GOLD_LIGHT, spawnEpicChest, spawnFuryRune, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnSpellbook, spawnWardRune } from '../public/src/rules/spawner.js';
+import { GOLD_LIGHT, spawnEpicChest, spawnFuryRune, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnSpider, spawnSpellbook, spawnWardRune } from '../public/src/rules/spawner.js';
 import { applyAura, applyDamage, getStatMultiplier } from '../public/src/rules/effects.js';
 import { SpellCastMode, spells as spellCatalog } from '../public/src/rules/data/spellCatalog.js';
 import {
@@ -702,13 +702,48 @@ Deno.test("arena sim: zero-health players die once and cannot act", () => {
   assertEquals(sim.captureSnapshot().entities.find((entity) => entity.kind === 'player').state.dead, true);
 });
 
-Deno.test("arena sim: authored enemy population includes caster, melee, and tank silhouettes", () => {
-  const sim = makeOpenSim(905, { enemyCount: 3, respawnEnemies: false });
+Deno.test("arena sim: authored packs include a spider without increasing the enemy population", () => {
+  const sim = makeOpenSim(905, { enemyCount: 3, enemyGroupSize: 3, enemySpawnExclusionRadius: 320 });
   sim.addPlayer('peer-a');
-  const mobs = [...sim.world.query(AI, Actor, Health)].map(([, ai, actor, health]) => ({ ai, actor, health }));
-  assertEquals(mobs.map((mob) => mob.actor.name).sort(), ['Gelatinous Cube', 'Goblin Raider', 'Wraith']);
+  const mobs = [...sim.world.query(AI, Actor, Health, Position)].map(([, ai, actor, health, position]) => ({ ai, actor, health, position }));
+  assertEquals(mobs.length, 9);
+  assertEquals([...new Set(mobs.map((mob) => mob.actor.name))].sort(), ['Cave Spider', 'Gelatinous Cube', 'Goblin Raider', 'Wraith']);
   assert(mobs.find((mob) => mob.actor.name === 'Gelatinous Cube').health.maxHp >= 180);
   assertEquals(mobs.find((mob) => mob.actor.name === 'Gelatinous Cube').actor.glyph, '■');
+  const spider = mobs.find((mob) => mob.actor.theme === 'spider');
+  assert(Math.hypot(spider.position.x - 100, spider.position.y - 100) > 320);
+  assertEquals(spider.ai.target, null);
+
+  const replica = makeOpenSim(905, { mode: SIM_MODE.REPLICA });
+  replica.applySnapshot(sim.captureSnapshot());
+  assert([...replica.world.query(Actor)].some(([, actor]) => actor.theme === 'spider'));
+});
+
+Deno.test("arena sim: a spider patrols, chases, poisons on contact, and stays dead", () => {
+  const sim = makeOpenSim(921, { enemyCount: 0 });
+  const player = sim.addPlayer('peer-a');
+  const playerPosition = sim.world.get(player, Position);
+  const health = sim.world.get(player, Health);
+  const spider = spawnSpider(sim.world, { distanceMove: () => 100 }, 450, 100, null, [{ x: 560, y: 100 }]);
+  const ai = sim.world.get(spider, AI);
+  const position = sim.world.get(spider, Position);
+  Object.assign(position, { x: 450, y: 100 });
+
+  for (let i = 0; i < 5; i++) sim.step();
+  assertEquals(ai.target, null);
+  assert(position.x > 450);
+  playerPosition.x = position.x - 48;
+  for (let i = 0; i < 7; i++) sim.step();
+  assertEquals(ai.target, player);
+  assert(health.hp < 100);
+  assert(sim.world.get(player, Auras).active.some((condition) => condition.id === 'poisoned'));
+
+  playerPosition.x = 100;
+  applyDamage(sim.world, spider, 1000);
+  const hpAfterBite = health.hp;
+  for (let i = 0; i < 14; i++) sim.step();
+  assert(health.hp < hpAfterBite);
+  assertEquals([...sim.world.query(AI)].length, 0);
 });
 
 Deno.test("arena sim: unalerted patrol mobs stay dormant and dead mobs stay dead", () => {

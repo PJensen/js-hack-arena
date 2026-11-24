@@ -13,6 +13,7 @@ import { createGorePass } from '../passes/gore.js';
 import { biolum, emberLight, torchLight } from '../lightPatterns.js';
 import { createWebGLDevice } from './device.js';
 import { createGoreRenderer } from './goreRenderer.js';
+import { createSpiderMesh } from './spiderMesh.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
 import { createCampfireMesh } from './campfireMesh.js';
 import { createGhostPipeMesh } from './ghostPipeMesh.js';
@@ -272,6 +273,7 @@ export function createWebGLArenaRenderer(deps) {
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   const goreRenderer = createGoreRenderer(device, QUAD);
+  const spiderMesh = createSpiderMesh(device);
 
   const campfireMesh = uploadPropMesh(device, createCampfireMesh());
   const ghostPipeMesh = uploadPropMesh(device, createGhostPipeMesh());
@@ -1011,7 +1013,8 @@ export function createWebGLArenaRenderer(deps) {
       overlay.fillText(label, sx, labelY);
       const conditionLabel = activeConditionLabels(world.get(id, Conditions)).join(' · ');
       if (conditionLabel) {
-        const conditionY = sy - collider.radius * width / view[2] - 19 * ratio;
+        const conditionOffset = collider.radius + (actor.theme === 'spider' ? 11 : 0);
+        const conditionY = sy - conditionOffset * width / view[2] - 19 * ratio;
         overlay.strokeText(conditionLabel, sx, conditionY);
         overlay.fillStyle = '#dff7ff';
         overlay.fillText(conditionLabel, sx, conditionY);
@@ -1152,6 +1155,15 @@ export function createWebGLArenaRenderer(deps) {
       const shown = displayPosition(id, position);
       const velocity = world.get(id, Velocity);
       const speed = Math.hypot(velocity?.vx || 0, velocity?.vy || 0);
+      const facing = world.get(id, Facing)?.angle ?? 0;
+      if (actor.theme === 'spider') {
+        if (!inView(shown.x, shown.y, collider.radius * 2)) continue;
+        const stride = motionPreference.matches ? 0 : Math.min(1, speed / 125);
+        drawDisc(shown.x, shown.y, collider.radius * 1.1, [0.02, 0.012, 0.013, 0.27], [0, 0, 0, 0]);
+        spiderMesh.draw(view, shown.x, shown.y, facing, collider.radius * 1.06, combatTime * 10 + id * 0.91, stride);
+        if (actor.rare) drawGlyph('★', shown.x + collider.radius * 0.72, shown.y - collider.radius * 0.95, 10, [1, 0.78, 0.18, 1]);
+        continue;
+      }
       const moving = Math.min(1, speed / 70);
       const stride = Math.sin(combatTime * (4.2 + moving * 6) + id * 1.71);
       let bob = stride * (actor.name === 'Wraith' ? 3.5 : 1.6) * (0.4 + moving * 0.6);
@@ -1167,7 +1179,6 @@ export function createWebGLArenaRenderer(deps) {
         drawGlyph(actor.glyph, shown.x + lean, shown.y + bob + 1, collider.radius * 1.5, glyphColor);
       }
       if (actor.rare) drawGlyph('★', shown.x + collider.radius * 0.72, shown.y + bob - collider.radius * 0.78, 10, [1, 0.78, 0.18, 1]);
-      const facing = world.get(id, Facing)?.angle ?? 0;
       drawDisc(shown.x + Math.cos(facing) * collider.radius, shown.y + Math.sin(facing) * collider.radius, 2, [1, 0.57, 0.8, 1], [1, 0.57, 0.8, 1]);
     }
     for (const [id, position, collider, projectile] of world.query(Position, Collider, Projectile)) {
@@ -1279,13 +1290,14 @@ export function createWebGLArenaRenderer(deps) {
     // World-space status bars for every living actor.
     for (const [id, position, collider, health] of world.query(Position, Collider, Health)) {
       const shown = displayPosition(id, position);
+      const spider = world.get(id, Actor)?.theme === 'spider';
       const barWidth = Math.max(25, collider.radius * 2.35);
-      const y = shown.y - collider.radius - 9;
+      const y = shown.y - collider.radius - (spider ? 20 : 9);
       const healthRatio = Math.max(0, Math.min(1, health.hp / Math.max(1, health.maxHp)));
       drawRect(shown.x, y, barWidth + 2, 5, [0.025, 0.035, 0.055, 0.92]);
       if (healthRatio > 0) drawRect(shown.x - barWidth * (1 - healthRatio) * 0.5, y, barWidth * healthRatio, 3, [0.24, 0.91, 0.43, 1]);
       const mana = world.get(id, Mana);
-      if (mana) {
+      if (mana && (!spider || mana.maxMana > 0)) {
         const manaRatio = Math.max(0, Math.min(1, mana.mana / Math.max(1, mana.maxMana)));
         drawRect(shown.x, y + 5, barWidth + 2, 4, [0.025, 0.035, 0.055, 0.92]);
         if (manaRatio > 0) drawRect(shown.x - barWidth * (1 - manaRatio) * 0.5, y + 5, barWidth * manaRatio, 2, [0.21, 0.58, 1, 1]);

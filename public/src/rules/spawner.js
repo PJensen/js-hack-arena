@@ -4,9 +4,11 @@
 
 import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, Mana, Stamina, Powerups, FOV, PointLight, AI, AIBehavior, Projectile, Lifetime, Spellbook, SpellId, ItemInfo, ItemSlot, Consumable, GroundItem, MeleeWeapon, WeaponPickup, BowWeapon, ArrowAmmo, RecoverableArrows, Conditions, AuraEmitter } from './components/index.js';
 import { auras as auraCatalog } from './data/auraCatalog.js';
+import { ConditionId } from './data/conditionCatalog.js';
 import { Gold } from './components/Gold.js';
 
 export const GOLD_LIGHT = Object.freeze({ radius: 36, r: 255, g: 190, b: 45 });
+export const SPIDER_LIGHT = Object.freeze({ radius: 56, r: 148, g: 98, b: 70 });
 
 /**
  * Find open ground near a point using the grid.
@@ -144,6 +146,17 @@ export function spawnTank(world, grid, nearX, nearY, targetId, patrolPoints = []
   });
 }
 
+export function spawnSpider(world, grid, nearX, nearY, targetId, patrolPoints = []) {
+  return spawnMob(world, grid, nearX, nearY, targetId, {
+    name: 'Cave Spider', glyph: '🕷', theme: 'spider', radius: 11,
+    speed: 154, hp: 38, mana: 0, manaRegen: 0,
+    light: SPIDER_LIGHT,
+    behavior: AIBehavior.MELEE, preferredDist: 10, castRate: 99,
+    projSpeed: 0, meleeDamage: 8, weapon: 'Venom Bite', conditionId: ConditionId.POISONED, aggroRange: 285,
+    patrolPoints, searchRadius: 64,
+  });
+}
+
 function spawnMob(world, grid, nearX, nearY, targetId, config) {
   const pos = findOpenNear(grid, nearX, nearY, config.searchRadius ?? 400);
   const rare = world.rand() < 0.09;
@@ -170,7 +183,10 @@ function spawnMob(world, grid, nearX, nearY, targetId, config) {
     patrolPoints: config.patrolPoints || [],
     patrolIndex: 0,
   });
-  world.add(id, MeleeWeapon, { damage: Math.round(config.meleeDamage * damageScale), name: config.weapon, glyph: config.glyph });
+  world.add(id, MeleeWeapon, {
+    damage: Math.round(config.meleeDamage * damageScale), name: config.weapon,
+    glyph: config.glyph, conditionId: config.conditionId ?? null,
+  });
   world.add(id, RecoverableArrows);
   return id;
 }

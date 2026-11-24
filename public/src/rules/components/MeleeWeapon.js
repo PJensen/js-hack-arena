@@ -6,4 +6,5 @@ export const MeleeWeapon = defineComponent('MeleeWeapon', {
   name: 'Fists',
   glyph: '\u270A',  // ✊
   rarity: '',
+  conditionId: null,
 });

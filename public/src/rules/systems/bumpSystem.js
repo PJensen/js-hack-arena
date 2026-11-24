@@ -1,7 +1,7 @@
 // Body separation and contact melee. Mutable cooldown state is scoped to one
 // simulation instance, never shared between rooms.
-import { AI, Collider, GroundItem, Health, MeleeWeapon, PlayerTag, Position, Powerups, Projectile } from '../components/index.js';
-import { applyDamage } from '../effects.js';
+import { AI, Collider, Conditions, GroundItem, Health, MeleeWeapon, PlayerTag, Position, Powerups, Projectile } from '../components/index.js';
+import { applyCondition, applyDamage } from '../effects.js';
 
 const BUMP_COOLDOWN = 0.4;
 const BASE_DAMAGE = 5;
@@ -65,13 +65,19 @@ function resolvePair(world, a, b, cooldowns, time) {
 function dealDamage(world, sourceId, targetId, position) {
   const health = world.get(targetId, Health);
   if (!health) return;
-  let damage = world.has(sourceId, MeleeWeapon)
-    ? world.get(sourceId, MeleeWeapon).damage
-    : BASE_DAMAGE;
+  const weapon = world.get(sourceId, MeleeWeapon);
+  let damage = weapon?.damage ?? BASE_DAMAGE;
   damage = Math.max(1, Math.round(damage * (world.get(sourceId, Powerups)?.furyMultiplier || 1)));
   damage = applyDamage(world, targetId, damage, {
     sourceId, x: position.x, y: position.y, damageType: 'physical',
   });
+  const conditionId = weapon?.conditionId;
+  if (damage > 0 && health.hp > 0 && conditionId) {
+    const active = world.get(targetId, Conditions)?.active;
+    if (!active?.some((condition) => condition.id === conditionId)) {
+      applyCondition(world, targetId, conditionId, sourceId);
+    }
+  }
   world.emit('melee.hit', {
     target: targetId,
     source: sourceId,

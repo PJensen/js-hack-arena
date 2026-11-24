@@ -52,6 +52,8 @@ import {
   spawnPlayer,
   spawnPotion,
   spawnSword,
+  spawnSpider,
+  SPIDER_LIGHT,
   spawnSpellbook,
   spawnTank,
   spawnWardRune,
@@ -92,6 +94,7 @@ const PRESENTATION_EVENTS = Object.freeze([
   'terrain.carved',
 ]);
 const EVENT_HISTORY_LIMIT = 96;
+const ENEMY_PACKS = [[spawnCaster], [spawnMelee, spawnSpider], [spawnTank], [spawnSpider]];
 
 /**
  * Authoritative gameplay world or client-side replica of one.
@@ -168,7 +171,7 @@ export function createArenaSimulation({
           y: spawn.y + Math.sin(angle) * (fallbackDistance + i * 30),
         };
         for (let member = 0; member < groupSize; member++) {
-          const mobId = spawnEnemy(world, grid, origin.x + member * 24, origin.y + member * 24, null, i, points?.length ? points : [origin]);
+          const mobId = spawnEnemy(world, grid, origin.x + member * 24, origin.y + member * 24, i, member, points?.length ? points : [origin]);
           ensureNetworkId(mobId, 'mob');
         }
       }
@@ -782,9 +785,9 @@ function spawnDrop(world, drop, x, y) {
   return null;
 }
 
-function spawnEnemy(world, grid, x, y, target, archetype, patrolPoints = []) {
-  const spawners = [spawnCaster, spawnMelee, spawnTank];
-  return spawners[positiveModulo(archetype, spawners.length)](world, grid, x, y, target, patrolPoints);
+function spawnEnemy(world, grid, x, y, group, member, patrolPoints) {
+  const spawners = ENEMY_PACKS[group % ENEMY_PACKS.length];
+  return spawners[member % spawners.length](world, grid, x, y, null, patrolPoints);
 }
 
 function normalizeEntityRecord(entity) {
@@ -1127,6 +1130,7 @@ function replicaItemLight(effect, rarity = '') {
 function lightForTheme(theme) {
   if (theme === 'fire') return { radius: 70, r: 255, g: 105, b: 35 };
   if (theme === 'frost') return { radius: 125, r: 40, g: 225, b: 190 };
+  if (theme === 'spider') return SPIDER_LIGHT;
   return { radius: 105, r: 145, g: 70, b: 220 };
 }
 
@@ -1149,11 +1153,6 @@ function normalizeNetworkId(id) {
   const value = String(id ?? '').trim();
   if (!value) throw new Error('simulation entity id must be a non-empty string');
   return value;
-}
-
-function positiveModulo(value, divisor) {
-  const n = Number.isInteger(value) ? value : 0;
-  return ((n % divisor) + divisor) % divisor;
 }
 
 function clampUnit(value) {

@@ -5,10 +5,27 @@ import { MAX_DYNAMIC_LIGHTS } from '../public/src/display/webgl/arenaRenderer.js
 import { createMeleeImpact } from '../public/src/display/passes/meleeImpact.js';
 import { createFloatTextPass } from '../public/src/display/passes/floatText.js';
 import { createGorePass, GORE_LIMITS } from '../public/src/display/passes/gore.js';
+import { writeSpiderPose } from '../public/src/display/webgl/spiderMesh.js';
 import { buildTerrainMesh } from '../public/src/display/webgl/terrainMesh.js';
 import { createDungeonDecorations } from '../public/src/display/worldDecorations.js';
 import { biolum, emberLight, torchLight } from '../public/src/display/lightPatterns.js';
 import { generateArenaCave, generateCave } from '../public/src/rules/geometry/caveGen.js';
+
+Deno.test('spider mesh: four legs lift at a time and the standing pose holds still', () => {
+  const first = new Float32Array(34 * 16);
+  const second = new Float32Array(first.length);
+  const stanceCount = writeSpiderPose(first, 0, 0);
+  assertEquals(stanceCount, 33);
+  writeSpiderPose(second, Math.PI * 1.5, 0);
+  assertEquals(first, second);
+
+  const legCenters = [5, 8, 11, 14, 20, 23, 26, 29].map((part) => part * 16 + 1);
+  writeSpiderPose(first, Math.PI / 2, 1);
+  writeSpiderPose(second, Math.PI * 1.5, 1);
+  assertEquals(legCenters.filter((center) => first[center] > second[center]).length, 4);
+  assertEquals(legCenters.filter((center) => first[center] < second[center]).length, 4);
+  assert(first.every(Number.isFinite) && second.every(Number.isFinite));
+});
 
 Deno.test('gore: directional spray dries on the floor and 3D debris settles without expiring', () => {
   const grid = { distanceMove: (x) => x < 50 ? 14 : 0 };
