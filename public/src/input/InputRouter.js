@@ -167,10 +167,10 @@ export function createInputRouter({
     for (const k of Object.keys(keys)) keys[k] = false;
     mouse.active = false;
     mouse.down = false;
-    // Discrete actions are input state too; never replay a queued spell pick
-    // after a blur/visibility pause.
+    // Clear queued actions on blur or when the page is hidden.
     spellSlot = null;
     spellCycle = 0;
+    pickupPressed = false;
   };
 
   on(document, 'touchstart', (e) => {
@@ -238,11 +238,19 @@ export function createInputRouter({
     rightStick.recalcRadius();
   });
 
-  // Spell switching — track slot picks and cycle requests
+  // One-shot keyboard actions
   let spellSlot = null;   // direct slot pick (0, 1, …) or null
   let spellCycle = 0;     // +1 forward, -1 back, 0 none
+  let pickupPressed = false;
 
   on(window, 'keydown', (e) => {
+    if (e.key === ',') {
+      if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        pickupPressed = true;
+        e.preventDefault();
+      }
+      return;
+    }
     const slot = spellSlotFromKeyboardEvent(e);
     if (slot != null) {
       spellSlot = slot;
@@ -342,8 +350,10 @@ export function createInputRouter({
     zoomDelta = 0;  // drain
     output.spellSlot = spellSlot;
     output.spellCycle = spellCycle;
+    output.pickupPressed = pickupPressed;
     spellSlot = null;   // drain
     spellCycle = 0;     // drain
+    pickupPressed = false;
     output.intent = { moveX, moveY, aimX, aimY, fire, sourceMove, sourceAim };
 
     if (bus) bus.emit('input.sampled', output);

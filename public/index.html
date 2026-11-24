@@ -569,6 +569,7 @@ const loop = createFixedTickLoop({
   simulate(dt) {
     // Sample input ONCE per tick — systems read via getOutput()
     const o = inputRouter.sample();
+    if (o.pickupPressed) itemTooltip.activate();
     if (o.zoomDelta) {
       cam.targetScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, cam.targetScale + o.zoomDelta * ZOOM_STEP));
     }

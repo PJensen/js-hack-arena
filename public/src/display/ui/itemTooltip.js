@@ -94,10 +94,13 @@ export function createItemTooltip({ root, onActivate } = {}) {
   action.className = 'arena-item-tooltip-action';
   action.type = 'button';
   action.textContent = 'CLICK / TAP TO EQUIP';
+  function activate() {
+    if (!tip.hidden && tip._target) onActivate?.(tip._target);
+  }
   action.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (tip._target) onActivate?.(tip._target);
+    activate();
   });
   tip.append(header, rows, action);
   (root || document.body).appendChild(tip);
@@ -136,5 +139,5 @@ export function createItemTooltip({ root, onActivate } = {}) {
     tip.hidden = false;
   }
 
-  return Object.freeze({ update, hide: () => update(null), element: tip });
+  return Object.freeze({ update, hide: () => update(null), activate, element: tip });
 }
