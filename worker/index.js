@@ -5,7 +5,6 @@ import {
   encodeMessage,
   makeInputFrame,
   makeRoomSeed,
-  normalizeRoomId,
 } from '../public/src/shared/net/protocol.js';
 import { generateArenaCave } from '../public/src/rules/geometry/caveGen.js';
 import {
@@ -60,7 +59,7 @@ export default {
     if (url.pathname === '/api/rooms/default') {
       const session = await readSession(request, env);
       if (!session) return json({ ok: false, error: 'login required' }, { status: 401 });
-      const roomId = normalizeRoomId(url.searchParams.get('room') || DEFAULT_ROOM_ID);
+      const roomId = DEFAULT_ROOM_ID;
       return json({
         roomId,
         seed: makeRoomSeed(roomId),
@@ -69,7 +68,7 @@ export default {
     }
 
     if (url.pathname.startsWith('/ws/')) {
-      const roomId = normalizeRoomId(url.pathname.slice('/ws/'.length));
+      const roomId = DEFAULT_ROOM_ID;
       const session = await readSession(request, env);
       if (!session) return json({ ok: false, error: 'login required' }, { status: 401 });
       const id = env.GAME_ROOM.idFromName(roomId);
@@ -97,8 +96,7 @@ export class GameRoom {
   }
 
   async fetch(request) {
-    const url = new URL(request.url);
-    this.setRoomId(normalizeRoomId(url.pathname.startsWith('/ws/') ? url.pathname.slice('/ws/'.length) : DEFAULT_ROOM_ID));
+    this.roomId = DEFAULT_ROOM_ID;
 
     if (request.headers.get('upgrade') !== 'websocket') {
       return json({
@@ -247,14 +245,6 @@ export class GameRoom {
     this.broadcast(MESSAGE.SNAPSHOT, {
       snapshot: this.ensureSim().captureSnapshot(),
     });
-  }
-
-  setRoomId(roomId) {
-    if (this.roomId === roomId) return;
-    this.roomId = roomId;
-    this.seed = makeRoomSeed(roomId);
-    this.caveData = null;
-    this.sim = null;
   }
 
   ensureCave() {

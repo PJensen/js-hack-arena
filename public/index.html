@@ -261,6 +261,7 @@ import { createItemTooltip } from './src/display/ui/itemTooltip.js';
 import { createResourceBar } from './src/display/ui/resourceBars.js';
 import { ArrowAmmo, BowWeapon, Health, Mana, MeleeWeapon, Powerups, Spellbook, Position } from './src/rules/components/index.js';
 import { createNetClient } from './src/net/client.js';
+import { DEFAULT_ROOM_ID } from './src/shared/net/protocol.js';
 import { samplePlayerCommand } from './src/input/samplePlayerCommand.js';
 import { SIM_MODE, SIM_TICK_HZ, createArenaSimulation } from './src/rules/sim/arenaSim.js';
 
@@ -270,17 +271,15 @@ const overlayCanvas = document.getElementById('world-overlay');
 
 const pageParams = new URLSearchParams(location.search);
 const forceOffline = pageParams.has('offline');
+const resetDungeonButton = document.getElementById('reset-dungeon');
+resetDungeonButton.hidden = !forceOffline;
 document.getElementById('reset-dungeon').addEventListener('click', () => {
+  if (!forceOffline) return;
   if (!window.confirm('Leave this dungeon and generate a new one?')) return;
   const next = new URL(location.href);
-  if (forceOffline) {
-    const values = new Uint32Array(1);
-    crypto.getRandomValues(values);
-    next.searchParams.set('seed', String(values[0] || Date.now()));
-  } else {
-    const roomToken = crypto.randomUUID ? crypto.randomUUID().replaceAll('-', '').slice(0, 16) : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-    next.searchParams.set('room', `dungeon-${roomToken}`);
-  }
+  const values = new Uint32Array(1);
+  crypto.getRandomValues(values);
+  next.searchParams.set('seed', String(values[0] || Date.now()));
   location.assign(next);
 });
 const authState = await fetch('/auth/me', { credentials: 'same-origin', cache: 'no-store' })
@@ -321,7 +320,7 @@ const playerName = await new Promise((resolve) => {
 });
 
 // -- Ultra-basic multiplayer location sync ----------------------
-const roomId = pageParams.get('room') || 'lobby';
+const roomId = DEFAULT_ROOM_ID;
 const netClient = createNetClient({
   roomId,
   playerName,

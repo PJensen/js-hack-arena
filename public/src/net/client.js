@@ -11,7 +11,6 @@ import {
 import { normalizeSnapshot } from '../rules/sim/arenaSim.js';
 
 export function createNetClient({
-  roomId = DEFAULT_ROOM_ID,
   playerName = 'Adventurer',
   sendHz = 20,
 } = {}) {
@@ -23,7 +22,7 @@ export function createNetClient({
   let statusDetail = '';
   let seq = 0;
   let lastSendAt = 0;
-  let room = normalizeRoomId(roomId);
+  let room = DEFAULT_ROOM_ID;
   let welcome = null;
   let connectPromise = null;
   let resolveConnect = null;
