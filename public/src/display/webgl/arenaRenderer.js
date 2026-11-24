@@ -21,6 +21,8 @@ import { createGhostPipeMesh } from './ghostPipeMesh.js';
 import { createLootMeshes } from './lootMesh.js';
 import { LOOT_VERTEX } from './shaders/loot.vert.js';
 import { LOOT_FRAGMENT } from './shaders/loot.frag.js';
+import { LOOT_SHAFT_VERTEX } from './shaders/lootShaft.vert.js';
+import { LOOT_SHAFT_FRAGMENT } from './shaders/lootShaft.frag.js';
 import { WORLD_VERTEX } from './shaders/world.vert.js';
 import { CAVE_VERTEX } from './shaders/cave.vert.js';
 import { CAVE_FRAGMENT } from './shaders/cave.frag.js';
@@ -66,21 +68,21 @@ function rarityColor(rarity) {
 }
 
 function lootGlowColor(info, effect) {
-  if (effect === 'heal') return [1, 0.12, 0.28, 1];
-  if (effect === 'mana') return [0.18, 0.58, 1, 1];
-  if (effect === 'epic_chest') return [0.78, 0.24, 1, 1];
+  if (effect === 'heal') return [1, 0.12, 0.28];
+  if (effect === 'mana') return [0.18, 0.58, 1];
+  if (effect === 'epic_chest') return [0.78, 0.24, 1];
   const rarity = String(info?.rarity || 'common').toLowerCase();
-  if (rarity === 'legendary') return [1, 0.72, 0.12, 1];
-  if (rarity === 'epic') return [0.78, 0.24, 1, 1];
-  if (rarity === 'rare') return [0.24, 0.5, 1, 1];
-  if (rarity === 'uncommon') return [0.22, 1, 0.42, 1];
-  return [0.75, 0.82, 0.9, 1];
+  if (rarity === 'legendary') return [1, 0.72, 0.12];
+  if (rarity === 'epic') return [0.78, 0.24, 1];
+  if (rarity === 'rare') return [0.24, 0.5, 1];
+  if (rarity === 'uncommon') return [0.22, 1, 0.42];
+  return [0.75, 0.82, 0.9];
 }
 
 function lootShaftHeight(info, effect) {
-  if (effect === 'heal' || effect === 'mana') return 30;
-  if (effect === 'epic_chest') return 62;
-  return { common: 20, uncommon: 30, rare: 44, epic: 62, legendary: 84 }[String(info?.rarity || 'common')] || 20;
+  if (effect === 'heal' || effect === 'mana') return 38;
+  if (effect === 'epic_chest') return 82;
+  return { common: 32, uncommon: 44, rare: 60, epic: 82, legendary: 108 }[String(info?.rarity).toLowerCase()] || 32;
 }
 
 const QUAD = new Float32Array([
@@ -233,6 +235,9 @@ export function createWebGLArenaRenderer(deps) {
   };
   const lootMeshes = Object.fromEntries(Object.entries(createLootMeshes())
     .map(([name, vertices]) => [name, uploadPropMesh(device, vertices)]));
+  const lootShaft = worldProgram(device, LOOT_SHAFT_FRAGMENT, LOOT_SHAFT_VERTEX);
+  lootShaft.color = uniform(gl, lootShaft.program, 'u_color');
+  lootShaft.time = uniform(gl, lootShaft.program, 'u_time');
   const frostBolt = directionalProgram(device, FROST_BOLT_FRAGMENT);
   const charge = worldProgram(device, CHARGE_FRAGMENT);
   charge.theme = uniform(gl, charge.program, 'u_theme');
@@ -532,6 +537,17 @@ export function createWebGLArenaRenderer(deps) {
     gl.uniform1f(cube.time, time);
     gl.uniform1f(cube.alpha, alpha);
     gl.drawArrays(gl.TRIANGLES, 0, cubeMesh.count);
+  }
+
+  function drawLootShaft(x, y, height, color, time) {
+    gl.useProgram(lootShaft.program);
+    gl.bindVertexArray(quadVao);
+    gl.uniform4fv(lootShaft.view, view);
+    gl.uniform2f(lootShaft.position, x, y);
+    gl.uniform2f(lootShaft.size, 10 + height * 0.14, height);
+    gl.uniform3fv(lootShaft.color, color);
+    gl.uniform1f(lootShaft.time, time);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
   function drawLootModel(model, id, shown, info, effect, now) {
@@ -1220,9 +1236,10 @@ export function createWebGLArenaRenderer(deps) {
       const consumable = world.get(id, Consumable);
       if (['mana_regen', 'haste', 'fury', 'ward'].includes(consumable?.effect)) continue;
       const shown = displayPosition(id, position);
-      if (!inView(shown.x, shown.y, 90)) continue;
       const weapon = world.get(id, WeaponPickup);
       const effect = consumable?.effect;
+      const shaft = lootShaftHeight(info, effect);
+      if (!inView(shown.x, shown.y, shaft + 16)) continue;
       if (effect === 'gold') {
         const bob = Math.sin(now * 3 + id) * 1.5;
         drawGlyph('$', shown.x, shown.y - 2 + bob, 19, [1, 0.78, 0.25, 0.95]);
@@ -1234,16 +1251,12 @@ export function createWebGLArenaRenderer(deps) {
       if (model) models.push({ model, id, shown, info, effect });
       const glow = lootGlowColor(info, consumable?.effect);
       const pulse = 0.5 + 0.5 * Math.sin(now * 2.4 + id * 0.73);
-      const shaft = lootShaftHeight(info, consumable?.effect);
+      drawLootShaft(shown.x, shown.y + 5, shaft, glow, (motionPreference.matches ? 0 : now) + id * 0.29);
       if (consumable && effect !== 'epic_chest') {
         const potionTheme = consumable.effect === 'mana' ? 'electric' : 'fire';
         const swirl = consumable.effect === 'heal' ? 0 : 1;
         drawPotionGlow(potionTheme, shown.x, shown.y, 16 + pulse * 2, now + id * 0.13, 0.9, swirl);
       }
-      drawLines(new Float32Array([
-        shown.x - 3, shown.y - 5, shown.x - 1, shown.y - shaft,
-        shown.x + 3, shown.y - 5, shown.x + 1, shown.y - shaft,
-      ]), [glow[0], glow[1], glow[2], 0.06 + pulse * 0.045], 2.5);
       const itemColor = weapon || info.slot === ItemSlot.RING
         ? rarityColor(info.rarity)
         : consumable?.effect === 'add_arrows' ? [1, 0.78, 0.40, 1]
