@@ -1,6 +1,8 @@
 # Repository workflow
 
-- The owner authorizes agents to stage, commit, and push in-scope work to the repository's normal remote and branch, including `origin/main` when it is the intended target. Treat this as standing authorization. Use judgment about when to commit or push without asking for routine confirmation.
+- Commit and push in clear rungs. Each rung should deliver one coherent, reviewable change and pass the checks appropriate to it. For a multi-step task, commit and push each completed rung before moving on. A small task can be one rung.
+- The owner gives standing authorization to stage, commit, and push in-scope work to the repository's normal remote and branch, including `origin/main` when it is the intended target. Proceed without routine confirmation unless the task directs otherwise.
+- Use the Conventional Commits format and choose the type using [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 - Review the exact diff and run checks appropriate to the change before pushing. Include only work you own or that the user explicitly asked you to include. Preserve unrelated work and keep commits focused.
 - Follow branch protections and explicit instructions for the task. Ask before force-pushing, rewriting shared history, deleting shared refs, or publishing to an unrelated remote or branch. Report failed checks or a rejected push instead of bypassing safeguards.
 
