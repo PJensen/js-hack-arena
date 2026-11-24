@@ -5,6 +5,7 @@
 // browser-only client modules.
 
 export {
+  ACCOUNT_ALREADY_PLAYING,
   DEFAULT_ROOM_ID,
   MESSAGE,
   NET_VERSION,

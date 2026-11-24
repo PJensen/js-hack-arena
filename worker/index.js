@@ -1,4 +1,5 @@
 import {
+  ACCOUNT_ALREADY_PLAYING,
   DEFAULT_ROOM_ID,
   MESSAGE,
   decodeMessage,
@@ -117,7 +118,11 @@ export class GameRoom {
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-    if (!this.accept(server, identity)) return json({ ok: false, error: 'user already connected to room' }, { status: 409 });
+    if (!this.accept(server, identity)) {
+      // Browsers cannot read the HTTP response body of a rejected WebSocket upgrade.
+      server.accept();
+      server.close(ACCOUNT_ALREADY_PLAYING, 'Account already playing');
+    }
 
     return new Response(null, {
       status: 101,

@@ -55,9 +55,8 @@
                   box-shadow:0 24px 80px rgba(0,0,0,.58),inset 0 0 35px rgba(60,180,230,.05); }
     #entry-card h1 { font-size:23px; letter-spacing:.16em; color:#e9fbff; text-shadow:0 0 18px rgba(112,230,255,.62); }
     #entry-card p { margin:10px 0 20px; color:rgba(210,228,242,.62); font-size:13px; }
-    #entry-status { margin:-8px 0 16px; color:#8af0ff; font:700 11px ui-monospace,monospace;
-                    letter-spacing:.08em; text-transform:uppercase; }
-    #entry-status[data-state="signed-out"] { color:#ffd58a; }
+    #entry-status { margin:-8px 0 16px; color:#8af0ff; font:700 12px/1.4 ui-monospace,monospace; }
+    #entry-status[data-state="signed-out"], #entry-status[data-state="join-failed"] { color:#ffd58a; }
     #entry-status[data-state="offline"] { color:rgba(210,228,242,.58); }
     #player-name { width:100%; padding:12px 14px; color:#fff; background:rgba(1,6,12,.72);
                    border:1px solid rgba(112,230,255,.3); border-radius:8px; outline:none;
@@ -280,7 +279,6 @@ import { createItemTooltip } from './src/display/ui/itemTooltip.js';
 import { createResourceBar } from './src/display/ui/resourceBars.js';
 import { ArrowAmmo, BowWeapon, Gold, Health, Mana, MeleeWeapon, Powerups, Spellbook, Position, Stamina } from './src/rules/components/index.js';
 import { createNetClient } from './src/net/client.js';
-import { DEFAULT_ROOM_ID } from './src/shared/net/protocol.js';
 import { samplePlayerCommand } from './src/input/samplePlayerCommand.js';
 import { SIM_MODE, SIM_TICK_HZ, createArenaSimulation } from './src/rules/sim/arenaSim.js';
 
@@ -301,11 +299,17 @@ document.getElementById('reset-dungeon').addEventListener('click', () => {
   next.searchParams.set('seed', String(values[0] || Date.now()));
   location.assign(next);
 });
-const authState = await fetch('/auth/me', { credentials: 'same-origin', cache: 'no-store' })
+const authState = forceOffline ? null : await fetch('/auth/me', { credentials: 'same-origin', cache: 'no-store' })
   .then(async (response) => response.ok ? response.json() : ({ authenticated: false }))
   .catch(() => ({ authenticated: false, unavailable: true }));
 
-const playerName = await new Promise((resolve) => {
+const netClient = createNetClient({
+  onDisconnect(message) {
+    loop.stop();
+    showArenaLoadError(`${message} Reload to rejoin.`);
+  },
+});
+const { playerName, netWelcome } = await new Promise((resolve) => {
   const form = document.getElementById('entry-card');
   const field = document.getElementById('player-name');
   const status = document.getElementById('entry-status');
@@ -322,8 +326,9 @@ const playerName = await new Promise((resolve) => {
   field.value = localStorage.getItem('hack-arena.player-name') || '';
   entryButton.disabled = false;
   requestAnimationFrame(() => field.focus());
-  form.addEventListener('submit', (event) => {
+  async function enterDungeon(event) {
     event.preventDefault();
+    if (entryButton.disabled) return;
     if (!forceOffline && !authState.authenticated) {
       window.location.assign('/auth/login?return=/');
       return;
@@ -332,19 +337,25 @@ const playerName = await new Promise((resolve) => {
     unlockArenaAudio();
     const name = field.value.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 20) || 'Adventurer';
     localStorage.setItem('hack-arena.player-name', name);
-    status.textContent = 'LOADING DUNGEON…';
     entryButton.disabled = true;
-    resolve(name);
-  }, { once: true });
+    status.dataset.state = 'loading';
+    status.textContent = forceOffline ? 'Loading dungeon…' : 'Joining the shared dungeon…';
+    const welcome = forceOffline ? null : await netClient.connect();
+    if (!forceOffline && !welcome) {
+      status.dataset.state = 'join-failed';
+      status.textContent = netClient.getStatusText();
+      authState.authenticated = !netClient.needsSignIn();
+      entryButton.textContent = authState.authenticated ? 'Try Again' : 'Sign In Again';
+      entryButton.disabled = false;
+      return;
+    }
+    status.textContent = 'Loading dungeon…';
+    form.removeEventListener('submit', enterDungeon);
+    resolve({ playerName: name, netWelcome: welcome });
+  }
+  form.addEventListener('submit', enterDungeon);
 });
 
-// -- Ultra-basic multiplayer location sync ----------------------
-const roomId = DEFAULT_ROOM_ID;
-const netClient = createNetClient({
-  roomId,
-  playerName,
-});
-const netWelcome = forceOffline ? null : await netClient.connect();
 const isNetworked = Boolean(netWelcome);
 
 // ── Seed + cave ─────────────────────────────────────────────────
@@ -536,7 +547,7 @@ function syncHudResources() {
 syncHudResources();
 renderer = createWebGLArenaRenderer({
   canvas, overlayCanvas, cam, grid, bounds, decorations, fx, world, SEED, runtimeEvents,
-  net: netClient, playerId,
+  net: isNetworked ? netClient : null, playerId,
   presentation,
   stepParticles: projectileFx.step,
   itemTooltip,

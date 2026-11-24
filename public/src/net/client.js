@@ -1,4 +1,5 @@
 import {
+  ACCOUNT_ALREADY_PLAYING,
   DEFAULT_ROOM_ID,
   MESSAGE,
   decodeMessage,
@@ -10,9 +11,12 @@ import {
 } from './index.js';
 import { normalizeSnapshot } from '../rules/sim/arenaSim.js';
 
+const JOIN_TIMEOUT_MS = 15000;
+const JOIN_FAILED = 'Could not join the shared dungeon. Check your connection and try again.';
+
 export function createNetClient({
-  playerName = 'Adventurer',
   sendHz = 20,
+  onDisconnect = () => {},
 } = {}) {
   const peers = new Map();
   const minSendMs = 1000 / Math.max(1, sendHz);
@@ -25,60 +29,73 @@ export function createNetClient({
   let room = DEFAULT_ROOM_ID;
   let welcome = null;
   let connectPromise = null;
+  let joinController = null;
   let resolveConnect = null;
   let latestSnapshot = null;
 
-  async function connect() {
+  function connect() {
+    if (welcome) return Promise.resolve(welcome);
+    if (connectPromise) return connectPromise;
+    joinController = new AbortController();
+    const controller = joinController;
+    const timeout = setTimeout(() => controller.abort(), JOIN_TIMEOUT_MS);
+    connectPromise = join(controller.signal).finally(() => {
+      clearTimeout(timeout);
+      joinController = null;
+      connectPromise = null;
+    });
+    return connectPromise;
+  }
+
+  async function join(signal) {
     if (!('WebSocket' in globalThis)) {
-      setStatus('offline', 'websocket unavailable');
+      setStatus('offline', 'This browser cannot connect to the shared dungeon.');
       return null;
     }
-    if (welcome) return welcome;
-    if (connectPromise) return connectPromise;
-    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return null;
 
-    setStatus('connecting', room);
+    setStatus('connecting', 'Joining the shared dungeon…');
     try {
       const url = new URL('/api/rooms/default', location.href);
       url.searchParams.set('room', room);
-      const response = await fetch(url);
+      const response = await fetch(url, { signal });
       if (response.status === 401) {
-        setStatus('auth', 'Hairylogic account required');
+        setStatus('auth', 'Your sign-in expired. Sign in again to join.');
         return null;
       }
       if (!response.ok) throw new Error(`room lookup failed: ${response.status}`);
       const info = await response.json();
-      const socketUrl = new URL(info.ws);
-      socket = new WebSocket(socketUrl);
-      connectPromise = new Promise((resolve) => {
+      signal.throwIfAborted();
+      const connection = new WebSocket(info.ws);
+      socket = connection;
+      const joined = new Promise((resolve) => {
         resolveConnect = resolve;
       });
 
-      socket.addEventListener('open', () => {
-        setStatus('joining', room);
-        send(MESSAGE.HELLO, {});
+      signal.addEventListener('abort', () => {
+        if (socket !== connection) return;
+        setStatus('offline', JOIN_FAILED);
+        clearConnection();
+        connection.close();
+      }, { once: true });
+      connection.addEventListener('message', (event) => {
+        if (socket === connection) handleMessage(event.data);
       });
-      socket.addEventListener('message', (event) => {
-        handleMessage(event.data);
+      connection.addEventListener('close', (event) => {
+        if (socket !== connection) return;
+        const wasConnected = Boolean(welcome);
+        const message = wasConnected
+          ? 'Lost connection to the shared dungeon.'
+          : event.code === ACCOUNT_ALREADY_PLAYING
+          ? 'Your account is already playing. Close Arena on your other device or tab, then try again.'
+          : JOIN_FAILED;
+        setStatus('offline', message);
+        clearConnection();
+        if (wasConnected) onDisconnect(message);
       });
-      socket.addEventListener('close', () => {
-        socket = null;
-        peers.clear();
-        latestSnapshot = null;
-        setStatus('offline', 'socket closed');
-        resolveWelcome(null);
-      });
-      socket.addEventListener('error', () => {
-        setStatus('error', 'socket error');
-        resolveWelcome(null);
-      });
-      return connectPromise;
+      return joined;
     } catch (err) {
-      socket = null;
-      peers.clear();
-      latestSnapshot = null;
-      setStatus('offline', err.message);
-      resolveWelcome(null);
+      if (!signal.aborted) console.warn('Could not join the shared dungeon', err);
+      setStatus('offline', JOIN_FAILED);
       return null;
     }
   }
@@ -177,8 +194,8 @@ export function createNetClient({
 
   function getStatusText() {
     const remoteCount = getRemotePeers().length;
-    if (status === 'connected') return `net:${room} seed:${welcome?.seed?.toString(16) || '-'} peers:${remoteCount}`;
-    return `net:${status}${statusDetail ? ' ' + statusDetail : ''}`;
+    if (status === 'connected') return `Online · ${remoteCount + 1} ${remoteCount === 0 ? 'player' : 'players'}`;
+    return statusDetail;
   }
 
   function getSeed() {
@@ -214,15 +231,23 @@ export function createNetClient({
     if (!resolveConnect) return;
     const resolve = resolveConnect;
     resolveConnect = null;
-    connectPromise = null;
     resolve(value);
   }
 
-  function destroy() {
-    if (socket) socket.close();
+  function clearConnection() {
     socket = null;
+    peerId = null;
+    welcome = null;
     peers.clear();
     latestSnapshot = null;
+    resolveWelcome(null);
+  }
+
+  function destroy() {
+    const connection = socket;
+    clearConnection();
+    joinController?.abort();
+    connection?.close();
   }
 
   return {
@@ -232,6 +257,7 @@ export function createNetClient({
     getLatestSnapshot,
     getRemotePeers,
     getSeed,
+    needsSignIn: () => status === 'auth',
     getStatusText,
     update,
   };

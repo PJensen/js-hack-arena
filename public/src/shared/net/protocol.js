@@ -13,6 +13,7 @@ export const MESSAGE = Object.freeze({
 });
 
 export const DEFAULT_ROOM_ID = 'lobby';
+export const ACCOUNT_ALREADY_PLAYING = 4009;
 
 export function normalizePlayerName(raw = 'Adventurer') {
   return String(raw)
