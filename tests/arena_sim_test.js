@@ -339,8 +339,12 @@ Deno.test('arena sim: gold drops once, lights replicas and credits the collectin
   sim.step();
   const collected = sim.captureSnapshot();
   assert(!collected.entities.some(record => record.state.effect === 'gold'));
+  const pickups = [];
+  replica.world.on('item.pickup', ({ gold }) => pickups.push(gold));
+  replica.applySnapshot(collected);
   replica.applySnapshot(collected);
   assertEquals(replica.world.get(replica.getPlayerEntity('peer-a'), Gold).count, count);
+  assertEquals(pickups, [count]);
 });
 
 Deno.test('arena sim: opening an epic chest replaces it with rolled loot', () => {

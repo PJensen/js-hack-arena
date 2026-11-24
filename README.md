@@ -163,6 +163,14 @@ and replay, deltas, interest management, and persistence.
 Every player record includes the last accepted input sequence, so a predicting
 client can discard acknowledged inputs before replaying the remainder.
 
+## Future audio improvements
+
+- Give Cleave a swing cue with JS-Hack's `spell_cleave.mp3`, including on misses.
+- Use `combat/SWORD SMALL/SWORD SMALL-Whoosh Short-01.mp3` for Rend's swing.
+- Give Blizzard a distinct channel-start cue with `spell_channeling.mp3`.
+- Use `spell_holy_healing.mp3` on Regeneration activation and keep the existing healing ticks.
+- Try `status_electrocuted.mp3` for a shorter Lightning cast cue.
+
 ## Commands
 
 ```bash

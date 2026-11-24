@@ -20,6 +20,10 @@ const SOUND = Object.freeze({
   pickupGeneric: `${AUDIO_ROOT}pickup_generic.mp3`,
   pickupWeapon: `${AUDIO_ROOT}pickup_weapon.mp3`,
   pickupPotion: `${AUDIO_ROOT}pickup_potion.mp3`,
+  pickupGold: `${AUDIO_ROOT}pickup_gold.mp3`,
+  equipMelee: `${AUDIO_ROOT}equip_weapon.mp3`,
+  equipRanged: `${AUDIO_ROOT}equip_ranged.mp3`,
+  equipRing: `${AUDIO_ROOT}equip_generic.mp3`,
   spellLearned: `${AUDIO_ROOT}magic_unlock.mp3`,
   healing: `${AUDIO_ROOT}healing_magic_1.mp3`,
   chestOpen: `${AUDIO_ROOT}chest_open.mp3`,
@@ -48,7 +52,7 @@ export function unlockArenaAudio() {
  * play the same audio path.
  */
 export function createArenaAudio({ world, getPlayerPosition }) {
-  if (!world || typeof world.on !== 'function') return { dispose() {} };
+  if (!world || typeof world.on !== 'function') return { updateLocalCast() {}, dispose() {} };
 
   // Audio is intentionally warmed after the entry gesture. A failed preload
   // is harmless; play() will retry through its normal lazy-load path.
@@ -60,7 +64,13 @@ export function createArenaAudio({ world, getPlayerPosition }) {
   }).catch(() => {});
 
   const disposers = [];
+  let chargingFrostBolt = false;
   listen('spell.cast', (event) => {
+    if (event?.spellId === 'frost_bolt') {
+      const charge = Number.isFinite(event.charge) ? Math.max(0, Math.min(1, event.charge)) : 1;
+      playAt(SOUND.frostCast, event, { volume: 0.57 + 0.24 * charge, detune: 160 - 420 * charge });
+      return;
+    }
     const sound = spellCastSound(event?.spellId);
     if (sound) playAt(sound, event, { volume: event.spellId === 'lightning' ? 0.62 : 0.75 });
   });
@@ -100,6 +110,15 @@ export function createArenaAudio({ world, getPlayerPosition }) {
   });
 
   return {
+    updateLocalCast(book) {
+      const charging = book?.castPhase === 'charging' && book.spells[book.chargeSpellIndex] === 'frost_bolt';
+      if (charging && !chargingFrostBolt) {
+        play(SOUND.frostCast, {
+          bus: 'spells', volume: 0.28, detune: 480, stopAfter: 0.18, fadeOut: 0.12,
+        });
+      }
+      chargingFrostBolt = charging;
+    },
     dispose() {
       for (const dispose of disposers.splice(0)) dispose?.();
       stopLoopSequence(AMBIENCE_KEY, { fadeOut: 0.35 });
@@ -130,16 +149,17 @@ export function createArenaAudio({ world, getPlayerPosition }) {
     if (event?.spellId) return SOUND.spellLearned;
     if (event?.healed) return SOUND.healing;
     const item = String(event?.item || '').toLowerCase();
+    if (event?.gold > 0 || item === 'gold') return SOUND.pickupGold;
+    if (event?.slot === 'melee') return SOUND.equipMelee;
+    if (event?.slot === 'ranged') return SOUND.equipRanged;
+    if (event?.slot === 'ring') return SOUND.equipRing;
     if (item.includes('potion')) return SOUND.pickupPotion;
-    if (event?.slot === 'melee' || event?.slot === 'ranged' || item.includes('sword') || item.includes('bow')) {
-      return SOUND.pickupWeapon;
-    }
+    if (item.includes('sword') || item.includes('bow')) return SOUND.pickupWeapon;
     return SOUND.pickupGeneric;
   }
 
   function spellCastSound(spellId) {
     return {
-      frost_bolt: SOUND.frostCast,
       lightning: SOUND.lightningCast,
       poison_orb: SOUND.poisonCast,
       ice_armor: SOUND.buffCast,

@@ -207,8 +207,9 @@ function consumeItem(world, player, itemId, position, info, consumable) {
   }
 
   if (consumable.effect === 'gold' && world.has(id, Gold)) {
-    world.get(id, Gold).count += consumable.potency;
-    world.emit('item.pickup', { entity: id, item: info?.name, x: player.pos.x, y: player.pos.y });
+    const gold = consumable.potency;
+    world.get(id, Gold).count += gold;
+    world.emit('item.pickup', { entity: id, item: info?.name, gold, x: player.pos.x, y: player.pos.y });
     return true;
   }
 

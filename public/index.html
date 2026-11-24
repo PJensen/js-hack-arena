@@ -614,9 +614,10 @@ const loop = createFixedTickLoop({
     // a delayed first frame must not leave resource bars at their placeholders.
     syncHudResources();
     renderer.renderFrame();
+    const sb = world.get(playerId, Spellbook);
+    arenaAudio.updateLocalCast(sb);
     // Sync spell bar UI with active spell
-    if (world.has(playerId, Spellbook)) {
-      const sb = world.get(playerId, Spellbook);
+    if (sb) {
       syncSpellSlots(sb);
       const stamina = world.get(playerId, Stamina)?.stamina ?? 0;
       spellBar.querySelectorAll('.spell-btn').forEach((b) => {
