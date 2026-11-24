@@ -1,14 +1,13 @@
 // Deterministic, presentation-only dungeon dressing. Route torches are both
 // landmarks and breadcrumbs.
-export function createDungeonDecorations({ grid, routes = [], spawns = [], seed = 1 }) {
+import { findOpen } from '../rules/geometry/landmarks.js';
+
+export function createDungeonDecorations({
+  grid, routes = [], spawns = [], seed = 1, campfire: hearth = null,
+}) {
   const rng = mulberry32(seed ^ 0x51a7f00d);
   const torches = [];
   const start = spawns[0];
-  // Put the hearth in the starting chamber's open floor, ahead of the player.
-  const hearth = start && (
-    findOpen(grid, start.x, start.y - 76, 24, 38) ??
-    findOpen(grid, start.x, start.y + 76, 24, 38)
-  );
 
   const placeTorch = (x, y, routeIndex = -1) => {
     const open = findOpen(grid, x, y, 75);
@@ -50,18 +49,6 @@ export function createDungeonDecorations({ grid, routes = [], spawns = [], seed 
     }
   }
   return Object.freeze({ torches: Object.freeze(torches), campfire, mushroom, ghostPipe });
-}
-
-function findOpen(grid, x, y, radius, clearance = 20) {
-  if (grid.distanceMove(x, y) >= clearance) return { x, y };
-  for (let distance = 8; distance <= radius; distance += 8) {
-    for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 6) {
-      const px = x + Math.cos(angle) * distance;
-      const py = y + Math.sin(angle) * distance;
-      if (grid.distanceMove(px, py) >= clearance) return { x: px, y: py };
-    }
-  }
-  return null;
 }
 
 function mulberry32(seed) {

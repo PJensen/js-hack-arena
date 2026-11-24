@@ -1,5 +1,6 @@
 import { assert, assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
-import { Health, Position } from '../public/src/rules/components/index.js';
+import { Conditions, Health, Position } from '../public/src/rules/components/index.js';
+import { SIM_MODE, createArenaSimulation } from '../public/src/rules/sim/arenaSim.js';
 import { spawnGold, spawnRing } from '../public/src/rules/spawner.js';
 import { MESSAGE, decodeMessage, encodeMessage } from '../public/src/shared/net/protocol.js';
 import { GameRoom } from '../worker/index.js';
@@ -91,6 +92,66 @@ function latestSnapshot(socket) {
   assert(message?.snapshot);
   return message.snapshot;
 }
+
+Deno.test('game room: walking through the campfire applies and replicates timed burning', () => {
+  const room = new GameRoom(makeRoomState(), {});
+  const socket = new FakeSocket();
+  room.accept(socket, { userId: 'user-1', displayName: 'First' });
+  try {
+    const { peerId } = socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    const { grid, campfire } = room.ensureCave();
+    assert(campfire);
+    const sim = room.ensureSim();
+    const position = sim.world.get(sim.getPlayerEntity(peerId), Position);
+    const distance = () => Math.hypot(campfire.x - position.x, campfire.y - position.y);
+    const startDistance = distance();
+    const moveX = (campfire.x - position.x) / startDistance;
+    const moveY = (campfire.y - position.y) / startDistance;
+    let seq = 0;
+    const move = (x, y) => room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, {
+      input: { seq: ++seq, moveX: x, moveY: y },
+    }));
+    const playerState = () => latestSnapshot(socket).entities.find(({ owner }) => owner === peerId).state;
+    room.step();
+    room.broadcastSnapshot();
+    assertEquals(playerState().conditions, []);
+    const initialHp = playerState().hp;
+
+    move(moveX, moveY);
+    for (let i = 0; i < 12 && distance() > 8; i++) room.step();
+    assert(distance() <= 8);
+    move(0, 0);
+    for (let i = 0; i < 15; i++) room.step();
+    room.broadcastSnapshot();
+    assertEquals(playerState().conditions, [{
+      id: 'burning', name: 'Burning', glyph: '🔥', visual: 'burning', disposition: 'harmful',
+      remaining: 3, duration: 3, stacks: 1,
+    }]);
+    assert(playerState().hp < initialHp);
+    assert(latestSnapshot(socket).events.some(({ type, payload }) =>
+      type === 'damage.dealt' && payload.damageType === 'fire' && payload.periodic && payload.amount === 2
+    ));
+
+    move(moveX, moveY);
+    for (let i = 0; i < 8; i++) room.step();
+    move(0, 0);
+    room.broadcastSnapshot();
+    assert(playerState().conditions[0].remaining < 3);
+    const replica = createArenaSimulation({ grid, mode: SIM_MODE.REPLICA });
+    replica.applySnapshot(latestSnapshot(socket));
+    const replicaConditions = replica.world.get(replica.getPlayerEntity(peerId), Conditions);
+    assertEquals(replicaConditions.active[0].id, 'burning');
+    assertEquals(replicaConditions.active[0].remaining, playerState().conditions[0].remaining);
+
+    for (let i = 0; i < 61; i++) room.step();
+    room.broadcastSnapshot();
+    assertEquals(playerState().conditions, []);
+    replica.applySnapshot(latestSnapshot(socket));
+    assertEquals(replicaConditions.active, []);
+  } finally {
+    room.leave(socket);
+  }
+});
 
 Deno.test('game room: a starter Cleave consumes stamina and broadcasts the swing', () => {
   const room = new GameRoom(makeRoomState(), {});

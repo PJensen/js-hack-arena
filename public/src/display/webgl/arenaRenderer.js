@@ -5,6 +5,7 @@ import {
   Velocity, WeaponPickup,
 } from '../../rules/components/index.js';
 import { AI } from '../../rules/components/AI.js';
+import { ConditionId, conditions as conditionCatalog } from '../../rules/data/conditionCatalog.js';
 import { spells as spellCatalog } from '../../rules/data/spellCatalog.js';
 import { rarityTextColors } from '../../rules/data/lootTable.js';
 import { createMeleeImpact } from '../passes/meleeImpact.js';
@@ -788,7 +789,16 @@ export function createWebGLArenaRenderer(deps) {
     for (let conditionIndex = 0; conditionIndex < conditionState.active.length; conditionIndex++) {
       const condition = conditionState.active[conditionIndex];
       const pulse = 0.5 + 0.5 * Math.sin(now * 6 + entityId * 0.73 + conditionIndex);
-      if (condition.visual === 'frozen') {
+      if (condition.id === ConditionId.BURNING) {
+        drawElementOrb('fire', position.x, position.y - 3, collider.radius + 4 + pulse * 3, now + entityId, 0.55);
+        for (let ember = 0; ember < 3; ember++) {
+          const rise = (now * 1.8 + entityId * 0.17 + ember / 3) % 1;
+          const x = position.x + (ember - 1) * collider.radius * 0.65;
+          const y = position.y - rise * collider.radius * 2.1;
+          const color = [1, 0.55, 0.16, (1 - rise) * 0.9];
+          drawDisc(x, y, 2 - rise, color, color);
+        }
+      } else if (condition.visual === 'frozen') {
         drawDisc(position.x, position.y, collider.radius + 3 + pulse * 2, [0.18, 0.58, 1, 0.18], [0.58, 0.92, 1, 0.72]);
         drawGlyph('❄', position.x, position.y - collider.radius - 10, 11 + pulse * 2, [0.78, 0.96, 1, 0.95]);
       } else if (condition.visual === 'stunned') {
@@ -828,7 +838,12 @@ export function createWebGLArenaRenderer(deps) {
 
   function activeConditionLabels(conditionState) {
     if (!conditionState?.active) return [];
-    return conditionState.active.map((condition) => `${condition.glyph} ${condition.name.toUpperCase()} ${condition.remaining.toFixed(1)}s`);
+    return conditionState.active.map((condition) => {
+      const definition = conditionCatalog[condition.id];
+      const name = condition.name ?? definition?.name ?? condition.id;
+      const glyph = condition.glyph ?? definition?.glyph ?? '•';
+      return `${glyph} ${name.toUpperCase()} ${condition.remaining.toFixed(1)}s`;
+    });
   }
 
   function drawAuraEmitter(emitter, position, now, entityId) {

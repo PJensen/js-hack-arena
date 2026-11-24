@@ -62,6 +62,7 @@ import {
 } from '../spawner.js';
 import { createAISystem } from '../systems/aiSystem.js';
 import { createBumpSystem } from '../systems/bumpSystem.js';
+import { createCampfireSystem } from '../systems/campfireSystem.js';
 import { deathSystem } from '../systems/deathSystem.js';
 import { createMovementSystem } from '../systems/movementSystem.js';
 import { manaSystem } from '../systems/manaSystem.js';
@@ -106,6 +107,7 @@ export function createArenaSimulation({
   seed,
   grid,
   spawns = [],
+  campfire = null,
   mode = SIM_MODE.AUTHORITY,
   enemyCount = 1,
   enemyGroupSize = 1,
@@ -130,7 +132,7 @@ export function createArenaSimulation({
   let populationStarted = false;
 
   if (mode === SIM_MODE.AUTHORITY) {
-    installAuthoritativeRules(world, grid);
+    installAuthoritativeRules(world, grid, campfire);
     installEventJournal(world, eventHistory, () => ({ tick, sequence: ++eventSequence }), projectEventPayload);
     installLootRules(world);
   }
@@ -750,7 +752,7 @@ export function normalizeSnapshot(snapshot) {
   return { version: SIM_SNAPSHOT_VERSION, tick, revision, entities, events };
 }
 
-function installAuthoritativeRules(world, grid) {
+function installAuthoritativeRules(world, grid, campfire) {
   const systems = [
     effectSystem,
     createMovementSystem({ grid }),
@@ -760,6 +762,7 @@ function installAuthoritativeRules(world, grid) {
     createAISystem({ grid }),
     createPlayerCombatSystem({ grid }),
     createBumpSystem(),
+    createCampfireSystem(campfire),
     createPickupSystem({ grid }),
     createProjectileSystem({ grid, carve: createGridCarver(grid) }),
     deathSystem,

@@ -5,11 +5,23 @@ export const ConditionId = Object.freeze({
   STUNNED: 'stunned',
   POISONED: 'poisoned',
   BLEEDING: 'bleeding',
+  BURNING: 'burning',
   ICE_ARMOR: 'ice_armor',
   REGENERATION: 'regeneration',
 });
 
 export const conditions = Object.freeze({
+  [ConditionId.BURNING]: Object.freeze({
+    id: ConditionId.BURNING,
+    name: 'Burning',
+    glyph: '🔥',
+    duration: 3,
+    disposition: 'harmful',
+    visual: 'burning',
+    effects: Object.freeze([
+      Object.freeze({ kind: EffectKind.PERIODIC_DAMAGE, amount: 2, interval: 0.5, damageType: 'fire' }),
+    ]),
+  }),
   [ConditionId.BLEEDING]: Object.freeze({
     id: ConditionId.BLEEDING,
     name: 'Bleeding',

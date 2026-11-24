@@ -2,6 +2,8 @@
 // Natural cave generation: grow a connected, branching cave skeleton, then
 // erode its chambers and passages with coherent noise before baking clearance.
 
+import { findStartingCampfire } from './landmarks.js';
+
 export function mulberry32(seed) {
   let t = seed >>> 0;
   return function () {
@@ -314,9 +316,10 @@ export function generateCave(opts = {}) {
 // Shared by the browser and authoritative rooms. Keep the field dimensions
 // close to the original grid while doubling the world scale.
 export function generateArenaCave(seed) {
-  return generateCave({
+  const cave = generateCave({
     seed, width: 8000, height: 8000, cellSize: 8,
     chamberTarget: 42, passageLength: [350, 640],
     spawnCount: 8, spawnSpacing: 650,
   });
+  return { ...cave, campfire: findStartingCampfire(cave.grid, cave.spawns[0]) };
 }

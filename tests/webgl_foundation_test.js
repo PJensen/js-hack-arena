@@ -145,6 +145,9 @@ Deno.test('arena cave expands the playable network without growing the field tex
   for (const route of cave.routes) {
     assert(route.points.every(point => cave.grid.distanceMove(point.x, point.y) >= 20));
   }
+  assertEquals(cave.campfire.conditionId, 'burning');
+  const { campfire } = createDungeonDecorations(cave);
+  assertEquals([campfire.x, campfire.y], [cave.campfire.x, cave.campfire.y]);
 });
 
 Deno.test('webgl foundation: cave generation retains signed visual density', () => {
@@ -166,7 +169,7 @@ Deno.test('webgl foundation: starting campfire is clear of the player and nearby
   const spawns = [{ x: 200, y: 200 }, { x: 600, y: 250 }];
   const routes = [{ points: [{ x: 200, y: 100 }, { x: 950, y: 250 }] }];
   const { campfire, torches, mushroom, ghostPipe } = createDungeonDecorations({
-    grid: { distanceMove: () => 100 }, spawns, routes,
+    grid: { distanceMove: () => 100 }, spawns, routes, campfire: { x: 200, y: 124 },
   });
   assert(Math.hypot(campfire.x - spawns[0].x, campfire.y - spawns[0].y) >= 52);
   assertEquals(torches.map(torch => torch.x), [600, 950]);
