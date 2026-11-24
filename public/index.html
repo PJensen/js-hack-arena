@@ -197,7 +197,7 @@
       <h1>HACK//ARENA</h1>
       <p>Enter the shared dungeon with your Hairylogic identity. Offline play remains available at <code>?offline</code>.</p>
       <div id="entry-status" aria-live="polite">CHECKING SIGN-IN STATUS…</div>
-      <input id="player-name" maxlength="20" autocomplete="nickname" placeholder="Adventurer" aria-label="Player name" />
+      <input id="player-name" maxlength="20" autocomplete="nickname" placeholder="Adventurer" aria-label="Character name" />
       <button id="enter-dungeon" type="submit" disabled>Enter the Dungeon</button>
     </form>
   </div>
@@ -316,6 +316,7 @@ import { createDungeonChat } from './src/display/ui/dungeonChat.js';
 import { createResourceBar } from './src/display/ui/resourceBars.js';
 import { ArrowAmmo, BowWeapon, Gold, Health, Mana, MeleeWeapon, Powerups, Spellbook, Position, Stamina } from './src/rules/components/index.js';
 import { createNetClient } from './src/net/client.js';
+import { normalizePlayerName } from './src/net/index.js';
 import { samplePlayerCommand } from './src/input/samplePlayerCommand.js';
 import { SIM_MODE, SIM_TICK_HZ, createArenaSimulation } from './src/rules/sim/arenaSim.js';
 
@@ -362,7 +363,7 @@ const { playerName, netWelcome } = await new Promise((resolve) => {
     else status.textContent = 'OFFLINE MODE';
   } else if (authState.authenticated) {
     status.dataset.state = 'signed-in';
-    status.textContent = `SIGNED IN · ${authState.user?.name || 'HAIRYLOGIC ACCOUNT'}`;
+    status.textContent = 'SIGNED IN';
   } else {
     status.dataset.state = 'signed-out';
     status.textContent = authState.unavailable ? 'SIGN-IN STATUS UNAVAILABLE' : 'NOT SIGNED IN · ENTER TO SIGN IN';
@@ -379,12 +380,12 @@ const { playerName, netWelcome } = await new Promise((resolve) => {
     }
     // Unlock Web Audio while this is still a browser user gesture.
     unlockArenaAudio();
-    const name = field.value.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 20) || 'Adventurer';
+    const name = normalizePlayerName(field.value);
     localStorage.setItem('hack-arena.player-name', name);
     entryButton.disabled = true;
     status.dataset.state = 'loading';
     status.textContent = forceOffline ? 'Loading dungeon…' : 'Joining the shared dungeon…';
-    const welcome = forceOffline ? null : await netClient.connect();
+    const welcome = forceOffline ? null : await netClient.connect(name);
     if (!forceOffline && !welcome) {
       status.dataset.state = 'join-failed';
       status.textContent = netClient.getStatusText();

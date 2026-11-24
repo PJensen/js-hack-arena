@@ -93,8 +93,10 @@ export async function readSession(request, env) {
   return payload && payload.exp >= nowSeconds() && payload.sub ? payload : null;
 }
 
-export async function createRoomHandoff(session, roomId, env) {
-  return signPayload(env.ARENA_SESSION_SECRET, { sub: session.sub, name: session.name, roomId, exp: nowSeconds() + ROOM_HANDOFF_TTL_SECONDS });
+export async function createRoomHandoff(session, roomId, characterName, env) {
+  return signPayload(env.ARENA_SESSION_SECRET, {
+    sub: session.sub, name: safeDisplayName(characterName), roomId, exp: nowSeconds() + ROOM_HANDOFF_TTL_SECONDS,
+  });
 }
 
 export async function verifyRoomHandoff(value, roomId, env) {

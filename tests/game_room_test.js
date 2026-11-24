@@ -1,4 +1,5 @@
 import { assert, assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
+import { timingSafeEqual } from 'node:crypto';
 import { AI, Actor, Conditions, Health, Position, Projectile, Spellbook } from '../public/src/rules/components/index.js';
 import { SIM_DT, SIM_MODE, createArenaSimulation } from '../public/src/rules/sim/arenaSim.js';
 import { GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
@@ -6,7 +7,19 @@ import { sweepMaxFree } from '../public/src/rules/geometry/sweep.js';
 import { applyDamage } from '../public/src/rules/effects.js';
 import { spawnGold, spawnRing } from '../public/src/rules/spawner.js';
 import { MESSAGE, decodeMessage, encodeMessage } from '../public/src/shared/net/protocol.js';
+import { createRoomHandoff, verifyRoomHandoff } from '../worker/auth.js';
 import { GameRoom } from '../worker/index.js';
+
+async function verifyTestHandoff(handoff, roomId, env) {
+  // Workers extends Web Crypto with timingSafeEqual. Deno exposes it via node:crypto.
+  if (crypto.subtle.timingSafeEqual) return verifyRoomHandoff(handoff, roomId, env);
+  crypto.subtle.timingSafeEqual = timingSafeEqual;
+  try {
+    return await verifyRoomHandoff(handoff, roomId, env);
+  } finally {
+    delete crypto.subtle.timingSafeEqual;
+  }
+}
 
 class FakeSocket {
   readyState = WebSocket.OPEN;
@@ -51,17 +64,27 @@ Deno.test('game room: every connected socket receives both players immediately',
   room.leave(second);
 });
 
-Deno.test('game room: /say reaches distant peers in the same room and uses the session identity', () => {
-  const room = new GameRoom(makeRoomState(), {});
+Deno.test('game room: /say reaches distant peers and uses the signed character name', async () => {
+  const env = { ARENA_SESSION_SECRET: 'test-room-handoff-secret' };
+  const room = new GameRoom(makeRoomState(), env);
   const otherRoom = new GameRoom({ ...makeRoomState(), id: { toString: () => 'other-room' } }, {});
   const speaker = new FakeSocket();
   const listener = new FakeSocket();
   const outsider = new FakeSocket();
-  room.accept(speaker, { userId: 'user-1', displayName: '  First  ' });
+  const account = { sub: 'user-1', name: 'Account Holder' };
+  const handoff = await createRoomHandoff(account, room.roomId, '  First  ', env);
+  const identity = await verifyTestHandoff(handoff, room.roomId, env);
+  const defaultHandoff = await createRoomHandoff(account, room.roomId, null, env);
+  assertEquals(await verifyTestHandoff(defaultHandoff, room.roomId, env), {
+    userId: 'user-1', displayName: 'Adventurer',
+  });
+  room.accept(speaker, identity);
   room.accept(listener, { userId: 'user-2', displayName: 'Second' });
   otherRoom.accept(outsider, { userId: 'user-3', displayName: 'Outsider' });
   try {
-    const { peerId } = speaker.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    const { peerId, peers, snapshot } = speaker.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    assertEquals(peers.find(({ id }) => id === peerId).name, 'First');
+    assertEquals(snapshot.entities.find(({ owner }) => owner === peerId).state.name, 'First');
     const listenerPeer = listener.sent.find(({ type }) => type === MESSAGE.WELCOME).peerId;
     const sim = room.ensureSim();
     const distant = sim.world.get(sim.getPlayerEntity(listenerPeer), Position);

@@ -35,13 +35,13 @@ export function createNetClient({
   let resolveConnect = null;
   let latestSnapshot = null;
 
-  function connect() {
+  function connect(characterName) {
     if (welcome) return Promise.resolve(welcome);
     if (connectPromise) return connectPromise;
     joinController = new AbortController();
     const controller = joinController;
     const timeout = setTimeout(() => controller.abort(), JOIN_TIMEOUT_MS);
-    connectPromise = join(controller.signal).finally(() => {
+    connectPromise = join(controller.signal, characterName).finally(() => {
       clearTimeout(timeout);
       joinController = null;
       connectPromise = null;
@@ -49,7 +49,7 @@ export function createNetClient({
     return connectPromise;
   }
 
-  async function join(signal) {
+  async function join(signal, characterName) {
     if (!('WebSocket' in globalThis)) {
       setStatus('offline', 'This browser cannot connect to the shared dungeon.');
       return null;
@@ -67,7 +67,9 @@ export function createNetClient({
       if (!response.ok) throw new Error(`room lookup failed: ${response.status}`);
       const info = await response.json();
       signal.throwIfAborted();
-      const connection = new WebSocket(info.ws);
+      const socketUrl = new URL(info.ws);
+      socketUrl.searchParams.set('characterName', normalizePlayerName(characterName));
+      const connection = new WebSocket(socketUrl);
       socket = connection;
       const joined = new Promise((resolve) => {
         resolveConnect = resolve;

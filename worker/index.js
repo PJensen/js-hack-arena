@@ -78,7 +78,7 @@ export default {
       const session = await readSession(request, env);
       if (!session) return json({ ok: false, error: 'login required' }, { status: 401 });
       const id = env.GAME_ROOM.idFromName(roomId);
-      const handoff = await createRoomHandoff(session, roomId, env);
+      const handoff = await createRoomHandoff(session, roomId, url.searchParams.get('characterName'), env);
       const headers = new Headers(request.headers);
       headers.set('x-arena-room-auth', handoff);
       return env.GAME_ROOM.get(id).fetch(new Request(request, { headers }));
@@ -150,14 +150,14 @@ export class GameRoom {
       lastSeenAt: Date.now(),
       nextSayAt: 0,
       input: makeInputFrame(),
-      name: identity.displayName,
+      name: normalizePlayerName(identity.displayName),
       userId: identity.userId,
       progressKey,
       progress,
     };
 
     const sim = this.ensureSim();
-    const player = sim.addPlayer(peerId, this.sessions.size, null, identity.displayName);
+    const player = sim.addPlayer(peerId, this.sessions.size, null, session.name);
     sim.world.get(player, Gold).count = progress.gold ?? 0;
     this.sessions.set(socket, session);
     this.startTicking();
@@ -231,7 +231,7 @@ export class GameRoom {
         this.send(socket, MESSAGE.SAY_ERROR, { error: 'Wait a moment before sending again.' });
       } else {
         session.nextSayAt = session.lastSeenAt + SAY_COOLDOWN_MS;
-        this.broadcast(MESSAGE.SAY, { peerId: session.id, name: normalizePlayerName(session.name), text });
+        this.broadcast(MESSAGE.SAY, { peerId: session.id, name: session.name, text });
       }
       return;
     }
