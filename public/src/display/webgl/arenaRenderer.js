@@ -349,6 +349,7 @@ export function createWebGLArenaRenderer(deps) {
   });
   let torchParticleAccumulator = 0;
   let torchParticleSequence = 0;
+  let burningParticleAccumulator = 0;
 
   world.on('spell.bolt', (event) => {
     bolts.push({ ...event, age: 0, duration: 0.18 });
@@ -628,8 +629,8 @@ export function createWebGLArenaRenderer(deps) {
     return new Float32Array(points);
   }
 
-  function collectLights(now) {
-    const candidates = [];
+  function collectLights(now, burningLights) {
+    const candidates = burningLights;
     for (const [id, position, source] of world.query(Position, PointLight)) {
       if (!source.enabled) continue;
       const shown = displayPosition(id, position);
@@ -789,16 +790,7 @@ export function createWebGLArenaRenderer(deps) {
     for (let conditionIndex = 0; conditionIndex < conditionState.active.length; conditionIndex++) {
       const condition = conditionState.active[conditionIndex];
       const pulse = 0.5 + 0.5 * Math.sin(now * 6 + entityId * 0.73 + conditionIndex);
-      if (condition.id === ConditionId.BURNING) {
-        drawElementOrb('fire', position.x, position.y - 3, collider.radius + 4 + pulse * 3, now + entityId, 0.55);
-        for (let ember = 0; ember < 3; ember++) {
-          const rise = (now * 1.8 + entityId * 0.17 + ember / 3) % 1;
-          const x = position.x + (ember - 1) * collider.radius * 0.65;
-          const y = position.y - rise * collider.radius * 2.1;
-          const color = [1, 0.55, 0.16, (1 - rise) * 0.9];
-          drawDisc(x, y, 2 - rise, color, color);
-        }
-      } else if (condition.visual === 'frozen') {
+      if (condition.visual === 'frozen') {
         drawDisc(position.x, position.y, collider.radius + 3 + pulse * 2, [0.18, 0.58, 1, 0.18], [0.58, 0.92, 1, 0.72]);
         drawGlyph('❄', position.x, position.y - collider.radius - 10, 11 + pulse * 2, [0.78, 0.96, 1, 0.95]);
       } else if (condition.visual === 'stunned') {
@@ -917,6 +909,44 @@ export function createWebGLArenaRenderer(deps) {
       a0: hot ? 0.96 : 0.82,
       a1: 0,
     });
+  }
+
+  function presentBurning(now, dt) {
+    burningParticleAccumulator += dt;
+    const emitParticles = burningParticleAccumulator >= 0.045;
+    if (emitParticles) burningParticleAccumulator %= 0.045;
+
+    const lights = [];
+    for (const [id, position, collider, state] of world.query(Position, Collider, Conditions)) {
+      if (!state.active.some(({ id }) => id === ConditionId.BURNING) || world.get(id, Health)?.dead) continue;
+      const shown = displayPosition(id, position);
+      const phase = id * 1.73;
+      if (inView(shown.x, shown.y, 85)) {
+        lights.push({
+          x: shown.x, y: shown.y - 4, radius: 85,
+          intensity: 0.76 * emberLight(now, phase),
+          r: 1, g: 0.34, b: 0.10,
+        });
+      }
+      if (!emitParticles || !inView(shown.x, shown.y, 45)) continue;
+      const drift = Math.sin(now * 83.7 + phase);
+      const flicker = Math.sin(now * 61.1 - phase);
+      fx.pool.spawn({
+        x: shown.x + drift * collider.radius * 0.72,
+        y: shown.y + collider.radius * (0.36 + flicker * 0.2),
+        vx: drift * 11, vy: -53 - 15 * flicker, ax: 0, ay: -22,
+        life: 0.29 + 0.11 * Math.abs(drift),
+        size0: 2.9, size1: 0.6, r: 1, g: 0.43, b: 0.10, a0: 0.8, a1: 0,
+      });
+      fx.pool.spawn({
+        x: shown.x - drift * collider.radius * 0.65,
+        y: shown.y + collider.radius * 0.12,
+        vx: -drift * 21, vy: -63 - 14 * drift, ax: 0, ay: -18,
+        life: 0.32 + 0.18 * Math.abs(flicker),
+        size0: 1.55, size1: 0.3, r: 1, g: 0.8, b: 0.27, a0: 0.98, a1: 0,
+      });
+    }
+    return lights;
   }
 
   function drawDungeonDecorations(now, renderDt) {
@@ -1240,7 +1270,7 @@ export function createWebGLArenaRenderer(deps) {
     goreRenderer.drawAirborne(gore, view, inView);
     // Lighting is a full-world GPU composition pass. Everything except the
     // intentionally luminous VFX and HUD participates in darkness and color.
-    drawLighting(collectLights(now));
+    drawLighting(collectLights(now, presentBurning(now, renderDt)));
     drawDecorationEmission(now);
 
     // Loot signals are intentionally emissive: shafts remain readable through

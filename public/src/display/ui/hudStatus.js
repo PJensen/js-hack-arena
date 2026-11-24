@@ -1,4 +1,5 @@
 import { createAtlasIcon } from './atlasIcon.js';
+import { conditions as conditionCatalog } from '../../rules/data/conditionCatalog.js';
 
 const POWERUP_ICONS = [
   ['manaRegenSeconds', 'mana_surge', 'SURGE'],
@@ -24,7 +25,8 @@ export function createHudStatus(root) {
       if (remaining > 0) statuses.push([iconId, `${label} ${Math.ceil(remaining)}s`]);
     }
     for (const condition of conditions?.active ?? []) {
-      statuses.push([condition.id, `${condition.name.toUpperCase()} ${condition.remaining.toFixed(1)}s`]);
+      const name = condition.name ?? conditionCatalog[condition.id]?.name ?? condition.id;
+      statuses.push([condition.id, `${name.toUpperCase()} ${condition.remaining.toFixed(1)}s`]);
     }
 
     const key = JSON.stringify([gold, statuses, casts, connection]);

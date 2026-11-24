@@ -8,6 +8,12 @@
 
 # Rendering guidance
 
+## Visual effects
+
+- Make the effect visibly happen to its source or target. For Burning, emit rising particles from the actor and cast warm, flickering light onto the nearby floor. For an area hazard, show where the effect begins and where it can reach.
+- Give fire, ice, impact, and other effects distinct motion, color, and shape. Reserve generic orbs, discs, and spinning glows for effects whose design calls for those shapes.
+- Preserve the player silhouette, combat cues, and readable status at normal gameplay zoom. Check effects in motion on the live renderer at both phone and desktop sizes, including entry, sustained contact, and expiration.
+
 ## WebGL shaders
 
 - Keep GLSL source out of renderer orchestration files. Store each shader in its own module under `public/src/display/webgl/shaders/`, using a descriptive filename such as `frostBolt.frag.js` or `projectile.vert.js`.
