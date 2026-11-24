@@ -1,6 +1,7 @@
 // Authoritative entity lifecycle. Presentation observes entity.died events.
 import { Actor, Health, Input, Lifetime, PlayerTag, Position, Projectile, RecoverableArrows, Velocity } from '../components/index.js';
-import { spawnArrows } from '../spawner.js';
+import { AuraId } from '../data/auraCatalog.js';
+import { spawnArrows, spawnAuraField } from '../spawner.js';
 
 export function deathSystem(world, _dt) {
   const destroy = new Set();
@@ -9,6 +10,7 @@ export function deathSystem(world, _dt) {
     if (health.hp > 0 || health.dead) continue;
     health.hp = 0;
     health.dead = true;
+    if (actor.theme === 'gas_spore') spawnAuraField(world, position.x, position.y, AuraId.SPORE_CLOUD);
     world.emit('entity.died', {
       id,
       kind: actor.kind,

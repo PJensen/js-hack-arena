@@ -37,6 +37,11 @@ export function createAISystem(ctx) {
       if (gaze) ai.castCooldown = Math.max(0, ai.castCooldown - dt);
       const movementSpeed = spd.max * getStatMultiplier(world, id, 'movementSpeed');
       const moveLocked = isActionLocked(world, id, 'move');
+      if (ai.behavior === AIBehavior.PASSIVE) {
+        ai.target = null;
+        patrol(grid, pos, vel, ai, movementSpeed, moveLocked, dt, col.radius);
+        continue;
+      }
       const castLocked = isActionLocked(world, id, 'cast');
       if (ai.target != null && !world.alive.has(ai.target)) ai.target = null;
       const targetHealth = world.get(ai.target, Health);

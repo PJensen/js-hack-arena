@@ -6,7 +6,7 @@ import {
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { AI, Actor, Auras, Facing, Gold, Health, Input, ItemInfo, Mana, PointLight, Position, Powerups, Projectile, Ring, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
-import { GOLD_LIGHT, spawnAuraField, spawnEpicChest, spawnEpicSword, spawnFloatingEye, spawnFuryRune, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
+import { GOLD_LIGHT, spawnAuraField, spawnEpicChest, spawnEpicSword, spawnFloatingEye, spawnFuryRune, spawnGasSpore, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
 import { GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
 import { applyAura, applyDamage, getStatMultiplier } from '../public/src/rules/effects.js';
 import { SpellCastMode, spells as spellCatalog } from '../public/src/rules/data/spellCatalog.js';
@@ -823,7 +823,7 @@ Deno.test("arena sim: authored packs include a spider without increasing the ene
   sim.addPlayer('peer-a');
   const mobs = [...sim.world.query(AI, Actor, Health, Position)].map(([, ai, actor, health, position]) => ({ ai, actor, health, position }));
   assertEquals(mobs.length, 9);
-  assertEquals([...new Set(mobs.map((mob) => mob.actor.name))].sort(), ['Cave Spider', 'Floating Eye', 'Gelatinous Cube', 'Goblin Raider', 'Wraith']);
+  assertEquals([...new Set(mobs.map((mob) => mob.actor.name))].sort(), ['Cave Spider', 'Floating Eye', 'Gas Spore', 'Gelatinous Cube', 'Goblin Raider', 'Wraith']);
   assert(mobs.find((mob) => mob.actor.name === 'Gelatinous Cube').health.maxHp >= 180);
   assertEquals(mobs.find((mob) => mob.actor.name === 'Gelatinous Cube').actor.glyph, '■');
   const spider = mobs.find((mob) => mob.actor.theme === 'spider');
@@ -833,6 +833,68 @@ Deno.test("arena sim: authored packs include a spider without increasing the ene
   const replica = makeOpenSim(905, { mode: SIM_MODE.REPLICA });
   replica.applySnapshot(sim.captureSnapshot());
   assert([...replica.world.query(Actor)].some(([, actor]) => actor.theme === 'spider'));
+});
+
+Deno.test('arena sim: a passive Gas Spore ruptures once and the cloud only damages actors inside', () => {
+  const sim = makeOpenSim(925, { enemyCount: 0 });
+  const player = sim.addPlayer('peer-a');
+  const position = sim.world.get(player, Position);
+  const health = sim.world.get(player, Health);
+  const spore = spawnGasSpore(sim.world, { distanceMove: () => 100 }, 180, 100, null, [{ x: 240, y: 100 }]);
+  const sporePosition = sim.world.get(spore, Position);
+  const ai = sim.world.get(spore, AI);
+  const replica = makeOpenSim(925, { mode: SIM_MODE.REPLICA });
+  const sporeClouds = (snapshot) => snapshot.entities.filter(({ state }) => state.auraEmitter?.id === 'spore_cloud');
+  const step = (ticks) => {
+    for (let i = 0; i < ticks; i++) sim.step();
+  };
+  step(10);
+  assertEquals(ai.target, null);
+  assert(sporePosition.x > 180 && sporePosition.x < 190);
+  assertEquals([...sim.world.query(Projectile)].length, 0);
+  assertEquals(sporeClouds(sim.captureSnapshot()).length, 0);
+
+  // Body contact still lets the player strike, but the spore deals no melee damage.
+  position.x = sporePosition.x - 25;
+  const sporeHealth = sim.world.get(spore, Health);
+  const beforeContact = sporeHealth.hp;
+  step(1);
+  assert(sporeHealth.hp < beforeContact);
+  assertEquals(health.hp, 100);
+  position.x = 100;
+
+  applyDamage(sim.world, spore, 20, { sourceId: player, damageType: 'physical' });
+  step(1);
+  assertEquals(sim.world.alive.has(spore), false);
+  const deathSnapshot = sim.captureSnapshot();
+  const [cloud] = sporeClouds(deathSnapshot);
+  assertEquals(sporeClouds(deathSnapshot).length, 1);
+  assertEquals([cloud.state.x, cloud.state.y], [sporePosition.x, sporePosition.y]);
+  assertEquals(cloud.state.auraEmitter.duration, 6);
+  replica.applySnapshot(deathSnapshot);
+  assertEquals(sporeClouds(replica.captureSnapshot()), [cloud]);
+  const { radius } = cloud.state.auraEmitter;
+
+  position.x = cloud.state.x - radius - 1;
+  step(16);
+  assertEquals(health.hp, 100);
+  position.x = cloud.state.x - radius + 1;
+  step(16);
+  assertEquals(health.hp, 94);
+  assert(sim.captureSnapshot().events.some(({ type, payload }) =>
+    type === 'damage.dealt' && payload.periodic && payload.damageType === 'poison'));
+  position.x = cloud.state.x - radius - 1;
+  step(16);
+  assertEquals(health.hp, 94);
+  step(75);
+  const expiredSnapshot = sim.captureSnapshot();
+  replica.applySnapshot(expiredSnapshot);
+  assertEquals(sporeClouds(expiredSnapshot), []);
+  assertEquals(sporeClouds(replica.captureSnapshot()), []);
+  position.x = cloud.state.x - radius + 1;
+  step(16);
+  assertEquals(health.hp, 94);
+  assertEquals([...sim.world.query(AI)].length, 0);
 });
 
 Deno.test('arena sim: floating eye gaze needs sustained sight and replicates timed paralysis', () => {
@@ -1050,7 +1112,10 @@ Deno.test('mob preview: spawns the selected mob once on reachable ground near th
     moveGrid: new Float32Array(256 * 256).fill(100),
     distanceMove: (x) => 122 - x,
   };
-  const names = { spider: 'Cave Spider', goblin: 'Goblin Raider', wraith: 'Wraith', cube: 'Gelatinous Cube' };
+  const names = {
+    spider: 'Cave Spider', goblin: 'Goblin Raider', wraith: 'Wraith', cube: 'Gelatinous Cube',
+    floating_eye: 'Floating Eye', gas_spore: 'Gas Spore',
+  };
   for (const [key, name] of Object.entries(names)) {
     const sim = makeOpenSim(924, { grid, enemyCount: 0 });
     const player = sim.addPlayer('peer-a');
@@ -1064,7 +1129,7 @@ Deno.test('mob preview: spawns the selected mob once on reachable ground near th
     assertAlmostEquals(Math.hypot(position.x - start.x, position.y - start.y), 82);
     assert(grid.distanceMove(position.x, position.y) >= 20);
     sim.step();
-    assertEquals(ai.target, player);
+    assertEquals(ai.target, key === 'gas_spore' ? null : player);
   }
   assertEquals(getPreviewMob('constructor'), undefined);
 });

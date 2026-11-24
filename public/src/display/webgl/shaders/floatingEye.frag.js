@@ -2,6 +2,7 @@ export const FLOATING_EYE_FRAGMENT = `#version 300 es
 precision highp float;
 uniform vec3 u_optic;
 uniform float u_charge;
+uniform bool u_spore;
 in vec3 v_surface;
 out vec4 out_color;
 
@@ -26,6 +27,13 @@ void main() {
     violet = mix(vec3(0.025, 0.008, 0.05), violet, smoothstep(0.19, 0.23, pupil));
     violet += vec3(1.0, 0.82, 1.0) * u_charge * (1.0 - smoothstep(0.04, 0.22, pupil));
     color = mix(color, violet, 1.0 - smoothstep(0.56, 0.65, r));
+  }
+
+  if (u_spore) {
+    // Keep the false iris, but let the mottled casing show through it.
+    float mottling = sin(normal.x * 19.0 + normal.y * 8.0) * sin(normal.z * 27.0 - normal.y * 10.0);
+    vec3 rind = mix(vec3(0.39, 0.25, 0.39), vec3(0.78, 0.71, 0.54), smoothstep(-0.7, 0.8, mottling));
+    color = mix(color, rind, 0.58 + 0.14 * mottling);
   }
 
   vec3 light = normalize(vec3(-0.48, 0.48, 0.73));

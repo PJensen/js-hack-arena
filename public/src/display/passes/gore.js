@@ -16,7 +16,7 @@ export function createGorePass({ grid, seed, reducedMotion = () => false }) {
 
   function add({ x, y, amount, killed, targetTheme, impactAngle, spellId }) {
     if (!(amount > 0) || !Number.isFinite(x) || !Number.isFinite(y)) return;
-    const material = targetTheme === 'frost' ? slime : targetTheme === 'shadow' ? spectral :
+    const material = targetTheme === 'frost' || targetTheme === 'gas_spore' ? slime : targetTheme === 'shadow' ? spectral :
       targetTheme === 'spider' ? ichor : targetTheme === 'floating_eye' ? eyeIchor : flesh;
     const strength = Math.min(1.7, 0.7 + amount / 22);
     const direction = Number.isFinite(impactAngle) ? impactAngle : rng.float(0, 2 * Math.PI);

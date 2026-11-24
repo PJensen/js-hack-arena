@@ -5,6 +5,7 @@ export const AIBehavior = Object.freeze({
   CASTER: 'caster',
   MELEE:  'melee',
   GAZE:   'gaze',
+  PASSIVE: 'passive',
 });
 
 export const WEB_WINDUP_SECONDS = 0.35;

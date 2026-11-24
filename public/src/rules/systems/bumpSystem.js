@@ -1,6 +1,6 @@
 // Body separation and contact melee. Mutable cooldown state is scoped to one
 // simulation instance, never shared between rooms.
-import { Actor, AI, Collider, Conditions, GroundItem, Health, MeleeWeapon, PlayerTag, Position, Powerups, Projectile } from '../components/index.js';
+import { Actor, AI, AIBehavior, Collider, Conditions, GroundItem, Health, MeleeWeapon, PlayerTag, Position, Powerups, Projectile } from '../components/index.js';
 import { applyCondition, applyDamage } from '../effects.js';
 
 const BUMP_COOLDOWN = 0.4;
@@ -62,7 +62,9 @@ function resolvePair(world, a, b, cooldowns, time) {
 
   const playerId = aPlayer ? a.id : b.id;
   const mobId = aAI ? a.id : b.id;
-  dealDamage(world, mobId, playerId, positionOf(aPlayer ? a : b));
+  if (contactMelee.behavior !== AIBehavior.PASSIVE) {
+    dealDamage(world, mobId, playerId, positionOf(aPlayer ? a : b));
+  }
   dealDamage(world, playerId, mobId, positionOf(aAI ? a : b));
 }
 

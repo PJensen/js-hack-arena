@@ -45,6 +45,8 @@ import {
   spawnEpicSword,
   spawnFloatingEye,
   FLOATING_EYE_LIGHT,
+  spawnGasSpore,
+  GAS_SPORE_LIGHT,
   spawnGold,
   GOLD_LIGHT,
   findOpenNear,
@@ -101,7 +103,7 @@ const PRESENTATION_EVENTS = Object.freeze([
   'terrain.carved',
 ]);
 const EVENT_HISTORY_LIMIT = 96;
-const ENEMY_PACKS = [[spawnCaster], [spawnMelee, spawnSpider], [spawnTank, spawnFloatingEye, spawnTank], [spawnSpider]];
+const ENEMY_PACKS = [[spawnCaster], [spawnMelee, spawnSpider], [spawnTank, spawnFloatingEye, spawnGasSpore], [spawnSpider]];
 
 /**
  * Authoritative gameplay world or client-side replica of one.
@@ -1193,6 +1195,7 @@ function lightForTheme(theme) {
   if (theme === 'frost') return { radius: 125, r: 40, g: 225, b: 190 };
   if (theme === 'spider') return SPIDER_LIGHT;
   if (theme === 'floating_eye') return FLOATING_EYE_LIGHT;
+  if (theme === 'gas_spore') return GAS_SPORE_LIGHT;
   return { radius: 105, r: 145, g: 70, b: 220 };
 }
 

@@ -1,8 +1,9 @@
 import { assert, assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
-import { AI, Conditions, Health, Position } from '../public/src/rules/components/index.js';
+import { AI, Actor, Conditions, Health, Position } from '../public/src/rules/components/index.js';
 import { SIM_DT, SIM_MODE, createArenaSimulation } from '../public/src/rules/sim/arenaSim.js';
 import { GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
 import { sweepMaxFree } from '../public/src/rules/geometry/sweep.js';
+import { applyDamage } from '../public/src/rules/effects.js';
 import { spawnGold, spawnRing } from '../public/src/rules/spawner.js';
 import { MESSAGE, decodeMessage, encodeMessage } from '../public/src/shared/net/protocol.js';
 import { GameRoom } from '../worker/index.js';
@@ -63,6 +64,7 @@ Deno.test('game room: encounters stay spread out while some mobs patrol', () => 
     const mobStates = (snapshot) => snapshot.entities.filter(({ kind }) => kind === 'mob').map(({ state }) => state);
     assertEquals(mobStates(latestSnapshot(socket)), mobStates(offline.captureSnapshot()));
     assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'floating_eye').length, 1);
+    assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'gas_spore').length, 1);
 
     const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     const mobs = [...sim.world.query(AI, Position)].map(([id, ai, pos]) => ({ id, ai, pos, home: { ...pos } }));
@@ -117,6 +119,15 @@ Deno.test('game room: encounters stay spread out while some mobs patrol', () => 
     const playerRecord = gazeHit.entities.find(({ kind }) => kind === 'player');
     assertEquals(gaze, { target: playerRecord.id, charge: 1 });
     assertEquals(playerRecord.state.conditions.map(({ id }) => id), ['paralyzed']);
+
+    const spore = gazeHit.entities.find(({ state }) => state.theme === 'gas_spore');
+    const [sporeId] = [...sim.world.query(Actor)].find(([, actor]) => actor.theme === 'gas_spore');
+    applyDamage(sim.world, sporeId, 20, { sourceId: playerId });
+    room.step();
+    room.step();
+    const cloud = latestSnapshot(socket).entities.find(({ state }) => state.auraEmitter?.id === 'spore_cloud');
+    assertEquals(cloud?.kind, 'aura_field');
+    assertEquals([cloud.state.x, cloud.state.y], [spore.state.x, spore.state.y]);
   } finally {
     room.leave(socket);
   }

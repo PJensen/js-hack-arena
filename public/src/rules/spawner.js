@@ -11,6 +11,7 @@ import { Ring } from './components/Ring.js';
 export const GOLD_LIGHT = Object.freeze({ radius: 36, r: 255, g: 190, b: 45 });
 export const SPIDER_LIGHT = Object.freeze({ radius: 56, r: 148, g: 98, b: 70 });
 export const FLOATING_EYE_LIGHT = Object.freeze({ radius: 76, r: 192, g: 86, b: 255 });
+export const GAS_SPORE_LIGHT = Object.freeze({ radius: 66, r: 167, g: 101, b: 180 });
 
 /**
  * Find open ground near a point using the grid.
@@ -169,6 +170,15 @@ export function spawnFloatingEye(world, grid, nearX, nearY, targetId, patrolPoin
     light: FLOATING_EYE_LIGHT, behavior: AIBehavior.GAZE, castRate: 5,
     meleeDamage: 3, weapon: 'Eye Bash', aggroRange: 205,
     patrolPoints, searchRadius: 64,
+  });
+}
+
+export function spawnGasSpore(world, grid, nearX, nearY, targetId, patrolPoints = []) {
+  return spawnMob(world, grid, nearX, nearY, targetId, {
+    name: 'Gas Spore', glyph: 'e', theme: 'gas_spore', radius: 13,
+    speed: 38, hp: 8, mana: 0, manaRegen: 0,
+    light: GAS_SPORE_LIGHT, behavior: AIBehavior.PASSIVE, castRate: 0,
+    meleeDamage: 0, weapon: '', patrolPoints, searchRadius: 64,
   });
 }
 

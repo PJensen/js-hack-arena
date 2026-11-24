@@ -6,6 +6,7 @@ export const AuraId = Object.freeze({
   CHILLING_PRESENCE: 'chilling_presence',
   HASTE_TOTEM: 'haste_totem',
   CAMPFIRE: 'campfire',
+  SPORE_CLOUD: 'spore_cloud',
 });
 
 // Spatial fields share the same generic effect operations as conditions.
@@ -19,6 +20,16 @@ export const auras = Object.freeze({
     targets: 'all',
     effects: Object.freeze([
       Object.freeze({ kind: EffectKind.APPLY_CONDITION, conditionId: ConditionId.BURNING }),
+    ]),
+  }),
+  [AuraId.SPORE_CLOUD]: Object.freeze({
+    id: AuraId.SPORE_CLOUD,
+    name: 'Spore Cloud',
+    radius: 68,
+    duration: 6,
+    targets: 'all',
+    effects: Object.freeze([
+      Object.freeze({ kind: EffectKind.PERIODIC_DAMAGE, damageType: 'poison', amount: 6, interval: 0.65 }),
     ]),
   }),
   [AuraId.CHILLING_PRESENCE]: Object.freeze({

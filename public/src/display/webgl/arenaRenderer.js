@@ -55,13 +55,14 @@ import { MELEE_ARC_VERTEX } from './shaders/meleeArc.vert.js';
 import { MELEE_ARC_FRAGMENT } from './shaders/meleeArc.frag.js';
 import { GAZE_RAY_VERTEX } from './shaders/gazeRay.vert.js';
 import { GAZE_RAY_FRAGMENT } from './shaders/gazeRay.frag.js';
+import { SPORE_CLOUD_FRAGMENT } from './shaders/sporeCloud.frag.js';
 
 // Lighting is a core gameplay/readability layer. Keep enough simultaneous
 // sources for actors, loot, projectiles, and transient spell illumination.
 export const MAX_DYNAMIC_LIGHTS = 24;
 
 function hasRaisedStatusBar(theme) {
-  return theme === 'spider' || theme === 'floating_eye';
+  return theme === 'spider' || theme === 'floating_eye' || theme === 'gas_spore';
 }
 
 function compareDirection(next, current) {
@@ -291,6 +292,17 @@ export function createWebGLArenaRenderer(deps) {
     width: uniform(gl, gazeProgram, 'u_width'),
     charge: uniform(gl, gazeProgram, 'u_charge'),
     time: uniform(gl, gazeProgram, 'u_time'),
+  };
+
+  const sporeCloudProgram = device.program(WORLD_VERTEX, SPORE_CLOUD_FRAGMENT);
+  const sporeCloud = {
+    program: sporeCloudProgram,
+    view: uniform(gl, sporeCloudProgram, 'u_view'),
+    position: uniform(gl, sporeCloudProgram, 'u_position'),
+    size: uniform(gl, sporeCloudProgram, 'u_size'),
+    time: uniform(gl, sporeCloudProgram, 'u_time'),
+    age: uniform(gl, sporeCloudProgram, 'u_age'),
+    remaining: uniform(gl, sporeCloudProgram, 'u_remaining'),
   };
 
   const particleProgram = device.program(PARTICLE_VERTEX, PARTICLE_FRAGMENT);
@@ -929,6 +941,18 @@ export function createWebGLArenaRenderer(deps) {
   function drawAuraEmitter(emitter, position, now, entityId) {
     if (emitter.id === AuraId.CAMPFIRE) return;
     if (!emitter?.active || emitter.radius <= 0) return;
+    if (emitter.id === AuraId.SPORE_CLOUD) {
+      if (!inView(position.x, position.y, emitter.radius)) return;
+      gl.useProgram(sporeCloud.program);
+      gl.bindVertexArray(quadVao);
+      setWorld(sporeCloud, position.x, position.y, emitter.radius * 2.04, emitter.radius * 2.04);
+      const still = motionPreference.matches;
+      gl.uniform1f(sporeCloud.time, (still ? 0 : now) + entityId * 0.31);
+      gl.uniform1f(sporeCloud.age, still ? 0.45 : emitter.duration - emitter.remaining);
+      gl.uniform1f(sporeCloud.remaining, emitter.remaining);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      return;
+    }
     const pulse = 0.5 + 0.5 * Math.sin(now * 3.2 + entityId * 0.47);
     const rawColor = emitter.visual?.color;
     const color = Array.isArray(rawColor) && rawColor.length >= 3
@@ -1312,14 +1336,16 @@ export function createWebGLArenaRenderer(deps) {
       const velocity = world.get(id, Velocity);
       const speed = Math.hypot(velocity?.vx || 0, velocity?.vy || 0);
       const facing = world.get(id, Facing)?.angle ?? 0;
-      if (actor.theme === 'floating_eye') {
+      const spore = actor.theme === 'gas_spore';
+      if (actor.theme === 'floating_eye' || spore) {
         const ai = world.get(id, AI);
         const charge = ai?.gazeCharge ?? 0;
         if (!inView(shown.x, shown.y, charge > 0 ? 220 : 32)) continue;
         const { radius } = collider;
         const bob = motionPreference.matches ? 0 : Math.sin(combatTime * 2.2 + id) * 2;
         drawDisc(shown.x, shown.y + 4, radius * 0.85, [0.06, 0.015, 0.09, 0.43], [0, 0, 0, 0]);
-        const from = drawFloatingEye(view, shown.x, shown.y - radius * 0.7 + bob, radius, facing, charge);
+        const swelling = spore && !motionPreference.matches ? 1 + Math.sin(combatTime * 2.6 + id) * 0.08 : 1;
+        const from = drawFloatingEye(view, shown.x, shown.y - radius * 0.7 + bob, radius * swelling, facing, charge, spore);
         const target = charge > 0 ? world.get(ai.target, Position) : null;
         if (target) gazeRays.push({ from, to: displayPosition(ai.target, target), charge });
         if (actor.rare) drawGlyph('★', shown.x + radius * 0.95, shown.y - radius * 1.75, 10, [1, 0.78, 0.18, 1]);
