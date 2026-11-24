@@ -2,10 +2,45 @@ import { assert, assertAlmostEquals, assertEquals } from "https://deno.land/std@
 import { multiply, perspective } from '../public/src/display/webgl/math.js';
 import { ParticleFX, ParticlePool } from '../public/src/display/webgl/particles.js';
 import { MAX_DYNAMIC_LIGHTS } from '../public/src/display/webgl/arenaRenderer.js';
+import { createMeleeImpact } from '../public/src/display/passes/meleeImpact.js';
 import { buildTerrainMesh } from '../public/src/display/webgl/terrainMesh.js';
 import { createDungeonDecorations } from '../public/src/display/worldDecorations.js';
 import { biolum, emberLight, torchLight } from '../public/src/display/lightPatterns.js';
 import { generateArenaCave, generateCave } from '../public/src/rules/geometry/caveGen.js';
+
+Deno.test('melee presentation: a confirmed local hit holds the swing once and punches the camera', () => {
+  const contacts = [];
+  const arc = { range: 72, halfAngle: 1.1, hits: [{ target: 2, x: 40, y: 0 }] };
+  const cast = { playerId: 1, spellId: 'cleave', x: 0, y: 0, angle: 0, meleeArc: arc };
+  const effect = createMeleeImpact({ playerId: 1, onContact: (swing) => contacts.push(swing) });
+  effect.add(cast);
+  assertEquals(effect.advance(0.04), 0.04);
+  assertEquals(effect.cameraResponse().zoom, 1);
+  assertEquals(contacts.length, 0);
+  assert(effect.advance(0.05) < 0.01);
+  assertEquals(contacts.length, 1);
+  assertEquals(contacts[0].halfAngle, arc.halfAngle);
+  assert(effect.cameraResponse().zoom > 1);
+  assert(effect.advance(0.02) < 0.01);
+  assert(effect.actorPosition(2, { x: 40, y: 0 }).x > 40);
+  for (let i = 0; i < 30; i++) effect.advance(0.02);
+  assertEquals(effect.cameraResponse().zoom, 1);
+  assertEquals(effect.swings, []);
+  assertEquals(contacts.length, 1);
+
+  for (const [event, reducedMotion, expectedContacts] of [
+    [{ ...cast, meleeArc: { ...arc, hits: [] } }, false, 0],
+    [{ ...cast, playerId: 7 }, false, 1],
+    [cast, true, 1],
+  ]) {
+    contacts.length = 0;
+    const effect = createMeleeImpact({ playerId: 1, reducedMotion: () => reducedMotion, onContact: () => contacts.push(1) });
+    effect.add(event);
+    assertEquals(effect.advance(0.09), 0.09);
+    assertEquals(effect.cameraResponse().zoom, 1);
+    assertEquals(contacts.length, expectedContacts);
+  }
+});
 
 Deno.test('arena cave expands the playable network without growing the field texture', () => {
   const cave = generateArenaCave(42);

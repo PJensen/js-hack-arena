@@ -55,7 +55,10 @@ Deno.test('game room: a starter Cleave consumes stamina and broadcasts the swing
     const player = snapshot.entities.find((entity) => entity.kind === 'player').state;
     assertEquals(player.stamina, 75);
     assertEquals(player.mana, initial.mana);
-    assert(snapshot.events.some(({ type, payload }) => type === 'spell.cast' && payload.spellId === 'cleave'));
+    const swing = snapshot.events.find(({ type, payload }) => type === 'spell.cast' && payload.spellId === 'cleave');
+    assert(swing);
+    assertEquals(swing.payload.meleeArc.hits, []);
+    assert(swing.payload.caster.startsWith('player:'));
   } finally {
     room.leave(socket);
   }

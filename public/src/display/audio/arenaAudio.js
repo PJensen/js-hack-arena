@@ -85,9 +85,12 @@ export function createArenaAudio({ world, getPlayerPosition }) {
   });
   listen('damage.dealt', (event) => {
     if (Number(event?.amount) < 0) playAt(SOUND.healing, event, { volume: 0.7, maxVoices: 2 });
-    if (event.amount > 0 && (event.spellId === 'cleave' || event.spellId === 'rend')) {
-      playAt(SOUND.meleeHit, event, { volume: 0.68, maxVoices: 3, randomPitch: 35 });
-    }
+  });
+  listen('melee.contact.fx', (event) => {
+    const volume = Math.min(0.98, 0.83 + (event.targets - 1) * 0.06);
+    playAt(SOUND.meleeHit, event, {
+      volume, maxVoices: 3, randomPitch: 25, detune: event.rend ? 90 : -160,
+    });
   });
   listen('item.pickup', (event) => {
     playAt(pickupSound(event), event, { volume: 0.72, maxVoices: 4, randomPitch: 18 });
@@ -119,6 +122,7 @@ export function createArenaAudio({ world, getPlayerPosition }) {
       volume: spatial.volume * Number(options.volume ?? 1),
       maxVoices: options.maxVoices ?? 3,
       randomPitch: options.randomPitch ?? 12,
+      detune: options.detune ?? 0,
     });
   }
 

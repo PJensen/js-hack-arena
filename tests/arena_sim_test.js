@@ -98,14 +98,25 @@ Deno.test("arena sim: Cleave hits its arc, respects walls and spends replicated 
   assertEquals(sim.world.get(playerId, Mana).mana, 100);
 
   const replica = makeOpenSim(915, { mode: SIM_MODE.REPLICA });
+  for (let i = 0; i < 12; i++) replica.world.create();
   const casts = [];
   replica.world.on('spell.cast', (event) => casts.push(event));
   const snapshot = sim.captureSnapshot();
   replica.applySnapshot(snapshot);
   replica.applySnapshot(snapshot);
-  const [, replicaStamina] = [...replica.world.query(Stamina)][0];
+  const replicaPlayer = replica.getPlayerEntity('peer-a');
+  const replicaStamina = replica.world.get(replicaPlayer, Stamina);
   assertEquals(replicaStamina.stamina, 75);
   assertEquals(casts.map(({ spellId, angle }) => [spellId, angle]), [['cleave', 0]]);
+  assert(replicaPlayer !== playerId);
+  assertEquals(casts[0].playerId, replicaPlayer);
+  assertAlmostEquals(casts[0].meleeArc.halfAngle * 360 / Math.PI, 140.4);
+  assertEquals(casts[0].meleeArc.range, 70);
+  assertEquals(casts[0].meleeArc.hits.map(({ target, x, y }) => {
+    assert(target !== front.id && target !== flank.id);
+    assertEquals(replica.world.get(target, Position), { x, y });
+    return replica.world.get(target, Health).hp;
+  }), [82, 82]);
 
   for (let i = 0; i < 10; i++) sim.step();
   assertEquals(stamina.stamina, 75);

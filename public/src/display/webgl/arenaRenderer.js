@@ -7,6 +7,7 @@ import {
 import { AI } from '../../rules/components/AI.js';
 import { spells as spellCatalog } from '../../rules/data/spellCatalog.js';
 import { rarityTextColors } from '../../rules/data/lootTable.js';
+import { createMeleeImpact } from '../passes/meleeImpact.js';
 import { biolum, emberLight, torchLight } from '../lightPatterns.js';
 import { createWebGLDevice } from './device.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
@@ -156,7 +157,7 @@ function uploadCubeMesh(device, vertices) {
 }
 
 export function createWebGLArenaRenderer(deps) {
-  const { canvas, overlayCanvas, cam, grid, bounds, decorations, world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars } = deps;
+  const { canvas, overlayCanvas, cam, grid, bounds, decorations, world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars, stepParticles } = deps;
   const device = createWebGLDevice(canvas);
   const { gl } = device;
   const overlay = overlayCanvas?.getContext('2d') || null;
@@ -322,32 +323,36 @@ export function createWebGLArenaRenderer(deps) {
   let disposed = false;
   const bolts = [];
   const meleeSwings = [];
-  const meleeArcs = [];
   const bloodDecals = [];
   let lastFrameTime = performance.now() * 0.001;
+  let combatTime = lastFrameTime;
+  const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
+  const meleeImpact = createMeleeImpact({
+    playerId,
+    reducedMotion: () => motionPreference.matches,
+    onContact: presentMeleeContact,
+  });
   let torchParticleAccumulator = 0;
   let torchParticleSequence = 0;
 
   world.on('spell.bolt', (event) => {
     bolts.push({ ...event, age: 0, duration: 0.18 });
   });
-  world.on('spell.cast', (event) => {
-    if (event.spellId !== 'cleave' && event.spellId !== 'rend') return;
-    const rend = event.spellId === 'rend';
-    const { range, halfAngle } = spellCatalog[event.spellId].targeting;
-    meleeArcs.push({ ...event, range, halfAngle, rend, age: 0, duration: rend ? 0.44 : 0.36 });
-  });
-  world.on('damage.dealt', (event) => {
-    const rend = event.spellId === 'rend';
-    if (event.amount <= 0 || (!rend && event.spellId !== 'cleave')) return;
-    const source = world.get(event.source, Position);
-    const direction = source ? Math.atan2(event.y - source.y, event.x - source.x) : 0;
+  world.on('spell.cast', meleeImpact.add);
+
+  function presentMeleeContact(swing) {
+    for (const hit of swing.hits) spawnMeleeSparks(hit, swing);
+    world.emit('melee.contact.fx', { ...swing.hits[0], rend: swing.rend, targets: swing.hits.length });
+  }
+
+  function spawnMeleeSparks(hit, { rend, x, y }) {
+    const direction = Math.atan2(hit.y - y, hit.x - x);
     for (let i = 0; i < (rend ? 15 : 12); i++) {
-      const random = 0.5 + 0.5 * Math.sin(i * 81.7 + event.x * 2.3 + event.y * 7.9);
+      const random = 0.5 + 0.5 * Math.sin(i * 81.7 + hit.x * 2.3 + hit.y * 7.9);
       const angle = direction + (random - 0.5) * 2.8;
-      const speed = 35 + (i % 5) * 27;
+      const speed = 55 + (i % 5) * 34;
       fx.pool.spawn({
-        x: event.x, y: event.y,
+        x: hit.x, y: hit.y,
         vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
         ax: 0, ay: 80,
         life: 0.16 + random * 0.24,
@@ -356,7 +361,7 @@ export function createWebGLArenaRenderer(deps) {
         a0: 0.95, a1: 0,
       });
     }
-  });
+  }
   world.on('melee.hit', (event) => {
     meleeSwings.push({ ...event, age: 0, duration: 0.22 });
     for (let i = 0; i < 7; i++) {
@@ -376,7 +381,7 @@ export function createWebGLArenaRenderer(deps) {
   });
 
   function displayPosition(id, position) {
-    return presentation?.position(id, position) ?? position;
+    return meleeImpact.actorPosition(id, presentation?.position(id, position) ?? position);
   }
 
   function setWorld(program, x, y, width, height) {
@@ -478,6 +483,21 @@ export function createWebGLArenaRenderer(deps) {
     gl.uniform1f(meleeArc.progress, swing.age / swing.duration);
     gl.uniform1i(meleeArc.rend, Number(swing.rend));
     gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  function drawMeleeContact(swing) {
+    const progress = Math.min(1, (swing.age - swing.contactTime) / 0.16);
+    if (progress >= 1) return;
+    const fade = (1 - progress) ** 2;
+    const core = motionPreference.matches ? 0.25 : 0.78;
+    const color = swing.rend ? [1, 0.19, 0.29] : [1, 0.64, 0.27];
+    const expansion = 1 - (1 - progress) ** 3;
+    for (const hit of swing.hits) {
+      if (!inView(hit.x, hit.y, 42)) continue;
+      const radius = (hit.killed ? 19 : 14) + expansion * 17;
+      drawDisc(hit.x, hit.y, radius, [...color, fade * 0.19], [...color, fade * 0.6]);
+      drawDisc(hit.x, hit.y, 8 - progress * 5, [1, 0.94, 0.83, fade * core], [...color, fade * core]);
+    }
   }
 
   function drawCube(x, y, radius, time, alpha = 1) {
@@ -640,7 +660,7 @@ export function createWebGLArenaRenderer(deps) {
         r: 0.68, g: 0.92, b: 1,
       });
     }
-    for (const swing of meleeArcs) {
+    for (const swing of meleeImpact.swings) {
       const progress = swing.age / swing.duration;
       const reach = swing.range * 0.66;
       const tip = Math.min(1, progress * (swing.rend ? 4.8 : 2.8));
@@ -963,7 +983,7 @@ export function createWebGLArenaRenderer(deps) {
       if (!inView(shown.x, shown.y, 30)) continue;
       const sx = ((shown.x - view[0]) / view[2] + 0.5) * width;
       const sy = ((shown.y - view[1]) / view[3] + 0.5) * height;
-      const labelY = sy + collider.radius * cam.scale * ratio + 9 * ratio;
+      const labelY = sy + collider.radius * width / view[2] + 9 * ratio;
       const label = actor.rare ? `★ ${actor.name}` : actor.name;
       overlay.lineWidth = 3 * ratio;
       overlay.strokeStyle = 'rgba(2,5,9,.9)';
@@ -972,7 +992,7 @@ export function createWebGLArenaRenderer(deps) {
       overlay.fillText(label, sx, labelY);
       const conditionLabel = activeConditionLabels(world.get(id, Conditions)).join(' · ');
       if (conditionLabel) {
-        const conditionY = sy - collider.radius * cam.scale * ratio - 19 * ratio;
+        const conditionY = sy - collider.radius * width / view[2] - 19 * ratio;
         overlay.strokeText(conditionLabel, sx, conditionY);
         overlay.fillStyle = '#dff7ff';
         overlay.fillText(conditionLabel, sx, conditionY);
@@ -1056,12 +1076,20 @@ export function createWebGLArenaRenderer(deps) {
     const playerCollider = world.get(playerId, Collider);
     const playerInput = world.get(playerId, Input);
     if (!playerPosition || !playerCollider || !playerInput) return;
+    const now = performance.now() * 0.001;
+    const renderDt = Math.min(0.05, Math.max(0, now - lastFrameTime));
+    lastFrameTime = now;
+    const combatDt = meleeImpact.advance(renderDt);
+    combatTime += combatDt;
+    stepParticles?.(combatDt);
+    const punch = meleeImpact.cameraResponse();
+    const renderScale = cam.scale * punch.zoom;
     const shownPlayer = displayPosition(playerId, playerPosition);
     const { width, height, ratio } = device.resize();
-    view[0] = cam.x - cam.shakeX;
-    view[1] = cam.y - cam.shakeY;
-    view[2] = width / (ratio * cam.scale);
-    view[3] = height / (ratio * cam.scale);
+    view[0] = cam.x - cam.shakeX + punch.x;
+    view[1] = cam.y - cam.shakeY + punch.y;
+    view[2] = width / (ratio * renderScale);
+    view[3] = height / (ratio * renderScale);
 
     if (fieldDirty) {
       gl.bindTexture(gl.TEXTURE_2D, fieldTexture);
@@ -1083,10 +1111,6 @@ export function createWebGLArenaRenderer(deps) {
     gl.uniform1i(caveLocations.field, 0);
     gl.uniform2i(caveLocations.gridSize, grid.cols, grid.rows);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-    const now = performance.now() * 0.001;
-    const renderDt = Math.min(0.05, Math.max(0, now - lastFrameTime));
-    lastFrameTime = now;
 
     drawDungeonDecorations(now, renderDt);
 
@@ -1113,14 +1137,14 @@ export function createWebGLArenaRenderer(deps) {
       const velocity = world.get(id, Velocity);
       const speed = Math.hypot(velocity?.vx || 0, velocity?.vy || 0);
       const moving = Math.min(1, speed / 70);
-      const stride = Math.sin(now * (4.2 + moving * 6) + id * 1.71);
+      const stride = Math.sin(combatTime * (4.2 + moving * 6) + id * 1.71);
       let bob = stride * (actor.name === 'Wraith' ? 3.5 : 1.6) * (0.4 + moving * 0.6);
       let lean = velocity ? Math.max(-2.5, Math.min(2.5, velocity.vx * 0.018)) : 0;
-      if (actor.name === 'Wraith') bob += Math.sin(now * 2.1 + id) * 2.4;
+      if (actor.name === 'Wraith') bob += Math.sin(combatTime * 2.1 + id) * 2.4;
       if (actor.name === 'Gelatinous Cube') {
         bob = Math.abs(stride) * -1.4;
         lean *= 0.25;
-        drawCube(shown.x + lean, shown.y + bob, collider.radius * (1 + stride * 0.035), now + id * 0.17, 0.94);
+        drawCube(shown.x + lean, shown.y + bob, collider.radius * (1 + stride * 0.035), combatTime + id * 0.17, 0.94);
       }
       const glyphColor = actor.theme === 'fire' ? [1, 0.84, 0.5, 1] : actor.theme === 'frost' ? [0.72, 1, 0.9, 1] : [0.85, 0.68, 1, 1];
       if (actor.name !== 'Gelatinous Cube') {
@@ -1268,15 +1292,13 @@ export function createWebGLArenaRenderer(deps) {
 
     // Draw transient combat effects over the lit scene.
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-    for (let i = meleeArcs.length - 1; i >= 0; i--) {
-      const swing = meleeArcs[i];
+    for (const swing of meleeImpact.swings) {
       if (inView(swing.x, swing.y, swing.range * 1.2)) drawMeleeArc(swing);
-      swing.age += renderDt;
-      if (swing.age >= swing.duration) meleeArcs.splice(i, 1);
+      if (swing.landed) drawMeleeContact(swing);
     }
     for (let i = bolts.length - 1; i >= 0; i--) {
       const bolt = bolts[i];
-      bolt.age += renderDt;
+      bolt.age += combatDt;
       if (bolt.age >= bolt.duration) { bolts.splice(i, 1); continue; }
       const alpha = (1 - bolt.age / bolt.duration) * Math.pow(0.72, bolt.chain || 0);
       const points = jaggedBolt(bolt);
@@ -1286,7 +1308,7 @@ export function createWebGLArenaRenderer(deps) {
     }
     for (let i = meleeSwings.length - 1; i >= 0; i--) {
       const swing = meleeSwings[i];
-      swing.age += renderDt;
+      swing.age += combatDt;
       if (swing.age >= swing.duration) { meleeSwings.splice(i, 1); continue; }
       const angle = Math.atan2(swing.y - swing.fromY, swing.x - swing.fromX);
       const progress = swing.age / swing.duration;
@@ -1307,7 +1329,11 @@ export function createWebGLArenaRenderer(deps) {
       drawDisc(swing.x, swing.y, 3 + progress * 10, [0.6, 0.02, 0.03, fade * 0.28], [1, 0.46, 0.25, fade * 0.7]);
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    drawParticles(cam.scale * ratio);
+    drawParticles(renderScale * ratio);
+    if (punch.flash > 0) {
+      drawRect(view[0], view[1], view[2], view[3],
+        punch.rend ? [1, 0.20, 0.31, punch.flash] : [1, 0.79, 0.48, punch.flash]);
+    }
 
     const hp = world.get(playerId, Health);
     if (hp?.dead) {

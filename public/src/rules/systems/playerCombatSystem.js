@@ -175,10 +175,11 @@ function resolveCast(world, grid, playerId, book, position, spell, power) {
     world,
   );
   let resolved = false;
+  let meleeArc;
   if (spell.targeting.type === TargetingType.ENEMY_CHAIN) {
     resolved = castChain(world, grid, playerId, position, spell, impacts);
   } else if (spell.targeting.type === TargetingType.MELEE_ARC) {
-    castMeleeArc(world, grid, playerId, position, book, spell, impacts);
+    meleeArc = castMeleeArc(world, grid, playerId, position, book, spell, impacts);
     resolved = true;
   } else if (spell.targeting.type === TargetingType.SELF) {
     resolved = applyImpacts(world, playerId, playerId, impacts, {
@@ -200,7 +201,7 @@ function resolveCast(world, grid, playerId, book, position, spell, power) {
   }
   spendAmmo(world, playerId, spell);
   engageCooldowns(book, spellId, spell);
-  emitCast(world, playerId, spellId, position, book, power, manaCost);
+  emitCast(world, playerId, spellId, position, book, power, manaCost, meleeArc);
   finishCast(book);
   return true;
 }
@@ -273,11 +274,18 @@ function castMeleeArc(world, grid, playerId, origin, book, spell, impacts) {
     targets.push({ id, position, distance });
   }
   targets.sort((a, b) => a.distance - b.distance || a.id - b.id);
+  const hits = [];
   for (const { id, position } of targets.slice(0, maxTargets ?? targets.length)) {
+    const health = world.get(id, Health);
+    const before = health.hp;
     applyImpacts(world, id, playerId, impacts, {
       x: position.x, y: position.y, spellId: spell.id, damageType: spell.element,
     });
+    if (health.hp < before) {
+      hits.push({ target: id, x: position.x, y: position.y, killed: health.hp === 0 });
+    }
   }
+  return { range, halfAngle, hits };
 }
 
 function spawnSpellProjectile(world, playerId, position, book, spell, impacts, power) {
@@ -389,11 +397,12 @@ function hasRequiredAim(spell, input) {
   return spell.targeting.type === TargetingType.SELF || Math.hypot(input.aimX, input.aimY) > 0.1;
 }
 
-function emitCast(world, playerId, spellId, position, book, power, manaCost) {
+function emitCast(world, playerId, spellId, position, book, power, manaCost, meleeArc) {
   world.emit('spell.cast', {
     playerId, spellId, x: position.x, y: position.y,
     angle: Math.atan2(book.chargeAimY, book.chargeAimX),
     charge: power, manaCost, castMode: book.castMode,
+    ...(meleeArc && { meleeArc }),
   });
 }
 

@@ -125,7 +125,7 @@ export function createArenaSimulation({
 
   if (mode === SIM_MODE.AUTHORITY) {
     installAuthoritativeRules(world, grid);
-    installEventJournal(world, eventHistory, () => ({ tick, sequence: ++eventSequence }));
+    installEventJournal(world, eventHistory, () => ({ tick, sequence: ++eventSequence }), projectEventPayload);
     installLootRules(world);
   }
 
@@ -273,7 +273,17 @@ export function createArenaSimulation({
     for (const event of snapshot.events) {
       if (event.sequence <= lastAppliedEventSequence) continue;
       lastAppliedEventSequence = event.sequence;
-      world.emit(event.type, { ...event.payload, sequence: event.sequence, tick: event.tick });
+      const payload = event.payload;
+      const localReferences = event.type === 'spell.cast' && Array.isArray(payload.meleeArc?.hits) && payload.caster
+        ? {
+          playerId: entityByNetworkId.get(payload.caster) ?? null,
+          meleeArc: {
+            ...payload.meleeArc,
+            hits: payload.meleeArc.hits.map((hit) => ({ ...hit, target: entityByNetworkId.get(hit.target) ?? null })),
+          },
+        }
+        : {};
+      world.emit(event.type, { ...payload, ...localReferences, sequence: event.sequence, tick: event.tick });
     }
     return true;
   }
@@ -605,6 +615,20 @@ export function createArenaSimulation({
     return networkId;
   }
 
+  function projectEventPayload(type, payload) {
+    if (type !== 'spell.cast' || !payload.meleeArc) return payload;
+    return {
+      ...payload,
+      caster: ensureNetworkId(payload.playerId, 'player'),
+      meleeArc: {
+        ...payload.meleeArc,
+        hits: payload.meleeArc.hits.map((hit) => ({
+          ...hit, target: ensureNetworkId(hit.target, 'mob'),
+        })),
+      },
+    };
+  }
+
   function forgetEntity(entityId) {
     const networkId = networkIdByEntity.get(entityId);
     const peerId = findPeerForEntity(entityId);
@@ -717,11 +741,11 @@ function installAuthoritativeRules(world, grid) {
   });
 }
 
-function installEventJournal(world, history, nextIdentity) {
+function installEventJournal(world, history, nextIdentity, projectPayload) {
   for (const type of PRESENTATION_EVENTS) {
     world.on(type, (payload) => {
       const identity = nextIdentity();
-      history.push({ ...identity, type, payload: clonePayload(payload) });
+      history.push({ ...identity, type, payload: clonePayload(projectPayload(type, payload)) });
       if (history.length > EVENT_HISTORY_LIMIT) history.splice(0, history.length - EVENT_HISTORY_LIMIT);
     });
   }

@@ -504,6 +504,7 @@ renderer = createWebGLArenaRenderer({
   canvas, overlayCanvas, cam, grid, bounds, decorations, fx, world, SEED, runtimeEvents,
   net: netClient, playerId,
   presentation,
+  stepParticles: projectileFx.step,
   itemTooltip,
   resourceBars: { health: healthBar, mana: manaBar },
   hud: {
@@ -557,7 +558,6 @@ const loop = createFixedTickLoop({
       sim.step(dt);
     }
     cameraSystem(world, dt);
-    projectileFx.step(dt);
     const networkInput = isNetworked
       ? { ...o, spellSlot: pendingSpellSlot, spellCycle: pendingSpellSlot == null ? Math.sign(pendingSpellCycle) : 0 }
       : o;
