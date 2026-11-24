@@ -448,6 +448,37 @@ Deno.test("arena sim: charged spells spend mana and mana regenerates", () => {
   assertEquals(mana.mana, 100);
 });
 
+Deno.test("arena sim: direct hits pause passive mana recovery for five seconds", () => {
+  const sim = makeOpenSim(902, { enemyCount: 0 });
+  const playerId = sim.addPlayer('peer-a');
+  const mana = sim.world.get(playerId, Mana);
+  const position = sim.world.get(playerId, Position);
+  const mob = spawnIdleTarget(sim, 145, 100);
+  mana.mana = 20;
+
+  sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 2 });
+  sim.step();
+  assert(mob.health.hp < mob.health.maxHp);
+  const manaAfterHit = mana.mana;
+  for (let i = 0; i < 60; i++) sim.step();
+  assertEquals(mana.mana, manaAfterHit);
+
+  applyDamage(sim.world, playerId, 1, { sourceId: mob.id });
+  spawnManaPotion(sim.world, position.x, position.y);
+  spawnManaSurge(sim.world, position.x, position.y);
+  sim.step();
+  const manaAfterPotion = manaAfterHit + 30;
+  assertEquals(mana.mana, manaAfterPotion);
+  for (let i = 0; i < 79; i++) sim.step();
+  assertEquals(mana.mana, manaAfterPotion);
+
+  applyDamage(sim.world, playerId, 1, { sourceId: mob.id, periodic: true });
+  for (let i = 0; i < 20; i++) sim.step();
+  assertEquals(mana.mana, manaAfterPotion);
+  sim.step();
+  assertAlmostEquals(mana.mana - manaAfterPotion, 7.5 * SIM_DT);
+});
+
 Deno.test("arena sim: spell cycle advances the active spell", () => {
   const sim = makeOpenSim(904, { enemyCount: 0 });
   const playerId = sim.addPlayer('peer-a');

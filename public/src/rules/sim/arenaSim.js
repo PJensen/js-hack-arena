@@ -75,7 +75,7 @@ import { createAISystem } from '../systems/aiSystem.js';
 import { createBumpSystem } from '../systems/bumpSystem.js';
 import { deathSystem } from '../systems/deathSystem.js';
 import { createMovementSystem } from '../systems/movementSystem.js';
-import { manaSystem } from '../systems/manaSystem.js';
+import { installManaCombatDelay, manaSystem } from '../systems/manaSystem.js';
 import { createPickupSystem } from '../systems/pickupSystem.js';
 import { powerupSystem } from '../systems/powerupSystem.js';
 import { createPlayerCombatSystem } from '../systems/playerCombatSystem.js';
@@ -761,6 +761,7 @@ export function normalizeSnapshot(snapshot) {
 }
 
 function installAuthoritativeRules(world, grid) {
+  installManaCombatDelay(world);
   const systems = [
     effectSystem,
     createMovementSystem({ grid }),

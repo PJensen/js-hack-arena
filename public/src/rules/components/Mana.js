@@ -6,4 +6,5 @@ export const Mana = defineComponent('Mana', {
   mana: 100,
   maxMana: 100,
   regenPerSecond: 12,
+  regenDelay: 0,
 });
