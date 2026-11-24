@@ -809,15 +809,20 @@ Deno.test("arena sim: a spider patrols, chases, poisons on contact, and stays de
   const ai = sim.world.get(spider, AI);
   const position = sim.world.get(spider, Position);
   Object.assign(position, { x: 450, y: 100 });
+  const meleeHits = [];
+  sim.world.on('melee.hit', (event) => meleeHits.push(event));
 
   for (let i = 0; i < 5; i++) sim.step();
   assertEquals(ai.target, null);
   assert(position.x > 450);
+  assertEquals(meleeHits.length, 0);
   playerPosition.x = position.x - 48;
   for (let i = 0; i < 7; i++) sim.step();
   assertEquals(ai.target, player);
   assert(health.hp < 100);
   assert(sim.world.get(player, Auras).active.some((condition) => condition.id === 'poisoned'));
+  const bites = meleeHits.filter(({ sourceTheme }) => sourceTheme === 'spider');
+  assertEquals(bites.map(({ source, target }) => [source, target]), [[spider, player]]);
 
   playerPosition.x = 100;
   applyDamage(sim.world, spider, 1000);
@@ -825,6 +830,15 @@ Deno.test("arena sim: a spider patrols, chases, poisons on contact, and stays de
   for (let i = 0; i < 14; i++) sim.step();
   assert(health.hp < hpAfterBite);
   assertEquals([...sim.world.query(AI)].length, 0);
+  const replica = makeOpenSim(921, { mode: SIM_MODE.REPLICA });
+  const replayedBites = [];
+  replica.world.on('melee.hit', (event) => {
+    if (event.sourceTheme === 'spider') replayedBites.push(event);
+  });
+  const snapshot = sim.captureSnapshot();
+  replica.applySnapshot(snapshot);
+  replica.applySnapshot(snapshot);
+  assertEquals(replayedBites.map(({ x, y }) => [x, y]), bites.map(({ x, y }) => [x, y]));
 });
 
 Deno.test("arena sim: unalerted patrol mobs stay dormant and dead mobs stay dead", () => {

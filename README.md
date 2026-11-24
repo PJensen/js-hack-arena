@@ -170,6 +170,7 @@ client can discard acknowledged inputs before replaying the remainder.
 - Give Blizzard a distinct channel-start cue with `spell_channeling.mp3`.
 - Use `spell_holy_healing.mp3` on Regeneration activation and keep the existing healing ticks.
 - Try `status_electrocuted.mp3` for a shorter Lightning cast cue.
+- Use the imported `spider_attack_web_1.mp3` and `spider_attack_web_2.mp3` if Cave Spiders gain a web attack.
 
 ## Commands
 

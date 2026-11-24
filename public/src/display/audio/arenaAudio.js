@@ -31,7 +31,12 @@ const SOUND = Object.freeze({
   playerDeath: `${AUDIO_ROOT}player_death.mp3`,
 });
 
-const PRELOAD = Object.freeze(Object.values(SOUND));
+const SPIDER_ATTACKS = Object.freeze([
+  `${AUDIO_ROOT}spider_attack_1.mp3`,
+  `${AUDIO_ROOT}spider_attack_2.mp3`,
+  `${AUDIO_ROOT}spider_attack_3.mp3`,
+]);
+const PRELOAD = Object.freeze([...Object.values(SOUND), ...SPIDER_ATTACKS]);
 const DUNGEON_AMBIENCE = Object.freeze([
   `${AUDIO_ROOT}ambient_dungeon_1.mp3`,
   `${AUDIO_ROOT}ambient_dungeon_2.mp3`,
@@ -65,6 +70,7 @@ export function createArenaAudio({ world, getPlayerPosition }) {
 
   const disposers = [];
   let chargingFrostBolt = false;
+  let spiderAttackIndex = 0;
   listen('spell.cast', (event) => {
     if (event?.spellId === 'frost_bolt') {
       const charge = Number.isFinite(event.charge) ? Math.max(0, Math.min(1, event.charge)) : 1;
@@ -84,6 +90,12 @@ export function createArenaAudio({ world, getPlayerPosition }) {
     if (sound) playAt(sound, event, { volume: 0.5, maxVoices: 4 });
   });
   listen('melee.hit', (event) => {
+    if (event?.sourceTheme === 'spider') {
+      const sound = SPIDER_ATTACKS[spiderAttackIndex];
+      spiderAttackIndex = (spiderAttackIndex + 1) % SPIDER_ATTACKS.length;
+      playAt(sound, event, { volume: 0.62, maxVoices: 1, randomPitch: 25 });
+      return;
+    }
     playAt(SOUND.meleeHit, event, { volume: 0.72, maxVoices: 5, randomPitch: 35 });
   });
   listen('spell.cast', (event) => {

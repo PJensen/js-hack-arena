@@ -1,6 +1,6 @@
 // Body separation and contact melee. Mutable cooldown state is scoped to one
 // simulation instance, never shared between rooms.
-import { AI, Collider, Conditions, GroundItem, Health, MeleeWeapon, PlayerTag, Position, Powerups, Projectile } from '../components/index.js';
+import { Actor, AI, Collider, Conditions, GroundItem, Health, MeleeWeapon, PlayerTag, Position, Powerups, Projectile } from '../components/index.js';
 import { applyCondition, applyDamage } from '../effects.js';
 
 const BUMP_COOLDOWN = 0.4;
@@ -81,6 +81,7 @@ function dealDamage(world, sourceId, targetId, position) {
   world.emit('melee.hit', {
     target: targetId,
     source: sourceId,
+    sourceTheme: world.get(sourceId, Actor)?.theme ?? null,
     amount: damage,
     x: position.x,
     y: position.y,
