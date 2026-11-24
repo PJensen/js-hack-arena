@@ -127,12 +127,13 @@ export function createArenaSimulation({
     installLootRules(world);
   }
 
-  function addPlayer(peerId, spawnIndex = 0, networkId = null, playerName = 'Adventurer') {
+  function addPlayer(peerId, _spawnIndex = 0, networkId = null, playerName = 'Adventurer') {
     const owner = normalizePeerId(peerId);
     if (playerByPeer.has(owner)) return playerByPeer.get(owner);
 
-    const spawn = spawns[positiveModulo(spawnIndex, Math.max(1, spawns.length))]
-      || { x: 1000, y: 1000 };
+    // The campfire marks the shared starting chamber, so every player begins
+    // at its authored spawn regardless of join order.
+    const spawn = spawns[0] || { x: 1000, y: 1000 };
     const entityId = spawnPlayer(world, spawn.x, spawn.y, normalizeActorName(playerName));
     world.add(entityId, PlayerTag);
     playerByPeer.set(owner, entityId);
