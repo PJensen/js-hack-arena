@@ -616,12 +616,14 @@ export function createWebGLArenaRenderer(deps) {
     for (const [id, position, source] of world.query(Position, PointLight)) {
       if (!source.enabled) continue;
       const shown = displayPosition(id, position);
-      if (!inView(shown.x, shown.y, source.radius)) continue;
+      const isPlayer = world.has(id, PlayerTag);
+      const radius = isPlayer ? Math.min(source.radius, 110) : source.radius;
+      if (!inView(shown.x, shown.y, radius)) continue;
       let intensity = 0.82;
-      if (world.has(id, PlayerTag)) {
+      if (isPlayer) {
         intensity = world.get(id, Health)?.dead
           ? 0.08
-          : 0.92 + 0.07 * Math.sin(now * 4.7 + id) + 0.035 * Math.sin(now * 11.3);
+          : 0.22 + 0.025 * Math.sin(now * 4.7 + id) + 0.015 * Math.sin(now * 11.3);
       } else if (world.has(id, Projectile)) {
         intensity = 1.12 + 0.12 * Math.sin(now * 19 + id * 2.3);
       } else if (world.has(id, GroundItem)) {
@@ -630,7 +632,7 @@ export function createWebGLArenaRenderer(deps) {
         intensity = 0.58 + 0.08 * Math.sin(now * 1.3 + id * 0.9);
       }
       candidates.push({
-        x: shown.x, y: shown.y, radius: source.radius, intensity,
+        x: shown.x, y: shown.y, radius, intensity,
         r: source.r / 255, g: source.g / 255, b: source.b / 255,
       });
     }
