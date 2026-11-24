@@ -8,7 +8,7 @@ uniform vec3 u_light_colors[MAX_LIGHTS];
 in vec2 v_world;
 out vec4 out_color;
 void main() {
-  vec3 illumination = vec3(0.003, 0.004, 0.008);
+  vec3 illumination = vec3(0.14, 0.15, 0.18);
   for (int i = 0; i < MAX_LIGHTS; i++) {
     if (i >= u_light_count) break;
     vec4 source = u_lights[i];
