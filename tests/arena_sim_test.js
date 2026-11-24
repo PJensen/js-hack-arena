@@ -9,6 +9,7 @@ import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.
 import { GOLD_LIGHT, spawnAuraField, spawnEpicChest, spawnEpicSword, spawnFuryRune, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
 import { applyAura, applyDamage, getStatMultiplier } from '../public/src/rules/effects.js';
 import { SpellCastMode, spells as spellCatalog } from '../public/src/rules/data/spellCatalog.js';
+import { getPreviewMob, spawnPreviewMob } from '../public/src/runtime/mobPreview.js';
 import {
   SIM_DT,
   SIM_MODE,
@@ -934,6 +935,31 @@ Deno.test('arena sim: a web shot misses a sidestep and stops at intervening wall
     assertEquals(sim.getPlayerSnapshot('peer-a').state.conditions, []);
     assertEquals(walls.map(({ style, radius }) => [style, radius]), dodge ? [] : [['web', 0]]);
   }
+});
+
+Deno.test('mob preview: spawns the selected mob once on reachable ground near the player', () => {
+  const grid = {
+    cellSize: 4, cols: 256, rows: 256,
+    moveGrid: new Float32Array(256 * 256).fill(100),
+    distanceMove: (x) => 122 - x,
+  };
+  const names = { spider: 'Cave Spider', goblin: 'Goblin Raider', wraith: 'Wraith', cube: 'Gelatinous Cube' };
+  for (const [key, name] of Object.entries(names)) {
+    const sim = makeOpenSim(924, { grid, enemyCount: 0 });
+    const player = sim.addPlayer('peer-a');
+    const start = sim.world.get(player, Position);
+    const mob = spawnPreviewMob(sim.world, grid, start, getPreviewMob(key));
+    assert(mob != null);
+    const mobs = [...sim.world.query(AI, Actor, Position)];
+    assertEquals(mobs.length, 1);
+    const [[id, ai, actor, position]] = mobs;
+    assertEquals([id, ai.target, actor.name], [mob, null, name]);
+    assertAlmostEquals(Math.hypot(position.x - start.x, position.y - start.y), 82);
+    assert(grid.distanceMove(position.x, position.y) >= 20);
+    sim.step();
+    assertEquals(ai.target, player);
+  }
+  assertEquals(getPreviewMob('constructor'), undefined);
 });
 
 Deno.test("arena sim: unalerted patrol mobs stay dormant and dead mobs stay dead", () => {

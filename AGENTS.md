@@ -1,5 +1,6 @@
 # Repository workflow
 
+- Use `README.md` for human-facing project documentation and `AGENTS.md` for agent workflows and verification instructions.
 - Commit and push in clear rungs. Each rung should deliver one coherent, reviewable change and pass the checks appropriate to it. For a multi-step task, commit and push each completed rung before moving on. A small task can be one rung.
 - The owner gives standing authorization to stage, commit, and push in-scope work to the repository's normal remote and branch, including `origin/main` when it is the intended target. Proceed without routine confirmation unless the task directs otherwise.
 - Use the Conventional Commits format and choose the type using [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
@@ -7,6 +8,11 @@
 - Follow branch protections and explicit instructions for the task. Ask before force-pushing, rewriting shared history, deleting shared refs, or publishing to an unrelated remote or branch. Report failed checks or a rejected push instead of bypassing safeguards.
 
 # Rendering guidance
+
+## Mob previews
+
+- Open `/?spawn=spider&seed=42` to verify a spider at the entrance in an isolated offline run. The available `spawn` values are `spider`, `goblin`, `wraith`, and `cube`.
+- Register new mobs in `public/src/runtime/mobPreview.js` so agents can verify their movement, attacks, and effects directly. Test at phone and desktop sizes.
 
 ## Visual effects
 
