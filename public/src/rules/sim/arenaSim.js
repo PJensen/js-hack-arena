@@ -273,17 +273,8 @@ export function createArenaSimulation({
     for (const event of snapshot.events) {
       if (event.sequence <= lastAppliedEventSequence) continue;
       lastAppliedEventSequence = event.sequence;
-      const payload = event.payload;
-      const localReferences = event.type === 'spell.cast' && Array.isArray(payload.meleeArc?.hits) && payload.caster
-        ? {
-          playerId: entityByNetworkId.get(payload.caster) ?? null,
-          meleeArc: {
-            ...payload.meleeArc,
-            hits: payload.meleeArc.hits.map((hit) => ({ ...hit, target: entityByNetworkId.get(hit.target) ?? null })),
-          },
-        }
-        : {};
-      world.emit(event.type, { ...payload, ...localReferences, sequence: event.sequence, tick: event.tick });
+      const payload = resolveEventPayload(event.type, event.payload);
+      world.emit(event.type, { ...payload, sequence: event.sequence, tick: event.tick });
     }
     return true;
   }
@@ -616,6 +607,11 @@ export function createArenaSimulation({
   }
 
   function projectEventPayload(type, payload) {
+    if (type === 'damage.dealt') {
+      const targetNetworkId = networkIdByEntity.get(payload.target) ??
+        (world.has(payload.target, AI) ? ensureNetworkId(payload.target, 'mob') : null);
+      return { ...payload, targetNetworkId };
+    }
     if (type !== 'spell.cast' || !payload.meleeArc) return payload;
     return {
       ...payload,
@@ -625,6 +621,21 @@ export function createArenaSimulation({
         hits: payload.meleeArc.hits.map((hit) => ({
           ...hit, target: ensureNetworkId(hit.target, 'mob'),
         })),
+      },
+    };
+  }
+
+  function resolveEventPayload(type, payload) {
+    if (type === 'damage.dealt' && Object.hasOwn(payload, 'targetNetworkId')) {
+      return { ...payload, target: entityByNetworkId.get(payload.targetNetworkId) ?? null };
+    }
+    if (type !== 'spell.cast' || !Array.isArray(payload.meleeArc?.hits) || !payload.caster) return payload;
+    return {
+      ...payload,
+      playerId: entityByNetworkId.get(payload.caster) ?? null,
+      meleeArc: {
+        ...payload.meleeArc,
+        hits: payload.meleeArc.hits.map((hit) => ({ ...hit, target: entityByNetworkId.get(hit.target) ?? null })),
       },
     };
   }

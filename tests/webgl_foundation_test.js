@@ -3,10 +3,43 @@ import { multiply, perspective } from '../public/src/display/webgl/math.js';
 import { ParticleFX, ParticlePool } from '../public/src/display/webgl/particles.js';
 import { MAX_DYNAMIC_LIGHTS } from '../public/src/display/webgl/arenaRenderer.js';
 import { createMeleeImpact } from '../public/src/display/passes/meleeImpact.js';
+import { createFloatTextPass } from '../public/src/display/passes/floatText.js';
 import { buildTerrainMesh } from '../public/src/display/webgl/terrainMesh.js';
 import { createDungeonDecorations } from '../public/src/display/worldDecorations.js';
 import { biolum, emberLight, torchLight } from '../public/src/display/lightPatterns.js';
 import { generateArenaCave, generateCave } from '../public/src/rules/geometry/caveGen.js';
+
+Deno.test('combat numbers: batch close hits by target and render distinct healing and periodic damage', () => {
+  const pass = createFloatTextPass();
+  const labels = [];
+  const ctx = {
+    save() {},
+    restore() {},
+    strokeText() {},
+    fillText(text, x, y) { labels.push([text, this.fillStyle, x, y]); },
+  };
+  const bounds = { view: [0, 0, 100, 100], width: 100, height: 100, ratio: 1 };
+  const target = { target: 1, x: 0, y: 0 };
+  pass.add({ ...target, amount: 7 });
+  pass.add({ ...target, amount: 5 });
+  pass.add({ ...target, amount: -3 });
+  pass.add({ ...target, amount: 2, periodic: true, incoming: true });
+  pass.add({ ...target, target: 2, amount: 4 });
+  pass.render(ctx, bounds);
+  assertEquals(labels.map(([text, color]) => [text, color]), [
+    ['−12', '#ffe594'], ['+3', '#9affae'], ['−2', '#ff8f96'], ['−4', '#ffe594'],
+  ]);
+  assert(labels[0][2] !== labels[1][2]);
+
+  labels.length = 0;
+  pass.step(0.5);
+  pass.render(ctx, { ...bounds, reducedMotion: true });
+  assert(labels.every(([, , , y]) => y === 50));
+  pass.step(0.6);
+  labels.length = 0;
+  pass.render(ctx, bounds);
+  assertEquals(labels, []);
+});
 
 Deno.test('melee presentation: a confirmed local hit holds the swing once and punches the camera', () => {
   const contacts = [];

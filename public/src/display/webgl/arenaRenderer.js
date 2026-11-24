@@ -8,6 +8,7 @@ import { AI } from '../../rules/components/AI.js';
 import { spells as spellCatalog } from '../../rules/data/spellCatalog.js';
 import { rarityTextColors } from '../../rules/data/lootTable.js';
 import { createMeleeImpact } from '../passes/meleeImpact.js';
+import { createFloatTextPass } from '../passes/floatText.js';
 import { biolum, emberLight, torchLight } from '../lightPatterns.js';
 import { createWebGLDevice } from './device.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
@@ -327,6 +328,7 @@ export function createWebGLArenaRenderer(deps) {
   let lastFrameTime = performance.now() * 0.001;
   let combatTime = lastFrameTime;
   const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
+  const combatNumbers = createFloatTextPass();
   const meleeImpact = createMeleeImpact({
     playerId,
     reducedMotion: () => motionPreference.matches,
@@ -339,10 +341,30 @@ export function createWebGLArenaRenderer(deps) {
     bolts.push({ ...event, age: 0, duration: 0.18 });
   });
   world.on('spell.cast', meleeImpact.add);
+  world.on('damage.dealt', (event) => {
+    if (event.meleeArc) return;
+    const target = presentation && !Object.hasOwn(event, 'targetNetworkId') ? null : event.target;
+    addCombatNumber({ ...event, target, amount: event.hpLost ?? event.amount });
+  });
 
   function presentMeleeContact(swing) {
-    for (const hit of swing.hits) spawnMeleeSparks(hit, swing);
+    for (const hit of swing.hits) {
+      spawnMeleeSparks(hit, swing);
+      addCombatNumber(hit);
+    }
     world.emit('melee.contact.fx', { ...swing.hits[0], rend: swing.rend, targets: swing.hits.length });
+  }
+
+  function addCombatNumber(event) {
+    const position = world.get(event.target, Position);
+    const anchor = position ? displayPosition(event.target, position) : event;
+    const radius = world.get(event.target, Collider)?.radius ?? 14;
+    combatNumbers.add({
+      ...event,
+      target: event.target ?? event.targetNetworkId,
+      x: anchor.x, y: anchor.y - radius - 16,
+      incoming: event.target === playerId,
+    });
   }
 
   function spawnMeleeSparks(hit, { rend, x, y }) {
@@ -999,6 +1021,7 @@ export function createWebGLArenaRenderer(deps) {
       }
     }
 
+    combatNumbers.render(overlay, { view, width, height, ratio, reducedMotion: motionPreference.matches });
     const size = Math.round(128 * ratio);
     const pad = Math.round(15 * ratio);
     const left = width - size - pad;
@@ -1081,6 +1104,7 @@ export function createWebGLArenaRenderer(deps) {
     lastFrameTime = now;
     const combatDt = meleeImpact.advance(renderDt);
     combatTime += combatDt;
+    combatNumbers.step(combatDt);
     stepParticles?.(combatDt);
     const punch = meleeImpact.cameraResponse();
     const renderScale = cam.scale * punch.zoom;

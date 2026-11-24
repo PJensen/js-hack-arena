@@ -41,7 +41,7 @@ export function getStatMultiplier(world, targetId, stat, context = {}) {
 }
 
 export function applyDamage(world, targetId, rawAmount, {
-  sourceId = null, damageType = null, x = null, y = null, spellId = null, periodic = false,
+  sourceId = null, damageType = null, x = null, y = null, spellId = null, periodic = false, meleeArc = false,
 } = {}) {
   const health = world.get(targetId, Health);
   if (!health || health.dead || health.hp <= 0) return 0;
@@ -49,17 +49,19 @@ export function applyDamage(world, targetId, rawAmount, {
   const mitigation = getStatMultiplier(world, targetId, 'damageTaken', { damageType });
   const amount = Math.max(0, Math.round(rawAmount * ward * mitigation));
   if (amount <= 0) return 0;
-  health.hp = Math.max(0, health.hp - amount);
+  const hpLost = Math.min(health.hp, amount);
+  health.hp -= hpLost;
   const position = world.get(targetId, Position);
   world.emit('damage.dealt', {
     target: targetId, source: sourceId, amount,
     x: x ?? position?.x ?? 0, y: y ?? position?.y ?? 0,
-    damageType, spellId, periodic,
+    damageType, spellId, periodic, hpLost, killed: health.hp === 0,
+    ...(meleeArc && { meleeArc }),
   });
   return amount;
 }
 
-export function applyHealing(world, targetId, rawAmount, { sourceId = null, x = null, y = null, spellId = null } = {}) {
+export function applyHealing(world, targetId, rawAmount, { sourceId = null, x = null, y = null, spellId = null, periodic = false } = {}) {
   const health = world.get(targetId, Health);
   if (!health || health.dead || health.hp <= 0) return 0;
   const amount = Math.min(Math.max(0, Math.round(rawAmount)), health.maxHp - health.hp);
@@ -68,7 +70,7 @@ export function applyHealing(world, targetId, rawAmount, { sourceId = null, x = 
   const position = world.get(targetId, Position);
   world.emit('damage.dealt', {
     target: targetId, source: sourceId, amount: -amount,
-    x: x ?? position?.x ?? 0, y: y ?? position?.y ?? 0, spellId,
+    x: x ?? position?.x ?? 0, y: y ?? position?.y ?? 0, spellId, periodic,
   });
   return amount;
 }
@@ -238,7 +240,7 @@ function tickPeriodicEffects(world, targetId, source, dt) {
           sourceId: source.source, damageType: effect.damageType, periodic: true,
         });
       } else {
-        applyHealing(world, targetId, amount, { sourceId: source.source });
+        applyHealing(world, targetId, amount, { sourceId: source.source, periodic: true });
       }
     }
   }

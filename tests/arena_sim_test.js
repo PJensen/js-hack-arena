@@ -100,7 +100,9 @@ Deno.test("arena sim: Cleave hits its arc, respects walls and spends replicated 
   const replica = makeOpenSim(915, { mode: SIM_MODE.REPLICA });
   for (let i = 0; i < 12; i++) replica.world.create();
   const casts = [];
+  const damage = [];
   replica.world.on('spell.cast', (event) => casts.push(event));
+  replica.world.on('damage.dealt', (event) => damage.push(event));
   const snapshot = sim.captureSnapshot();
   replica.applySnapshot(snapshot);
   replica.applySnapshot(snapshot);
@@ -112,6 +114,8 @@ Deno.test("arena sim: Cleave hits its arc, respects walls and spends replicated 
   assertEquals(casts[0].playerId, replicaPlayer);
   assertAlmostEquals(casts[0].meleeArc.halfAngle * 360 / Math.PI, 140.4);
   assertEquals(casts[0].meleeArc.range, 70);
+  assertEquals(damage.map(({ target, meleeArc, hpLost }) => [target, meleeArc, hpLost]),
+    casts[0].meleeArc.hits.map(({ target, amount }) => [target, true, amount]));
   assertEquals(casts[0].meleeArc.hits.map(({ target, x, y }) => {
     assert(target !== front.id && target !== flank.id);
     assertEquals(replica.world.get(target, Position), { x, y });
@@ -592,6 +596,33 @@ Deno.test("arena sim: health pickups heal injuries and wait when health is full"
   sim.step();
   assertEquals(health.hp, 85);
   assertEquals(sim.world.alive.has(potionId), false);
+});
+
+Deno.test("arena sim: confirmed damage and healing retain their amounts and target across replicas", () => {
+  const authority = makeOpenSim(920, { enemyCount: 0 });
+  const player = authority.addPlayer('peer-a');
+  const position = authority.world.get(player, Position);
+  applyDamage(authority.world, player, 19, { damageType: 'poison', periodic: true });
+  spawnPotion(authority.world, position.x, position.y, 25);
+  authority.step();
+  applyDamage(authority.world, player, 120);
+  authority.step();
+
+  const replica = makeOpenSim(920, { mode: SIM_MODE.REPLICA });
+  replica.world.create();
+  const events = [];
+  replica.world.on('damage.dealt', (event) => events.push(event));
+  const snapshot = authority.captureSnapshot();
+  replica.applySnapshot(snapshot);
+  replica.applySnapshot(snapshot);
+  const local = replica.getPlayerEntity('peer-a');
+  assert(local !== player);
+  assertEquals(events.map(({ target, amount, hpLost, periodic, killed }) =>
+    [target, amount, hpLost, periodic, killed]), [
+    [local, 19, 19, true, false],
+    [local, -19, undefined, undefined, undefined],
+    [local, 120, 100, false, true],
+  ]);
 });
 
 Deno.test("arena sim: mana potions restore mana and wait when mana is full", () => {

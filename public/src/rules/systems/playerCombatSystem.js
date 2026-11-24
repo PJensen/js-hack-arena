@@ -279,10 +279,10 @@ function castMeleeArc(world, grid, playerId, origin, book, spell, impacts) {
     const health = world.get(id, Health);
     const before = health.hp;
     applyImpacts(world, id, playerId, impacts, {
-      x: position.x, y: position.y, spellId: spell.id, damageType: spell.element,
+      x: position.x, y: position.y, spellId: spell.id, damageType: spell.element, meleeArc: true,
     });
     if (health.hp < before) {
-      hits.push({ target: id, x: position.x, y: position.y, killed: health.hp === 0 });
+      hits.push({ target: id, x: position.x, y: position.y, amount: before - health.hp, killed: health.hp === 0 });
     }
   }
   return { range, halfAngle, hits };
