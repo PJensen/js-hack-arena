@@ -44,6 +44,9 @@ Open `/?chest=epic` for an offline Epic Chest preview. Enter the dungeon and
 walk up to the chest near the entrance to see its loot toss. Reload to try again,
 or add `&seed=73` to try another cave.
 
+To install Hack Arena as a standalone app, choose **Install Hack Arena** on the
+entry screen when offered. You can also use your browser's install menu.
+
 ## Cloudflare Sketch
 
 `wrangler.toml` is configured for one project containing both pieces:
@@ -194,7 +197,6 @@ client can discard acknowledged inputs before replaying the remainder.
 - Usable potions
 - More enemy types
 - More 3D models
-- Installing to desktop (PWA)
 - Socials
 - Metatags
 

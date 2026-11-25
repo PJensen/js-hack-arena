@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#080d14" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/app-icon-192.png" />
   <title>Hack Arena</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; touch-action:none;
@@ -65,6 +68,8 @@
     #enter-dungeon { width:100%; margin-top:12px; padding:12px; border:1px solid rgba(112,230,255,.55);
                      border-radius:8px; color:#061019; background:linear-gradient(135deg,#8af0ff,#5da8ff);
                      font-weight:900; letter-spacing:.1em; cursor:pointer; }
+    #install-arena { width:100%; margin-top:10px; padding:10px; border:1px solid var(--edge);
+                     border-radius:8px; color:#dcecf7; background:transparent; cursor:pointer; }
     #hud { position:fixed; top:max(10px,env(safe-area-inset-top)); left:max(10px,env(safe-area-inset-left));
            right:max(10px,env(safe-area-inset-right)); max-width:1100px; margin:0 auto;
            display:grid; grid-auto-flow:column; grid-template-columns:auto repeat(3,minmax(0,1fr)) minmax(0,auto);
@@ -199,6 +204,7 @@
       <div id="entry-status" aria-live="polite">CHECKING SIGN-IN STATUS…</div>
       <input id="player-name" maxlength="20" autocomplete="nickname" placeholder="Adventurer" aria-label="Character name" />
       <button id="enter-dungeon" type="submit" disabled>Enter the Dungeon</button>
+      <button id="install-arena" type="button" hidden>Install Hack Arena</button>
     </form>
   </div>
   <div id="hud">
@@ -238,6 +244,32 @@
   const entryGate = document.getElementById('entry-gate');
   const entryStatus = document.getElementById('entry-status');
   const entryButton = document.getElementById('enter-dungeon');
+  const installButton = document.getElementById('install-arena');
+  let installPrompt;
+
+  window.addEventListener('beforeinstallprompt', (event) => {
+    if (!entryGate.isConnected) return;
+    event.preventDefault();
+    installPrompt = event;
+    installButton.hidden = false;
+  });
+
+  window.addEventListener('appinstalled', () => {
+    installPrompt = null;
+    installButton.hidden = true;
+  });
+
+  installButton.addEventListener('click', async () => {
+    if (!installPrompt) return;
+    const prompt = installPrompt;
+    installPrompt = null;
+    installButton.hidden = true;
+    try {
+      await prompt.prompt();
+    } catch (error) {
+      console.warn('Arena install prompt failed', error);
+    }
+  });
 
   function showArenaLoadError(message) {
     if (!entryGate.isConnected) document.body.append(entryGate);
