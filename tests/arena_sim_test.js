@@ -965,6 +965,86 @@ Deno.test("arena sim: Regeneration authors healing over time as a buff effect", 
   assertEquals(mana.mana, 74);
 });
 
+Deno.test('arena sim: Agony locks onto the backline and its ticks grow over time', () => {
+  const sim = makeOpenSim(912, { enemyCount: 0 });
+  const player = sim.addPlayer('caster');
+  const front = spawnIdleTarget(sim, 170, 100);
+  const back = spawnIdleTarget(sim, 235, 100);
+  const book = sim.world.get(player, Spellbook);
+  const mana = sim.world.get(player, Mana);
+  mana.regenPerSecond = 0;
+  const slot = book.spells.push('curse_of_agony') - 1;
+  const ticks = [];
+  sim.world.on('damage.dealt', ({ target, periodic, hpLost }) => {
+    if (target === back.id && periodic) ticks.push(hpLost);
+  });
+  sim.setPlayerInput('caster', { spellSlot: slot, targetId: sim.getActorNetworkId(back.id), fire: true });
+  sim.step();
+  assertEquals(book.castTargetId, back.id);
+  sim.setPlayerInput('caster', { targetId: sim.getActorNetworkId(front.id) });
+  for (let i = 0; i < 145; i++) sim.step();
+  assertEquals(ticks, [2, 3, 4, 5, 6, 7]);
+  assertEquals(front.health.hp, 100);
+  assertEquals(mana.mana, 78);
+  assertEquals(sim.world.get(back.id, Conditions).active.length, 0);
+});
+
+Deno.test('arena sim: selected-unit casts require an eligible recipient and recheck walls and range', () => {
+  let blocked = false;
+  const grid = {
+    cellSize: 4,
+    distanceMove: (x) => blocked && x > 130 && x < 150 ? 0 : 100,
+  };
+  const sim = makeOpenSim(913, { enemyCount: 0, grid });
+  const player = sim.addPlayer('caster');
+  const ally = sim.addPlayer('ally');
+  const enemy = spawnIdleTarget(sim, 200, 100);
+  const book = sim.world.get(player, Spellbook);
+  const mana = sim.world.get(player, Mana);
+  mana.regenPerSecond = 0;
+  const slot = book.spells.push('curse_of_agony') - 1;
+  for (const targetId of [null, 'missing', sim.getActorNetworkId(ally)]) {
+    sim.setPlayerInput('caster', { spellSlot: slot, targetId, fire: true });
+    sim.step();
+    assertEquals(book.castPhase, 'idle');
+    sim.setPlayerInput('caster');
+    sim.step();
+  }
+  const targetId = sim.getActorNetworkId(enemy.id);
+  for (const change of [
+    () => { blocked = true; },
+    () => { sim.world.get(enemy.id, Position).x = 500; },
+    () => { sim.world.destroy(enemy.id); },
+  ]) {
+    blocked = false;
+    sim.world.get(enemy.id, Position).x = 200;
+    sim.setPlayerInput('caster', { targetId, fire: true });
+    sim.step();
+    assertEquals(book.castPhase, 'casting');
+    change();
+    sim.setPlayerInput('caster');
+    for (let i = 0; i < 12; i++) sim.step();
+    assertEquals(book.castPhase, 'idle');
+    assertEquals(book.cooldowns.curse_of_agony, undefined);
+    assertEquals(mana.mana, 100);
+  }
+  assertEquals(enemy.health.hp, 100);
+});
+
+Deno.test('arena sim: projectile aim ignores the selected unit', () => {
+  const sim = makeOpenSim(914, { enemyCount: 0 });
+  const player = sim.addPlayer('caster');
+  const enemy = spawnIdleTarget(sim, 200, 100);
+  sim.setPlayerInput('caster', { spellSlot: 0, aimY: 1, fire: true, targetId: sim.getActorNetworkId(enemy.id) });
+  sim.step();
+  sim.setPlayerInput('caster');
+  sim.step();
+  const projectile = sim.captureSnapshot().entities.find(({ kind }) => kind === 'projectile');
+  assertEquals(projectile.state.owner, sim.getActorNetworkId(player));
+  assertAlmostEquals(projectile.state.vx, 0);
+  assert(projectile.state.vy > 0);
+});
+
 Deno.test('arena sim: swapping weapons preserves their names, glyphs, rarity, and damage', () => {
   const sim = makeOpenSim(123, { enemyCount: 0 });
   sim.addPlayer('peer-a');

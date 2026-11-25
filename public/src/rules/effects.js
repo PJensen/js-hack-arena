@@ -242,8 +242,10 @@ function tickPeriodicEffects(world, targetId, source, dt, remaining = Infinity) 
     }
     const interval = Math.max(0.05, finiteNumber(effect.interval, 1));
     const healing = effect.kind === EffectKind.PERIODIC_HEAL;
-    const tolerance = healing ? TIMER_EPSILON : 0;
-    effect.elapsed = finiteNumber(effect.elapsed, 0) + (healing ? Math.min(dt, remaining) : dt);
+    const amountStep = finiteNumber(effect.amountStep, 0);
+    const limitToLifetime = healing || amountStep !== 0;
+    const tolerance = limitToLifetime ? TIMER_EPSILON : 0;
+    effect.elapsed = finiteNumber(effect.elapsed, 0) + (limitToLifetime ? Math.min(dt, remaining) : dt);
     while (effect.elapsed + tolerance >= interval) {
       effect.elapsed = Math.max(0, effect.elapsed - interval);
       const amount = Math.max(0, finiteNumber(effect.amount, 0)) * Math.max(1, source.stacks || 1);
@@ -255,6 +257,7 @@ function tickPeriodicEffects(world, targetId, source, dt, remaining = Infinity) 
       } else {
         applyHealing(world, targetId, amount, { sourceId: source.source, periodic: true });
       }
+      if (amountStep !== 0) effect.amount += amountStep;
     }
   }
 }

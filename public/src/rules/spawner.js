@@ -422,6 +422,7 @@ const spellbooks = {
   [SpellId.ICE_ARMOR]: { name: 'Codex of Rimeguard', r: 125, g: 215, b: 255 },
   [SpellId.BLIZZARD]: { name: 'Wintercall Grimoire', r: 170, g: 225, b: 255 },
   [SpellId.REGENERATION]: { name: 'Verdant Scripture', r: 95, g: 245, b: 130 },
+  [SpellId.CURSE_OF_AGONY]: { name: 'Grimoire of Agony', r: 175, g: 105, b: 245 },
 };
 
 /** Spawn a '?' spellbook that permanently teaches a mana-powered ability. */

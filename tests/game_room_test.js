@@ -177,6 +177,35 @@ Deno.test('game room: opening chat interrupts an in-progress cast before release
   }
 });
 
+Deno.test('game room: Regeneration uses the selected ally from the socket input', async () => {
+  const room = new GameRoom(makeRoomState(), makeEnv());
+  const caster = new FakeSocket();
+  const ally = new FakeSocket();
+  await room.accept(caster, { userId: 'caster', displayName: 'Caster' });
+  await room.accept(ally, { userId: 'ally', displayName: 'Ally' });
+  try {
+    const casterPeer = caster.sent.find(({ type }) => type === MESSAGE.WELCOME).peerId;
+    const allyPeer = ally.sent.find(({ type }) => type === MESSAGE.WELCOME).peerId;
+    const sim = room.ensureSim();
+    const casterId = sim.getPlayerEntity(casterPeer);
+    const allyId = sim.getPlayerEntity(allyPeer);
+    const book = sim.world.get(casterId, Spellbook);
+    const health = sim.world.get(allyId, Health);
+    health.hp = 50;
+    const spellSlot = book.spells.push('regeneration') - 1;
+    const targetId = latestSnapshot(caster).entities.find(({ owner }) => owner === allyPeer).id;
+    room.handleMessage(caster, encodeMessage(MESSAGE.INPUT, { input: { seq: 1, spellSlot, targetId, fire: true } }));
+    room.step();
+    assert(sim.world.get(allyId, Conditions).active.some(({ id }) => id === 'regeneration'));
+    assert(!sim.world.get(casterId, Conditions).active.some(({ id }) => id === 'regeneration'));
+    for (let i = 0; i < 21; i++) room.step();
+    assertEquals(health.hp, 54);
+  } finally {
+    room.leave(caster);
+    room.leave(ally);
+  }
+});
+
 Deno.test('game room: initial dungeon setup matches offline play and dead-end chests open once', async () => {
   const room = new GameRoom(makeRoomState(), makeEnv());
   const first = new FakeSocket();

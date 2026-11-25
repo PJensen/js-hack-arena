@@ -14,6 +14,7 @@ export const ConditionId = Object.freeze({
   BURNING: 'burning',
   ICE_ARMOR: 'ice_armor',
   REGENERATION: 'regeneration',
+  AGONY: 'agony',
   HEALTH_POTION: 'health_potion',
 });
 
@@ -128,6 +129,17 @@ export const conditions = Object.freeze({
     visual: 'regeneration',
     effects: Object.freeze([
       Object.freeze({ kind: EffectKind.PERIODIC_HEAL, amount: 4, interval: 1 }),
+    ]),
+  }),
+  [ConditionId.AGONY]: Object.freeze({
+    id: ConditionId.AGONY,
+    name: 'Agony',
+    glyph: '◆',
+    duration: 6,
+    disposition: 'harmful',
+    visual: 'agony',
+    effects: Object.freeze([
+      Object.freeze({ kind: EffectKind.PERIODIC_DAMAGE, amount: 2, amountStep: 1, interval: 1, damageType: 'curse' }),
     ]),
   }),
   [ConditionId.HEALTH_POTION]: Object.freeze({

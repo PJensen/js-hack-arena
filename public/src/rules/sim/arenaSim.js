@@ -236,6 +236,8 @@ export function createArenaSimulation({
     input.aimY = clampUnit(command.aimY);
     input.fire = Boolean(command.fire);
     input.cancelCast = command.cancelCast === true;
+    if (command.targetId === null) input.targetId = null;
+    else if (typeof command.targetId === 'string') input.targetId = entityByNetworkId.get(command.targetId) ?? -1;
     if (Number.isFinite(command.pickupX) && Number.isFinite(command.pickupY)) {
       input.pickupX = command.pickupX;
       input.pickupY = command.pickupY;
@@ -791,6 +793,13 @@ export function createArenaSimulation({
     applySnapshot,
     captureSnapshot,
     getMode: () => mode,
+    getActorNetworkId(entityId) {
+      const actor = world.get(entityId, Actor);
+      if (actor?.kind === ActorKind.PLAYER || actor?.kind === ActorKind.MOB) {
+        return ensureNetworkId(entityId, actor.kind);
+      }
+      return null;
+    },
     getMineableOre,
     getPlayerEntity,
     getPlayerSnapshot,

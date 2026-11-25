@@ -9,6 +9,7 @@ export const Input = defineComponent('Input', {
   aimY: 0,       // right-stick Y [-1, 1]
   fire: false,   // trigger held
   cancelCast: false,
+  targetId: null, // selected unit for spells that accept a recipient
   pickupX: null, // one-shot world-space interaction target
   pickupY: null,
   mine: false,

@@ -64,6 +64,14 @@ export function createPlayerCombatSystem({ grid }) {
         deny(world, playerId, spellId, 'target');
         continue;
       }
+      let targetId = null;
+      if (spell.targeting.type === TargetingType.SELECTED_UNIT) {
+        targetId = input.targetId === null && spell.targeting.defaultSelf ? playerId : input.targetId;
+        if (!getSelectedUnitPosition(world, grid, position, spell, targetId)) {
+          deny(world, playerId, spellId, 'target');
+          continue;
+        }
+      }
       if (book.cooldown > 0) {
         deny(world, playerId, spellId, 'global_cooldown');
         continue;
@@ -83,6 +91,7 @@ export function createPlayerCombatSystem({ grid }) {
       }
 
       captureCast(book, spellIndex, spell, input, position);
+      book.castTargetId = targetId;
       if (spell.cast.mode === SpellCastMode.INSTANT) {
         resolveCast(world, grid, playerId, book, position, spell, 1);
       } else if (spell.cast.mode === SpellCastMode.CHANNELED) {
@@ -190,6 +199,15 @@ function resolveCast(world, grid, playerId, book, position, spell, power) {
     resolved = applyImpacts(world, playerId, playerId, impacts, {
       x: position.x, y: position.y, spellId, damageType: spell.element,
     });
+  } else if (spell.targeting.type === TargetingType.SELECTED_UNIT) {
+    const target = getSelectedUnitPosition(world, grid, position, spell, book.castTargetId);
+    if (!target) {
+      deny(world, playerId, spellId, 'target');
+    } else {
+      resolved = applyImpacts(world, book.castTargetId, playerId, impacts, {
+        x: target.x, y: target.y, spellId, damageType: spell.element,
+      });
+    }
   } else if (spell.delivery.kind === DeliveryKind.PROJECTILE) {
     spawnSpellProjectile(world, playerId, position, book, spell, impacts, power);
     resolved = true;
@@ -406,7 +424,21 @@ function manaCostFor(spell, power) {
 }
 
 function hasRequiredAim(spell, input) {
-  return spell.targeting.type === TargetingType.SELF || Math.hypot(input.aimX, input.aimY) > 0.1;
+  const type = spell.targeting.type;
+  return type === TargetingType.SELF || type === TargetingType.SELECTED_UNIT ||
+    Math.hypot(input.aimX, input.aimY) > 0.1;
+}
+
+export function isSelectedUnitCandidate(world, spell, targetId) {
+  return world.get(targetId, Actor)?.team === spell.targeting.team &&
+    !world.get(targetId, AI)?.mimicClosed && canReceiveImpacts(world, targetId);
+}
+
+export function getSelectedUnitPosition(world, grid, origin, spell, targetId) {
+  if (targetId == null || !origin || !isSelectedUnitCandidate(world, spell, targetId)) return null;
+  const target = world.get(targetId, Position);
+  if (!target || Math.hypot(target.x - origin.x, target.y - origin.y) > spell.targeting.range) return null;
+  return hasLineOfSight(grid, origin.x, origin.y, target.x, target.y) ? target : null;
 }
 
 function emitCast(world, playerId, spellId, position, book, power, manaCost, meleeArc) {
@@ -433,6 +465,7 @@ function finishCast(book) {
   book.charging = false;
   book.charge = 0;
   book.channelRemaining = 0;
+  book.castTargetId = null;
 }
 
 function deny(world, playerId, spellId, reason) {

@@ -13,6 +13,7 @@ export const TargetingType = Object.freeze({
   DIRECTION: 'direction',
   ENEMY_CHAIN: 'enemy_chain',
   SELF: 'self',
+  SELECTED_UNIT: 'selected_unit',
   AIMED_AREA: 'aimed_area',
   MELEE_ARC: 'melee_arc',
 });
@@ -124,12 +125,24 @@ export const spells = Object.freeze({
   regeneration: spell({
     id: 'regeneration',
     name: 'Regeneration', glyph: '✚', element: 'nature',
+    description: 'Heal a selected ally for 4 HP per second for 6 seconds. Defaults to yourself with no selection.',
     cast: { mode: SpellCastMode.INSTANT },
     mana: { cost: 26 },
     cooldown: 10,
-    targeting: { type: TargetingType.SELF },
+    targeting: { type: TargetingType.SELECTED_UNIT, team: 'friendly', range: 200, defaultSelf: true },
     delivery: { kind: DeliveryKind.DIRECT },
     impacts: [{ kind: ImpactKind.APPLY_CONDITION, conditionId: 'regeneration', duration: 6 }],
+  }),
+  curse_of_agony: spell({
+    id: 'curse_of_agony',
+    name: 'Curse of Agony', glyph: '◆', element: 'curse',
+    description: 'Curse a selected enemy for 6 seconds. The damage grows with every tick.',
+    cast: { mode: SpellCastMode.CAST_TIME, castTime: 0.45, interruptOnDamage: true },
+    mana: { cost: 22 },
+    cooldown: 2,
+    targeting: { type: TargetingType.SELECTED_UNIT, team: 'hostile', range: 240 },
+    delivery: { kind: DeliveryKind.DIRECT },
+    impacts: [{ kind: ImpactKind.APPLY_CONDITION, conditionId: 'agony', duration: 6 }],
   }),
   blizzard: spell({
     id: 'blizzard',

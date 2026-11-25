@@ -118,6 +118,7 @@ export function createInputRouter({
   rightKnob,
   rightMarker,
   canvas,
+  canPointerFire = () => true,
   bus,
 } = {}) {
   const leftStick = new Joystick(leftBase, leftKnob, leftMarker);
@@ -232,7 +233,7 @@ export function createInputRouter({
   on(window, 'keyup', (e) => { keys[keyFromKeyboardEvent(e)] = false; });
 
   on(canvas, 'pointerdown', (e) => {
-    if (suspended || e.pointerType === 'touch') return;
+    if (suspended || e.pointerType === 'touch' || !canPointerFire()) return;
     if (!mouse.down) firePressed = true;
     mouse.active = true;
     mouse.down = true;
@@ -420,6 +421,9 @@ export function createInputRouter({
 
   return {
     sample,
+    requestFire() {
+      if (!suspended) firePressed = true;
+    },
     consumeFirePress,
     destroy,
     pulse,

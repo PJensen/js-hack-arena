@@ -121,6 +121,7 @@ export function createNetClient({
         cancelCast: sampledInput?.cancelCast,
         spellSlot: sampledInput?.spellSlot,
         spellCycle: sampledInput?.spellCycle,
+        targetId: sampledInput?.targetId,
         pickupX: pickupIntent?.x,
         pickupY: pickupIntent?.y,
         mine: pickupIntent?.mine,

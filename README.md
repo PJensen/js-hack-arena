@@ -106,6 +106,16 @@ your feet. For a combat test, combine it with a mob preview such as
 `/?spawn=spider&seed=42&give=haste_ring,spellbook:blizzard`.
 Runs with `give` are offline and use separate, temporary progress.
 
+Try `/?spawn=backline&seed=8&give=spellbook:curse_of_agony,spellbook:regeneration`
+for unit targeting with stationary practice mobs. Select Curse of Agony and
+tap or click the Wraith's nameplate behind the Goblin. Use the **Cast** button
+or **Space**. Creatures can
+stand between you and your recipient. Cave walls and spell range still limit
+the cast. Regeneration targets a selected ally and defaults to yourself when
+the selection is clear. Selection stays until you clear it, pick another
+unit, or the current target dies or leaves. Other spells use their usual
+controls.
+
 Frostband (rare, found in mob loot) makes Frozen you inflict last 5% longer.
 Rimeband (epic, found in epic chests) increases it by 10%. Preview either with
 `/?spawn=spider&seed=42&give=frostband` or `/?spawn=spider&seed=42&give=rimeband`.

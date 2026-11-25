@@ -8,6 +8,7 @@ export const SpellId = Object.freeze({
   ICE_ARMOR:  'ice_armor',
   BLIZZARD:   'blizzard',
   REGENERATION: 'regeneration',
+  CURSE_OF_AGONY: 'curse_of_agony',
   CLEAVE: 'cleave',
   REND: 'rend',
 });
@@ -26,6 +27,7 @@ export const Spellbook = defineComponent('Spellbook', {
   chargeSpellIndex: 0,
   castTargetX: 0,
   castTargetY: 0,
+  castTargetId: null,  // locked recipient of the current selected-unit cast
   channelRemaining: 0,
   triggerHeld: false,
 });

@@ -37,6 +37,20 @@
     canvas { display:block; width:100%; height:100%; }
     #world-overlay { position:fixed; inset:0; pointer-events:none; z-index:12; }
     #arena-ui { position:fixed; inset:0; z-index:35; pointer-events:none; }
+    #unit-targets { position:fixed; inset:0; z-index:32; pointer-events:none; }
+    .unit-nameplate, #unit-cast button { border:1px solid var(--edge); border-radius:6px; background:var(--ink);
+      color:#e3f2ff; cursor:pointer; font:700 11px ui-monospace,monospace; pointer-events:auto; }
+    .unit-nameplate { position:absolute; left:0; top:0; padding:3px 7px; min-height:26px; white-space:nowrap; }
+    .unit-nameplate[aria-pressed="true"] { border-color:var(--cyan); color:var(--cyan); }
+    #unit-cast:not([hidden]) { display:flex; align-items:center; justify-content:center; gap:6px;
+      margin-bottom:8px; font:700 11px ui-monospace,monospace; }
+    #unit-cast output { padding:5px 7px; border-radius:6px; background:var(--ink); }
+    #unit-cast button { min-height:34px; padding:0 9px; }
+    #unit-cast button:disabled { opacity:.55; cursor:default; }
+    @media (pointer:coarse) {
+      .unit-nameplate { min-height:36px; }
+      #unit-cast button { min-height:44px; }
+    }
     .arena-atlas-icon { display:inline-block; width:1em; aspect-ratio:1; flex:none;
                         vertical-align:middle; background-repeat:no-repeat; }
     .arena-item-tooltip { --tooltip-width:min(252px,calc(100vw - 24px));
@@ -176,6 +190,7 @@
     .spell-btn[data-element="electric"] { --spell-accent:#b4a2ff; }
     .spell-btn[data-element="poison"] { --spell-accent:#b6df63; }
     .spell-btn[data-element="nature"] { --spell-accent:#66d5a0; }
+    .spell-btn[data-element="curse"] { --spell-accent:#d29bff; }
     .spell-btn > .arena-atlas-icon { position:absolute; inset:0; width:100%; height:100%;
                                     border-radius:7px; filter:brightness(var(--icon-brightness)) saturate(1.35); }
     .spell-btn.active { --icon-brightness:1.4; z-index:1; border-color:var(--spell-accent);
@@ -255,6 +270,7 @@
   <canvas id="game"></canvas>
   <canvas id="world-overlay"></canvas>
   <div id="arena-ui" aria-live="polite"></div>
+  <div id="unit-targets" role="group" aria-label="Spell targets"></div>
   <div id="entry-gate">
     <form id="entry-card">
       <h1>HACK//ARENA</h1>
@@ -286,6 +302,7 @@
     <div id="zoom-readout" style="font:13px ui-monospace,monospace;color:rgba(255,255,255,0.5);
       background:rgba(0,0,0,0.4);padding:4px 12px;border-radius:6px;
       border:1px solid rgba(255,255,255,0.1)">zoom: —</div>
+    <div id="unit-cast" hidden><output aria-live="polite"></output><button type="button">Cast</button><button type="button">Clear</button></div>
     <div id="spell-bar"></div>
   </div>
   <section id="dungeon-chat" aria-label="Dungeon chat" hidden>
@@ -410,6 +427,7 @@ import { createAtlasIcon } from './src/display/ui/atlasIcon.js';
 import { createItemTooltip } from './src/display/ui/itemTooltip.js';
 import { createDungeonChat } from './src/display/ui/dungeonChat.js';
 import { createResourceBar } from './src/display/ui/resourceBars.js';
+import { createUnitTargeting } from './src/display/ui/unitTargeting.js';
 import { spellCastProgress } from './src/display/spellCastProgress.js';
 import { ArrowAmmo, BowWeapon, Gold, Health, Mana, MeleeWeapon, Mining, Powerups, Spellbook, Position, Stamina } from './src/rules/components/index.js';
 import { MINING_SECONDS } from './src/rules/components/Mining.js';
@@ -523,8 +541,9 @@ const carve = createGridCarver(grid);
 const cam = createCamera();
 cam.x = cam.targetX = spawn.x;
 cam.y = cam.targetY = spawn.y;
-const wraithPreview = mobPreview === getPreviewMob('wraith');
-cam.scale = cam.targetScale = wraithPreview ? Math.min(1.8, window.innerWidth / 340) : 1.8;
+const previewWidth = mobPreview === getPreviewMob('backline') ? 370
+  : mobPreview === getPreviewMob('wraith') ? 340 : 0;
+cam.scale = cam.targetScale = previewWidth ? Math.min(1.8, window.innerWidth / previewWidth) : 1.8;
 
 const fx = new ParticleFX({ capacity: 2048, seedBase: SEED });
 
@@ -537,6 +556,7 @@ const inputRouter = createInputRouter({
   rightKnob:   document.getElementById('knob-right'),
   rightMarker: document.getElementById('touch-right'),
   canvas,
+  canPointerFire: () => !unitTargeting.isActive(),
 });
 
 // ── Spell bar (touch) ───────────────────────────────────────────
@@ -589,6 +609,13 @@ const playerId = isNetworked
   ? (sim.getPlayerEntity(netWelcome.peerId) ?? sim.addPlayer(netWelcome.peerId, 0, null, playerName))
   : sim.addPlayer('local', 0, null, playerName);
 const world = sim.world;
+const unitTargeting = createUnitTargeting({
+  root: document.getElementById('unit-targets'),
+  controls: document.getElementById('unit-cast'),
+  world, grid, playerId,
+  getActorNetworkId: sim.getActorNetworkId,
+  onCast: inputRouter.requestFire,
+});
 if (isNetworked) {
   dungeonChat = createDungeonChat({
     root: document.getElementById('dungeon-chat'),
@@ -668,7 +695,8 @@ function syncSpellSlots(book) {
       : spell.mana.perTick != null ? `${spell.mana.perTick} mana/tick` : `${spell.mana.cost || 0} mana`;
     btn.dataset.element = spell.element;
     btn.title = `${spell.name} · ${costText} · ${spell.description ?? spell.cast.mode.replace('_', ' ')}`;
-    const icon = createAtlasIcon(spellId === 'poison_orb' ? 'venom_orb' : spellId, spell.name);
+    const iconId = spellId === 'poison_orb' ? 'venom_orb' : spellId === 'curse_of_agony' ? 'cursed' : spellId;
+    const icon = createAtlasIcon(iconId, spell.name);
     if (icon) btn.append(icon);
     const key = document.createElement('span');
     key.className = 'spell-key';
@@ -726,6 +754,7 @@ renderer = createWebGLArenaRenderer({
   speechBubbles: () => dungeonChat?.getBubbles(),
   stepParticles: projectileFx.step,
   itemTooltip,
+  unitTargeting,
   resourceBars: { health: healthBar, mana: manaBar },
   hud: {
     hud:         document.getElementById('hud'),
@@ -771,6 +800,7 @@ const loop = createFixedTickLoop({
       localPrediction.step(o, dt);
     } else {
       const command = samplePlayerCommand(o, ++netTick);
+      command.targetId = unitTargeting.getTargetId();
       if (pendingInteraction) {
         command.pickupX = pendingInteraction.x;
         command.pickupY = pendingInteraction.y;
@@ -792,7 +822,8 @@ const loop = createFixedTickLoop({
     }
     cameraSystem(world, dt);
     const networkInput = isNetworked
-      ? { ...o, spellSlot: pendingSpellSlot, spellCycle: pendingSpellSlot == null ? Math.sign(pendingSpellCycle) : 0 }
+      ? { ...o, spellSlot: pendingSpellSlot, spellCycle: pendingSpellSlot == null ? Math.sign(pendingSpellCycle) : 0,
+          targetId: unitTargeting.getTargetId() }
       : o;
     if (isNetworked && netClient.update(++netTick, networkInput, pendingInteraction)) {
       inputRouter.consumeFirePress();
@@ -805,8 +836,10 @@ const loop = createFixedTickLoop({
     // Keep the DOM HUD independent from the WebGL pass. A renderer error or
     // a delayed first frame must not leave resource bars at their placeholders.
     syncHudResources();
-    renderer.renderFrame();
     const sb = world.get(playerId, Spellbook);
+    unitTargeting.beginFrame(spellCatalog[sb?.spells[sb.activeIndex]]);
+    renderer.renderFrame();
+    unitTargeting.endFrame();
     arenaAudio.updateLocalCast(sb);
     syncCastBar(sb);
     // Sync spell bar UI with active spell

@@ -92,6 +92,7 @@ export function makeInputFrame({
   cancelCast = false,
   spellSlot = null,
   spellCycle = 0,
+  targetId,
   pickupX = null,
   pickupY = null,
   mine = false,
@@ -108,6 +109,9 @@ export function makeInputFrame({
     spellCycle: Number.isInteger(spellCycle) ? Math.max(-1, Math.min(1, spellCycle)) : 0,
   };
   if (cancelCast === true) frame.cancelCast = true;
+  if (targetId === null || (typeof targetId === 'string' && targetId.length > 0 && targetId.length <= 128)) {
+    frame.targetId = targetId;
+  }
   if (Number.isFinite(pickupX) && Number.isFinite(pickupY)) {
     frame.pickupX = pickupX;
     frame.pickupY = pickupY;

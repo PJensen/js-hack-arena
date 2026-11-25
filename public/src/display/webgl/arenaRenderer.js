@@ -178,7 +178,7 @@ function uploadCubeMesh(device, vertices) {
 }
 
 export function createWebGLArenaRenderer(deps) {
-  const { canvas, overlayCanvas, cam, grid, bounds, decorations, getMineableOre = () => [], world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars, stepParticles, speechBubbles } = deps;
+  const { canvas, overlayCanvas, cam, grid, bounds, decorations, getMineableOre = () => [], world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, unitTargeting, resourceBars, stepParticles, speechBubbles } = deps;
   const syncHudStatus = createHudStatus(hud.meta, hud.materials);
   const device = createWebGLDevice(canvas);
   const { gl } = device;
@@ -1026,6 +1026,15 @@ export function createWebGLArenaRenderer(deps) {
           drawLines(new Float32Array([x - side * 1.8, y - 3.4, x, y]), color);
           drawDisc(x, y, size, color, color);
         }
+      } else if (condition.id === ConditionId.AGONY) {
+        const progress = 1 - condition.remaining / condition.duration;
+        const r = collider.radius + 4;
+        for (const side of [-1, 1]) {
+          const x = position.x + side * r;
+          const y = position.y - 7 - pulse * 4;
+          drawLines(new Float32Array([x, y - 6, x + side * (4 + progress * 6), y + 2, x, y + 8]),
+            [0.85, 0.45, 1, Math.min(1, condition.remaining * 3) * (0.55 + progress * 0.45)], 2);
+        }
       } else if (condition.visual === 'ice_armor') {
         drawDisc(position.x, position.y, collider.radius + 5 + pulse * 1.5, [0.18, 0.52, 0.9, 0.14], [0.58, 0.9, 1, 0.78]);
         for (let shard = 0; shard < 4; shard++) {
@@ -1369,11 +1378,32 @@ export function createWebGLArenaRenderer(deps) {
       const aboveBar = sy - barOffset * width / view[2] - 14 * ratio;
       const labelY = actor.theme === 'mimic' ? aboveBar : sy + collider.radius * width / view[2] + 9 * ratio;
       const label = actor.rare ? `★ ${actor.name}` : actor.name;
+      if (id === unitTargeting?.getSelected()) {
+        const r = collider.radius * width / view[2] + 5 * ratio;
+        overlay.beginPath();
+        overlay.ellipse(sx, sy, r, r * 0.78, 0, 0, Math.PI * 2);
+        overlay.lineWidth = 2 * ratio;
+        overlay.strokeStyle = '#82f5ff';
+        overlay.stroke();
+      }
+      const plateY = unitTargeting?.isActive() && inView(shown.x, shown.y, 0)
+        ? unitTargeting.showNameplate(id, label, sx / ratio, labelY / ratio, overlay.measureText(label).width / ratio)
+        : null;
+      if (plateY != null && Math.abs(plateY * ratio - labelY) > 1) {
+        overlay.beginPath();
+        overlay.moveTo(sx, labelY);
+        overlay.lineTo(sx, plateY * ratio);
+        overlay.lineWidth = ratio;
+        overlay.strokeStyle = 'rgba(210,240,255,.56)';
+        overlay.stroke();
+      }
       overlay.lineWidth = 3 * ratio;
       overlay.strokeStyle = 'rgba(2,5,9,.9)';
-      overlay.strokeText(label, sx, labelY);
-      overlay.fillStyle = actor.rare ? '#ffd65a' : actor.kind === ActorKind.PLAYER ? '#dff8ff' : '#d6c9e8';
-      overlay.fillText(label, sx, labelY);
+      if (plateY == null) {
+        overlay.strokeText(label, sx, labelY);
+        overlay.fillStyle = actor.rare ? '#ffd65a' : actor.kind === ActorKind.PLAYER ? '#dff8ff' : '#d6c9e8';
+        overlay.fillText(label, sx, labelY);
+      }
       const conditionLabel = activeConditionLabels(world.get(id, Conditions)).join(' · ');
       if (conditionLabel) {
         const conditionY = actor.theme === 'mimic' ? aboveBar - 14 * ratio : aboveBar;
