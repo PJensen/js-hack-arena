@@ -14,7 +14,7 @@ export function createPickupSystem({ grid = null } = {}) {
     const players = [];
     for (const [id, pos, col, hp, input] of world.query(Position, Collider, Health, Input)) {
       if (hp.dead || hp.hp <= 0) continue;
-      players.push({ id, pos, col, hp, input });
+      players.push({ id, pos, col, input });
     }
 
     const toDestroy = new Set();
@@ -32,35 +32,31 @@ export function createPickupSystem({ grid = null } = {}) {
 
       let selected = null;
       let selectedDistance = Infinity;
-      for (const [itemId, ipos, _collider, _ground, info] of world.query(Position, Collider, GroundItem, ItemInfo)) {
+      for (const [itemId, ipos] of world.query(Position, Collider, GroundItem, ItemInfo)) {
         if (toDestroy.has(itemId) || world.has(itemId, LootToss)) continue;
-        if (!world.has(itemId, WeaponPickup) && !world.has(itemId, Ring)) continue;
+        if (!isGear(world, itemId)) continue;
         const lock = world.get(itemId, PickupLock);
         if (lock?.owner === player.id && lock.remaining > 0) continue;
         const targetDistance = Math.hypot(ipos.x - targetX, ipos.y - targetY);
         if (targetDistance > 28 || targetDistance >= selectedDistance) continue;
         if (Math.hypot(player.pos.x - ipos.x, player.pos.y - ipos.y) > 160) continue;
-        selected = { itemId, ipos, info };
+        selected = itemId;
         selectedDistance = targetDistance;
       }
-      if (selected) {
-        equipGear(world, player, selected, grid);
-        toDestroy.add(selected.itemId);
+      if (selected != null && applyItemPickup(world, player.id, selected, grid)) {
+        toDestroy.add(selected);
       }
     }
 
     for (const [itemId, ipos, icol] of world.query(Position, Collider, GroundItem)) {
       if (toDestroy.has(itemId) || world.has(itemId, LootToss)) continue;
-      if (world.has(itemId, WeaponPickup) || world.has(itemId, Ring)) continue;
+      if (isGear(world, itemId)) continue;
       const lock = world.get(itemId, PickupLock);
-      const info = world.get(itemId, ItemInfo);
       for (const player of players) {
         if (lock?.owner === player.id && lock.remaining > 0) continue;
         const dx = player.pos.x - ipos.x, dy = player.pos.y - ipos.y;
         if (Math.hypot(dx, dy) >= player.col.radius + icol.radius + 6) continue;
-        if (!world.has(itemId, Consumable)) continue;
-        const consumable = world.get(itemId, Consumable);
-        if (consumeItem(world, player, itemId, ipos, info, consumable)) {
+        if (applyItemPickup(world, player.id, itemId, grid)) {
           toDestroy.add(itemId);
           break;
         }
@@ -73,6 +69,23 @@ export function createPickupSystem({ grid = null } = {}) {
 // Kept as a convenient standalone system for small rule-level callers.
 export function pickupSystem(world, dt) {
   return createPickupSystem()(world, dt);
+}
+
+function isGear(world, itemId) {
+  return world.has(itemId, WeaponPickup) || world.has(itemId, Ring);
+}
+
+// Apply the selected item's effect. The caller handles access and removal.
+export function applyItemPickup(world, playerId, itemId, grid) {
+  const player = { id: playerId, pos: world.get(playerId, Position), hp: world.get(playerId, Health) };
+  const ipos = world.get(itemId, Position);
+  const info = world.get(itemId, ItemInfo);
+  if (isGear(world, itemId)) {
+    equipGear(world, player, { itemId, ipos, info }, grid);
+    return true;
+  }
+  const consumable = world.get(itemId, Consumable);
+  return consumable ? consumeItem(world, player, itemId, ipos, info, consumable) : false;
 }
 
 function equipGear(world, player, { itemId, ipos, info }, grid) {

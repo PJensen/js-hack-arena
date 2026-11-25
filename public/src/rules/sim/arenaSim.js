@@ -39,16 +39,12 @@ import { effectSystem, projectConditions, projectAuraEmitter } from '../effects.
 import { createGridCarver } from '../geometry/carve.js';
 import { sweepMaxFree } from '../geometry/sweep.js';
 import {
-  spawnArrows,
   spawnAuraField,
   spawnBat,
   BAT_LIGHT,
-  spawnBow,
   spawnCaster,
-  spawnEpicBow,
   spawnEpicChest,
   EPIC_CHEST_LIGHT,
-  spawnEpicSword,
   spawnFlamingBat,
   FLAMING_BAT_LIGHT,
   spawnFloatingEye,
@@ -58,22 +54,13 @@ import {
   spawnGold,
   GOLD_LIGHT,
   findOpenNear,
-  spawnInstantPotion,
-  spawnLegendaryBow,
-  spawnLegendarySword,
-  spawnFuryRune,
-  spawnHasteRune,
-  spawnManaPotion,
-  spawnManaSurge,
+  spawnItem,
   spawnMelee,
   spawnPlayer,
   spawnPotion,
-  spawnSword,
   spawnSpider,
   SPIDER_LIGHT,
-  spawnSpellbook,
   spawnTank,
-  spawnWardRune,
 } from '../spawner.js';
 import { createAISystem } from '../systems/aiSystem.js';
 import { createBumpSystem } from '../systems/bumpSystem.js';
@@ -742,7 +729,7 @@ export function createArenaSimulation({
       if (event.kind !== ActorKind.MOB) return;
       spawnPotion(targetWorld, event.x, event.y);
       const drop = rollTable(mobDropTable, mobDropTotalWeight, targetWorld.rand);
-      const itemId = spawnDrop(targetWorld, drop, event.x + targetWorld.rand() * 12 - 6, event.y + targetWorld.rand() * 12 - 6);
+      const itemId = spawnItem(targetWorld, event.x + targetWorld.rand() * 12 - 6, event.y + targetWorld.rand() * 12 - 6, drop);
       if (itemId != null) ensureNetworkId(itemId, 'item');
       const goldPosition = findOpenNear(grid, event.x + 16, event.y);
       const gold = grid.distanceMove(goldPosition.x, goldPosition.y) >= 7
@@ -753,7 +740,7 @@ export function createArenaSimulation({
     });
     targetWorld.on('chest.opened', ({ entity, x, y }) => {
       const drop = rollTable(epicChestTable, epicChestTotalWeight, targetWorld.rand);
-      const itemId = spawnDrop(targetWorld, drop, x, y);
+      const itemId = spawnItem(targetWorld, x, y, drop);
       if (itemId != null) {
         tossLoot(targetWorld, itemId, grid, entity);
         ensureNetworkId(itemId, 'item');
@@ -830,26 +817,6 @@ function installEventJournal(world, history, nextIdentity, projectPayload) {
       if (history.length > EVENT_HISTORY_LIMIT) history.splice(0, history.length - EVENT_HISTORY_LIMIT);
     });
   }
-}
-
-function spawnDrop(world, drop, x, y) {
-  if (!drop || drop.type === 'nothing') return null;
-  if (drop.type === 'instant_potion') return spawnInstantPotion(world, x, y, drop.potency);
-  if (drop.type === 'mana_potion') return spawnManaPotion(world, x, y, drop.potency);
-  if (drop.type === 'bow') return spawnBow(world, x, y, drop.rarity);
-  if (drop.type === 'sword') return spawnSword(world, x, y, drop.tier, drop.rarity);
-  if (drop.type === 'arrows') return spawnArrows(world, x, y, drop.count);
-  if (drop.type === 'mana_surge') return spawnManaSurge(world, x, y);
-  if (drop.type === 'haste_rune') return spawnHasteRune(world, x, y);
-  if (drop.type === 'fury_rune') return spawnFuryRune(world, x, y);
-  if (drop.type === 'ward_rune') return spawnWardRune(world, x, y);
-  if (drop.type === 'spellbook') return spawnSpellbook(world, x, y, drop.spellId);
-  if (drop.type === 'epic_chest') return spawnEpicChest(world, x, y);
-  if (drop.type === 'epic_sword') return spawnEpicSword(world, x, y);
-  if (drop.type === 'epic_bow') return spawnEpicBow(world, x, y);
-  if (drop.type === 'legendary_sword') return spawnLegendarySword(world, x, y);
-  if (drop.type === 'legendary_bow') return spawnLegendaryBow(world, x, y);
-  return null;
 }
 
 function buildDefaultEnemySites(spawn, count, groupSize, routes, exclusionRadius) {

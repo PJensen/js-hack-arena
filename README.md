@@ -83,6 +83,14 @@ dungeon to see its 3D walk and blade swing in combat.
 Open `/?spawn=wraith&seed=42` for the same preview with the floating Wraith and
 its shadow bolts.
 
+To test starting items, open `/?give=haste_ring,godslayer,sunfire_longbow`.
+Use `/?give=list` to see every item ID on the entry screen. Separate IDs with
+commas or repeat `give` to start with multiple items. Gear equips immediately,
+spellbooks teach their spells, and potions that cannot be used yet stay at
+your feet. For a combat test, combine it with a mob preview such as
+`/?spawn=spider&seed=42&give=haste_ring,spellbook:blizzard`.
+Runs with `give` are offline and use separate, temporary progress.
+
 To install Hack Arena as a standalone app, choose **Install Hack Arena** on the
 entry screen when offered. You can also use your browser's install menu.
 

@@ -350,6 +350,7 @@ import { generateArenaCave } from './src/rules/geometry/caveGen.js';
 import { findReachableNear } from './src/rules/geometry/landmarks.js';
 import { resolveSeed } from './src/runtime/rng.js';
 import { getPreviewMob, previewMobNames, spawnPreviewMob } from './src/runtime/mobPreview.js';
+import { getItemPreview, givePreviewItems } from './src/runtime/itemPreview.js';
 import { spawnEpicChest } from './src/rules/spawner.js';
 import { createFixedTickLoop } from './src/runtime/fixedLoop.js';
 import { createInputRouter } from './src/input/InputRouter.js';
@@ -379,11 +380,12 @@ const canvas = document.getElementById('game');
 const overlayCanvas = document.getElementById('world-overlay');
 
 const pageParams = new URLSearchParams(location.search);
+const itemPreview = getItemPreview(pageParams);
 const previewName = pageParams.get('spawn');
 const chestPreview = pageParams.get('chest')?.trim().toLowerCase() === 'epic';
 const mobPreview = chestPreview ? null : getPreviewMob(previewName);
 const isPreview = Boolean(mobPreview || chestPreview);
-const forceOffline = pageParams.has('offline') || previewName !== null || chestPreview;
+const forceOffline = pageParams.has('offline') || previewName !== null || chestPreview || itemPreview !== null;
 const resetDungeonButton = document.getElementById('reset-dungeon');
 resetDungeonButton.hidden = !forceOffline;
 document.getElementById('reset-dungeon').addEventListener('click', () => {
@@ -414,7 +416,8 @@ const { playerName, netWelcome } = await new Promise((resolve) => {
   const status = document.getElementById('entry-status');
   if (forceOffline) {
     status.dataset.state = 'offline';
-    if (chestPreview) status.textContent = 'OFFLINE CHEST PREVIEW · EPIC';
+    if (itemPreview) status.textContent = itemPreview.status;
+    else if (chestPreview) status.textContent = 'OFFLINE CHEST PREVIEW · EPIC';
     else if (mobPreview) status.textContent = `OFFLINE MOB PREVIEW · ${previewName.trim().toUpperCase()}`;
     else if (previewName !== null) status.textContent = `Unknown mob. Available previews: ${previewMobNames}.`;
     else status.textContent = 'OFFLINE MODE';
@@ -459,6 +462,7 @@ const { playerName, netWelcome } = await new Promise((resolve) => {
 });
 
 const isNetworked = Boolean(netWelcome);
+const tracksOfflineProgress = !isNetworked && !isPreview && !itemPreview;
 
 // ── Seed + cave ─────────────────────────────────────────────────
 const SEED = netWelcome?.seed ?? (chestPreview && !pageParams.get('seed') ? 7 : resolveSeed().seed);
@@ -544,9 +548,10 @@ if (isNetworked) {
 }
 if (mobPreview) spawnPreviewMob(world, grid, world.get(playerId, Position), mobPreview);
 if (previewChestSite) spawnEpicChest(world, previewChestSite.x, previewChestSite.y);
+if (itemPreview) givePreviewItems(world, grid, playerId, itemPreview.items);
 const offlineProgressKey = 'hack-arena.offline-progress';
 let offlineProgress = { gold: 0 };
-if (!isNetworked && !isPreview) {
+if (tracksOfflineProgress) {
   try {
     const saved = JSON.parse(localStorage.getItem(offlineProgressKey));
     if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
@@ -714,7 +719,7 @@ const loop = createFixedTickLoop({
       inputRouter.consumeFirePress();
       sim.step(dt);
       const gold = world.get(playerId, Gold).count;
-      if (!isPreview && gold !== offlineProgress.gold) {
+      if (tracksOfflineProgress && gold !== offlineProgress.gold) {
         offlineProgress = { ...offlineProgress, gold };
         try {
           localStorage.setItem(offlineProgressKey, JSON.stringify(offlineProgress));

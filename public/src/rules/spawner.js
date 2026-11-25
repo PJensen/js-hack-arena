@@ -273,7 +273,7 @@ export function spawnPotion(world, x, y) {
 }
 
 /** Spawn an instant health potion for Epic Chest loot. */
-export function spawnInstantPotion(world, x, y, potency) {
+export function spawnInstantPotion(world, x, y, potency = 50) {
   return spawnHealthPotion(world, x, y, 'Instant Health Potion', 'heal', potency);
 }
 
@@ -385,16 +385,14 @@ export function spawnBow(world, x, y, rarity = 'common') {
   });
 }
 
-/**
- * Spawn a sword on the ground. Glowing "/" glyph.
- * Picking it up upgrades the player's MeleeWeapon.
- */
+const swords = [
+  { id: 'rusty_sword', name: 'Rusty Sword', glyph: '/', damage: 12, rarity: 'common' },
+  { id: 'steel_blade', name: 'Steel Blade', glyph: '/', damage: 20, rarity: 'uncommon' },
+  { id: 'flame_brand', name: 'Flame Brand', glyph: '/', damage: 28, rarity: 'rare' },
+];
+
+/** Spawn a sword on the ground by tier. */
 export function spawnSword(world, x, y, tier = 1, rarity = null) {
-  const swords = [
-    { name: 'Rusty Sword', glyph: '/', damage: 12, rarity: 'common' },
-    { name: 'Steel Blade', glyph: '/', damage: 20, rarity: 'uncommon' },
-    { name: 'Flame Brand', glyph: '/', damage: 28, rarity: 'rare' },
-  ];
   const s = swords[Math.max(0, Math.min(tier, swords.length - 1))];
   return spawnWeaponPickup(world, x, y, {
     name: s.name, glyph: s.glyph, slot: ItemSlot.MELEE, damage: s.damage,
@@ -402,16 +400,17 @@ export function spawnSword(world, x, y, tier = 1, rarity = null) {
   });
 }
 
+const spellbooks = {
+  [SpellId.LIGHTNING]: { name: 'Tome of Storms', r: 95, g: 165, b: 255 },
+  [SpellId.FROST_BOLT]: { name: 'Rime Grimoire', r: 135, g: 225, b: 255 },
+  [SpellId.POISON_ORB]: { name: 'Venom Codex', r: 75, g: 235, b: 105 },
+  [SpellId.ICE_ARMOR]: { name: 'Codex of Rimeguard', r: 125, g: 215, b: 255 },
+  [SpellId.BLIZZARD]: { name: 'Wintercall Grimoire', r: 170, g: 225, b: 255 },
+  [SpellId.REGENERATION]: { name: 'Verdant Scripture', r: 95, g: 245, b: 130 },
+};
+
 /** Spawn a '?' spellbook that permanently teaches a mana-powered ability. */
 export function spawnSpellbook(world, x, y, spellId = SpellId.POISON_ORB) {
-  const spellbooks = {
-    [SpellId.LIGHTNING]: { name: 'Tome of Storms', r: 95, g: 165, b: 255 },
-    [SpellId.FROST_BOLT]: { name: 'Rime Grimoire', r: 135, g: 225, b: 255 },
-    [SpellId.POISON_ORB]: { name: 'Venom Codex', r: 75, g: 235, b: 105 },
-    [SpellId.ICE_ARMOR]: { name: 'Codex of Rimeguard', r: 125, g: 215, b: 255 },
-    [SpellId.BLIZZARD]: { name: 'Wintercall Grimoire', r: 170, g: 225, b: 255 },
-    [SpellId.REGENERATION]: { name: 'Verdant Scripture', r: 95, g: 245, b: 130 },
-  };
   const book = spellbooks[spellId];
   if (!book) throw new Error(`unknown spellbook ability: ${spellId}`);
   const id = world.create();
@@ -482,6 +481,37 @@ export function spawnLegendaryBow(world, x, y) {
     name: 'Sunfire Longbow', glyph: '}', slot: ItemSlot.RANGED, damage: 20,
     rarity: 'legendary', infiniteArrows: true,
   });
+}
+
+// Stable IDs shared by loot tables and offline item grants.
+const itemSpawners = new Map([
+  ['health_potion', spawnPotion],
+  ['instant_health_potion', (world, x, y, { potency }) => spawnInstantPotion(world, x, y, potency)],
+  ['mana_potion', (world, x, y, { potency }) => spawnManaPotion(world, x, y, potency)],
+  ['gold', (world, x, y, { count }) => spawnGold(world, x, y, count)],
+  ['arrows', (world, x, y, { count }) => spawnArrows(world, x, y, count)],
+  ['arcane_surge', (world, x, y) => spawnManaSurge(world, x, y)],
+  ['haste_rune', (world, x, y) => spawnHasteRune(world, x, y)],
+  ['fury_rune', (world, x, y) => spawnFuryRune(world, x, y)],
+  ['ward_rune', (world, x, y) => spawnWardRune(world, x, y)],
+  ['haste_ring', (world, x, y) => spawnRing(world, x, y)],
+  ['short_bow', (world, x, y) => spawnBow(world, x, y)],
+  ['void_reaver', spawnEpicSword],
+  ['shadow_longbow', spawnEpicBow],
+  ['godslayer', spawnLegendarySword],
+  ['sunfire_longbow', spawnLegendaryBow],
+  ['epic_chest', spawnEpicChest],
+  ...swords.map(({ id }, tier) => [id, (world, x, y) => spawnSword(world, x, y, tier)]),
+  ...Object.keys(spellbooks).map((spellId) => [
+    `spellbook:${spellId}`, (world, x, y) => spawnSpellbook(world, x, y, spellId),
+  ]),
+]);
+
+export const itemIds = Object.freeze([...itemSpawners.keys()].sort());
+
+export function spawnItem(world, x, y, item) {
+  const spawn = itemSpawners.get(item?.type);
+  return spawn ? spawn(world, x, y, item) : null;
 }
 
 function lightForRarity(rarity) {
