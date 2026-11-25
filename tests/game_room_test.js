@@ -154,8 +154,7 @@ Deno.test('game room: dead-end chests match offline placement and open once', ()
     offline.addPlayer('offline');
     const chests = (snapshot) => snapshot.entities.filter(({ state }) => state.effect === 'epic_chest');
     const initial = chests(latestSnapshot(first));
-    assert(initial.length > 0);
-    assertEquals(initial.length, cave.chestSites.length);
+    assertEquals(initial.length, 1);
     assertEquals(initial, chests(offline.captureSnapshot()));
 
     const sim = room.ensureSim();

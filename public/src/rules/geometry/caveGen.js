@@ -358,7 +358,7 @@ function findPatrolEnd(grid, room) {
   return null;
 }
 
-function placeArenaChests({ grid, routes, spawns: [start] }) {
+function placeArenaChests({ grid, routes, spawns: [start] }, seed) {
   const leafEnds = new Map();
   for (const { from, to, points } of routes) {
     for (const [room, approach] of [[from, points[1]], [to, points.at(-2)]]) {
@@ -368,21 +368,22 @@ function placeArenaChests({ grid, routes, spawns: [start] }) {
     }
   }
 
-  const sites = [];
-  for (const end of leafEnds.values()) {
-    if (!end) continue;
-    const { room, approach } = end;
-    if (pointDistance(room, start) === 0 || grid.distanceMove(room.x, room.y) < CHEST_CLEARANCE) continue;
-    const distance = pointDistance(room, approach);
-    const offset = distance > 0 ? CHEST_DISTANCE / distance : 0;
-    const back = {
-      x: room.x + (room.x - approach.x) * offset,
-      y: room.y + (room.y - approach.y) * offset,
-    };
-    const clear = sweepMaxFree(grid, room.x, room.y, back.x, back.y, CHEST_CLEARANCE) === 1;
-    sites.push(clear ? back : room);
-  }
-  return sites;
+  const candidates = [...leafEnds.values()].filter((end) => end &&
+    pointDistance(end.room, start) > 0 &&
+    grid.distanceMove(end.room.x, end.room.y) >= CHEST_CLEARANCE
+  );
+  if (!candidates.length) return [];
+
+  const random = mulberry32(seed ^ 0x9360C1);
+  const { room, approach } = candidates[Math.floor(random() * candidates.length)];
+  const distance = pointDistance(room, approach);
+  const offset = distance > 0 ? CHEST_DISTANCE / distance : 0;
+  const back = {
+    x: room.x + (room.x - approach.x) * offset,
+    y: room.y + (room.y - approach.y) * offset,
+  };
+  const clear = sweepMaxFree(grid, room.x, room.y, back.x, back.y, CHEST_CLEARANCE) === 1;
+  return [clear ? back : room];
 }
 
 // Shared by the browser and authoritative rooms. Keep the field dimensions
@@ -400,6 +401,6 @@ export function generateArenaCave(seed) {
     ...cave,
     campfires: hearth ? [hearth] : [],
     encounterSites: placeArenaEncounters(cave),
-    chestSites: placeArenaChests(cave),
+    chestSites: placeArenaChests(cave, seed),
   };
 }
