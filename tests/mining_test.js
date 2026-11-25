@@ -4,7 +4,7 @@ import { getMiningMaterial } from '../public/src/rules/data/miningMaterials.js';
 import { SIM_MODE, createArenaSimulation } from '../public/src/rules/sim/arenaSim.js';
 
 const wallOre = { x: 100, y: 200, normalX: 1, normalY: 0, kind: 'copper' };
-const start = { x: 24, y: 200 };
+const start = { x: 60, y: 200 };
 const distanceMove = (x) => Math.max(0, Math.min(80, 118 - x));
 
 function makeSim({ seed = 42, grid = { cellSize: 8, distanceMove }, ore = wallOre, mode } = {}) {
@@ -14,21 +14,23 @@ function makeSim({ seed = 42, grid = { cellSize: 8, distanceMove }, ore = wallOr
 const drops = (sim) => sim.captureSnapshot().entities
   .filter(({ state }) => getMiningMaterial(state.effect));
 
-Deno.test('mining validates intent and clear access, then breaks a deposit once', () => {
+Deno.test('mining validates range, intent, and clear access, then breaks a deposit once', () => {
   let obstructed = false;
-  const grid = { cellSize: 8, distanceMove: (x) => obstructed && x > 55 && x < 65 ? 0 : distanceMove(x) };
+  const grid = { cellSize: 8, distanceMove: (x) => obstructed && x > 72 && x < 82 ? 0 : distanceMove(x) };
   const sim = makeSim({ seed: 1, grid });
   const miner = sim.addPlayer('miner');
   sim.addPlayer('other');
   const mine = (peer, ore = wallOre) => sim.setPlayerInput(peer, { pickupX: ore.x, pickupY: ore.y, mine: true });
   const pos = sim.world.get(miner, Position);
-  pos.x = 0;
+  pos.x = start.x - 1;
   mine('miner');
   sim.step();
+  assertEquals(drops(sim), []);
   pos.x = start.x;
   obstructed = true;
   mine('miner');
   sim.step();
+  assertEquals(drops(sim), []);
   obstructed = false;
   mine('miner', { ...wallOre, y: wallOre.y + 30 });
   sim.step();
@@ -81,7 +83,8 @@ Deno.test('replicas learn which buried deposits are exposed and mined from snaps
   let carved = false;
   const ore = { ...wallOre, x: 116, buried: true };
   const sim = makeSim({ ore, grid: { cellSize: 8, distanceMove: (x) => carved ? 40 : distanceMove(x) } });
-  sim.addPlayer('miner');
+  const pos = sim.world.get(sim.addPlayer('miner'), Position);
+  pos.x = 80;
   const replica = makeSim({ ore, mode: SIM_MODE.REPLICA });
   sim.setPlayerInput('miner', { pickupX: ore.x, pickupY: ore.y, mine: true });
   sim.step();

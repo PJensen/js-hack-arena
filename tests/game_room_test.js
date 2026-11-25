@@ -380,7 +380,7 @@ Deno.test('game room: a mining command drops ore and a gem and late joins see th
     const { peerId } = miner.sent.find(({ type }) => type === MESSAGE.WELCOME);
     const pos = sim.world.get(sim.getPlayerEntity(peerId), Position);
     const grid = room.ensureCave().grid;
-    const stand = [56, 48, 36, 24].map((distance) => ({
+    const stand = [36, 24].map((distance) => ({
       x: site.x - distance * site.normalX, y: site.y - distance * site.normalY,
     })).find((point) => grid.distanceMove(point.x, point.y) >= 20 && canMineOre(grid, point, site));
     assert(stand);

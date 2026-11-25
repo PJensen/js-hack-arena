@@ -4,7 +4,7 @@ import { sweepMaxFree } from './sweep.js';
 const WALL_CLEARANCE = 18;
 const DEPOSIT_SPACING = 200;
 const ORE_DISTRIBUTION = ['copper', 'tin', 'copper', 'tin', 'gold'];
-const MINING_RANGE = 92;
+const MINING_RANGE = 40;
 
 function isOreWall(grid, { x, y, normalX, normalY }) {
   const step = grid.cellSize;
