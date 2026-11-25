@@ -492,7 +492,7 @@ const inputRouter = createInputRouter({
 // ── Spell bar (touch) ───────────────────────────────────────────
 // Spell bar — intercept touches BEFORE InputRouter claims them
 const spellBar = document.getElementById('spell-bar');
-spellBar.addEventListener('touchstart', (e) => {
+function selectSpellSlot(e) {
   e.preventDefault();
   e.stopPropagation();
   const btn = e.target.closest('.spell-btn');
@@ -501,17 +501,9 @@ spellBar.addEventListener('touchstart', (e) => {
   inputRouter.setSpellSlot(slot);
   spellBar.querySelectorAll('.spell-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-}, { capture: true });
-spellBar.addEventListener('pointerdown', (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  const btn = e.target.closest('.spell-btn');
-  if (!btn) return;
-  const slot = Number(btn.dataset.slot);
-  inputRouter.setSpellSlot(slot);
-  spellBar.querySelectorAll('.spell-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-});
+}
+spellBar.addEventListener('touchstart', selectSpellSlot, { capture: true });
+spellBar.addEventListener('pointerdown', selectSpellSlot);
 
 // ── ECS world ───────────────────────────────────────────────────
 const sim = createArenaSimulation({
