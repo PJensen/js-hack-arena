@@ -54,6 +54,7 @@ Deno.test('mining yields collectible rocks and seeded gems that rebound before s
   const initial = drops(sim);
   const gem = initial.find(({ state }) => getMiningMaterial(state.effect).shape === 'gem');
   assert(gem);
+  assertEquals(gem.state.effect, 'black_opal');
   assertEquals(initial.length, 4);
   assert(initial.every(({ state }) => state.tossHeight === 0));
 

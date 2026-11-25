@@ -26,7 +26,9 @@ Deno.test('item preview applies normal pickup effects before the first tick', ()
   const sim = makeSimulation();
   const playerId = sim.addPlayer('local');
   const preview = getItemPreview(new URLSearchParams(
-    'give=Haste+Ring,Godslayer,sunfire-longbow&give=spellbook:blizzard,arrows,gold,ward_rune,health_potion,mana_potion',
+    'give=Haste+Ring,Godslayer,sunfire-longbow' +
+      '&give=spellbook:blizzard,arrows,gold,ward_rune,health_potion,mana_potion' +
+      '&give=black-opal,diamond,black_opal',
   ));
   givePreviewItems(sim.world, grid, playerId, preview.items);
 
@@ -38,6 +40,7 @@ Deno.test('item preview applies normal pickup effects before the first tick', ()
   assertEquals(state.arrowCount, 15);
   assertEquals(state.gold, 1);
   assertEquals(state.wardSeconds, 9);
+  assertEquals(state.materials, { black_opal: 2, diamond: 1 });
   assertEquals(sim.getTick(), 0);
 
   const leftOnGround = [...sim.world.query(GroundItem, Consumable, Position)]

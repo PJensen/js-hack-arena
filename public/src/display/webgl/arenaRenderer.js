@@ -249,6 +249,8 @@ export function createWebGLArenaRenderer(deps) {
     body: uniform(gl, lootProgram, 'u_body'),
     trim: uniform(gl, lootProgram, 'u_trim'),
     detail: uniform(gl, lootProgram, 'u_detail'),
+    gemPolish: uniform(gl, lootProgram, 'u_gem_polish'),
+    gemPhase: uniform(gl, lootProgram, 'u_gem_phase'),
   };
   const lootMeshes = Object.fromEntries(Object.entries(createLootMeshes())
     .map(([name, vertices]) => [name, uploadPropMesh(device, vertices)]));
@@ -685,10 +687,12 @@ export function createWebGLArenaRenderer(deps) {
     gl.uniform1f(loot.angle, model === 'chest' ? -0.52 : angle);
     const lean = model === 'sword' ? -0.48 : 0;
     gl.uniform1f(loot.lean, lean + (airborne && !still ? Math.sin(now * 13 + id) * 0.5 : 0));
+    gl.uniform1f(loot.gemPolish, material?.polish ?? 0);
     if (material) {
       gl.uniform3fv(loot.body, model === 'rock' ? [0.45, 0.39, 0.34] : material.color);
-      gl.uniform3fv(loot.trim, material.color);
+      gl.uniform3fv(loot.trim, material.reflection ?? material.color);
       gl.uniform3f(loot.detail, 0.30, 0.25, 0.21);
+      if (model === 'gem') gl.uniform1f(loot.gemPhase, motionPreference.matches ? 0 : now * 1.3 + id * 0.73);
     } else if (potion) {
       const blue = effect === 'mana';
       gl.uniform3f(loot.body, blue ? 0.2 : 0.95, blue ? 0.58 : 0.12, blue ? 1 : 0.34);
