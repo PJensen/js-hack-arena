@@ -40,6 +40,10 @@ the application entry point no longer imports them.
 The client should remain deployable as static assets. Worker code owns server
 routes such as `/api/*` and `/ws/*`, then falls back to static asset serving.
 
+Open `/?chest=epic` for an offline Epic Chest preview. Enter the dungeon and
+walk up to the chest near the entrance to see its loot toss. Reload to try again,
+or add `&seed=73` to try another cave.
+
 ## Cloudflare Sketch
 
 `wrangler.toml` is configured for one project containing both pieces:

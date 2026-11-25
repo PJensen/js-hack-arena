@@ -1,3 +1,19 @@
+import { sweepMaxFree } from './sweep.js';
+
+export function findReachableNear(grid, { x, y }, distances) {
+  for (const distance of distances) {
+    for (let direction = 0; direction < 16; direction++) {
+      const angle = direction * Math.PI / 8;
+      const tx = x + Math.cos(angle) * distance;
+      const ty = y + Math.sin(angle) * distance;
+      if (grid.distanceMove(tx, ty) < 20) continue;
+      if (sweepMaxFree(grid, x, y, tx, ty, 18) < 1) continue;
+      return { x: tx, y: ty };
+    }
+  }
+  return null;
+}
+
 export function findOpen(grid, x, y, radius, clearance = 20) {
   if (grid.distanceMove(x, y) >= clearance) return { x, y };
   for (let distance = 8; distance <= radius; distance += 8) {

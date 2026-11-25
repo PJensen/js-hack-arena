@@ -296,6 +296,7 @@
 <script type="module" id="arena-boot">
 // ── Boot: imports ───────────────────────────────────────────────
 import { generateArenaCave } from './src/rules/geometry/caveGen.js';
+import { findReachableNear } from './src/rules/geometry/landmarks.js';
 import { resolveSeed } from './src/runtime/rng.js';
 import { getPreviewMob, previewMobNames, spawnPreviewMob } from './src/runtime/mobPreview.js';
 import { createFixedTickLoop } from './src/runtime/fixedLoop.js';
@@ -326,8 +327,10 @@ const overlayCanvas = document.getElementById('world-overlay');
 
 const pageParams = new URLSearchParams(location.search);
 const previewName = pageParams.get('spawn');
-const mobPreview = getPreviewMob(previewName);
-const forceOffline = pageParams.has('offline') || previewName !== null;
+const chestPreview = pageParams.get('chest')?.trim().toLowerCase() === 'epic';
+const mobPreview = chestPreview ? null : getPreviewMob(previewName);
+const isPreview = Boolean(mobPreview || chestPreview);
+const forceOffline = pageParams.has('offline') || previewName !== null || chestPreview;
 const resetDungeonButton = document.getElementById('reset-dungeon');
 resetDungeonButton.hidden = !forceOffline;
 document.getElementById('reset-dungeon').addEventListener('click', () => {
@@ -358,7 +361,8 @@ const { playerName, netWelcome } = await new Promise((resolve) => {
   const status = document.getElementById('entry-status');
   if (forceOffline) {
     status.dataset.state = 'offline';
-    if (mobPreview) status.textContent = `OFFLINE MOB PREVIEW · ${previewName.trim().toUpperCase()}`;
+    if (chestPreview) status.textContent = 'OFFLINE CHEST PREVIEW · EPIC';
+    else if (mobPreview) status.textContent = `OFFLINE MOB PREVIEW · ${previewName.trim().toUpperCase()}`;
     else if (previewName !== null) status.textContent = `Unknown mob. Available previews: ${previewMobNames}.`;
     else status.textContent = 'OFFLINE MODE';
   } else if (authState.authenticated) {
@@ -404,10 +408,11 @@ const { playerName, netWelcome } = await new Promise((resolve) => {
 const isNetworked = Boolean(netWelcome);
 
 // ── Seed + cave ─────────────────────────────────────────────────
-const SEED = netWelcome?.seed ?? resolveSeed().seed;
+const SEED = netWelcome?.seed ?? (chestPreview && !pageParams.get('seed') ? 7 : resolveSeed().seed);
 const caveData = generateArenaCave(SEED);
 const { grid, bounds, spawns, routes, campfires, encounterSites, chestSites } = caveData;
 const spawn = spawns[0];
+const previewChestSite = chestPreview ? findReachableNear(grid, spawn, [72, 56, 40]) : null;
 const decorations = createDungeonDecorations({ grid, routes, spawns, campfires, seed: SEED });
 
 const carve = createGridCarver(grid);
@@ -461,11 +466,11 @@ const sim = createArenaSimulation({
   grid,
   spawns,
   campfires,
-  chestSites: mobPreview ? [] : chestSites,
+  chestSites: isPreview ? (previewChestSite ? [previewChestSite] : []) : chestSites,
   mode: isNetworked ? SIM_MODE.REPLICA : SIM_MODE.AUTHORITY,
   enemyGroupSize: 3,
-  encounterSites: mobPreview ? [] : encounterSites,
-  starterHasteRing: !mobPreview,
+  encounterSites: isPreview ? [] : encounterSites,
+  starterHasteRing: !isPreview,
 });
 let renderer = null;
 let pendingWeaponPickup = null;
@@ -499,7 +504,7 @@ if (isNetworked) {
 if (mobPreview) spawnPreviewMob(world, grid, world.get(playerId, Position), mobPreview);
 const offlineProgressKey = 'hack-arena.offline-progress';
 let offlineProgress = { gold: 0 };
-if (!isNetworked && !mobPreview) {
+if (!isNetworked && !isPreview) {
   try {
     const saved = JSON.parse(localStorage.getItem(offlineProgressKey));
     if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
@@ -666,7 +671,7 @@ const loop = createFixedTickLoop({
       sim.setPlayerInput('local', command);
       sim.step(dt);
       const gold = world.get(playerId, Gold).count;
-      if (!mobPreview && gold !== offlineProgress.gold) {
+      if (!isPreview && gold !== offlineProgress.gold) {
         offlineProgress = { ...offlineProgress, gold };
         try {
           localStorage.setItem(offlineProgressKey, JSON.stringify(offlineProgress));
