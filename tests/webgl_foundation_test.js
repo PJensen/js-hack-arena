@@ -109,6 +109,33 @@ Deno.test('gore: bleed drips settle into floor stains, including in reduced moti
   assertEquals([still.drops.length, still.stains.length], [0, 1]);
 });
 
+Deno.test('gore: bleeding uses the same materials as hits', () => {
+  const grid = { distanceMove: () => 60 };
+  const themes = ['fire', 'spider', 'floating_eye', 'frost', 'gas_spore', 'flaming_bat', 'shadow'];
+  for (const targetTheme of themes) {
+    const hit = createGorePass({ grid, seed: 11 });
+    hit.add({ x: 0, y: 0, amount: 8, targetTheme });
+    const bleed = createGorePass({ grid, seed: 11 });
+    bleed.drip(0, 0, 14, targetTheme);
+    const material = bleed.drops[0].material;
+    assertEquals(material, hit.drops[0].material);
+
+    if (targetTheme === 'shadow') {
+      const startHeight = bleed.drops[0].height;
+      bleed.step(0.1);
+      assert(bleed.drops[0].height > startHeight);
+    }
+    for (let i = 0; i < 40; i++) bleed.step(0.025);
+    assertEquals(bleed.drops.length, 0);
+    assertEquals(bleed.stains.map(({ color }) => color), material.stain ? [material.stain] : []);
+
+    const still = createGorePass({ grid, seed: 11, reducedMotion: () => true });
+    still.drip(0, 0, 14, targetTheme);
+    assertEquals(still.drops.length, 0);
+    assertEquals(still.stains.map(({ color }) => color), bleed.stains.map(({ color }) => color));
+  }
+});
+
 Deno.test('gore: a dead Floating Eye sprays violet ichor and leaves gelatinous fragments', () => {
   const gore = createGorePass({ grid: { distanceMove: () => 60 }, seed: 11 });
   gore.add({ x: 25, y: 0, amount: 12, killed: true, targetTheme: 'floating_eye' });

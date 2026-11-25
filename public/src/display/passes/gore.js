@@ -9,6 +9,15 @@ const eyeIchor = { drop: [0.85, 0.30, 0.98], stain: [0.63, 0.16, 0.68], fragment
 const spectral = { drop: [0.68, 0.38, 0.97], spectral: true };
 const charred = { drop: [1, 0.39, 0.075], stain: [0.23, 0.12, 0.075], fragment: [0.40, 0.17, 0.085] };
 
+const materialsByTheme = new Map([
+  ['frost', slime],
+  ['gas_spore', slime],
+  ['shadow', spectral],
+  ['spider', ichor],
+  ['floating_eye', eyeIchor],
+  ['flaming_bat', charred],
+]);
+
 export function createGorePass({ grid, seed, reducedMotion = () => false }) {
   const stains = [];
   const drops = [];
@@ -17,9 +26,7 @@ export function createGorePass({ grid, seed, reducedMotion = () => false }) {
 
   function add({ x, y, amount, killed, targetTheme, impactAngle, spellId }) {
     if (!(amount > 0) || !Number.isFinite(x) || !Number.isFinite(y)) return;
-    const material = targetTheme === 'frost' || targetTheme === 'gas_spore' ? slime : targetTheme === 'shadow' ? spectral :
-      targetTheme === 'spider' ? ichor : targetTheme === 'floating_eye' ? eyeIchor :
-      targetTheme === 'flaming_bat' ? charred : flesh;
+    const material = materialsByTheme.get(targetTheme) ?? flesh;
     const strength = Math.min(1.7, 0.7 + amount / 22);
     const direction = Number.isFinite(impactAngle) ? impactAngle : rng.float(0, 2 * Math.PI);
     const fan = killed ? 1.6 : spellId === 'rend' || spellId === 'arrow' ? 0.43 : 1.05;
@@ -61,18 +68,21 @@ export function createGorePass({ grid, seed, reducedMotion = () => false }) {
     }
   }
 
-  function drip(x, y, radius) {
+  function drip(x, y, radius, targetTheme) {
+    const material = materialsByTheme.get(targetTheme) ?? flesh;
+    const still = reducedMotion();
+    if (still && !material.stain) return;
     const side = rng.float(0, 1) < 0.5 ? -1 : 1;
     const drop = launch(
       x + side * radius * rng.float(0.52, 0.82),
       y + radius * rng.float(0.7, 0.94),
       side < 0 ? Math.PI : 0,
-      rng.float(5, 11), -12, flesh,
+      rng.float(5, 11), -12, material,
     );
     drop.height = radius * rng.float(1.05, 1.35);
     drop.size = rng.float(2.7, 3.9);
-    drop.leavesStain = true;
-    if (reducedMotion()) {
+    drop.leavesStain = Boolean(material.stain);
+    if (still) {
       move(drop, drop.vx * 0.2, drop.vy * 0.2);
       addStain(drop, 0.88);
     } else {

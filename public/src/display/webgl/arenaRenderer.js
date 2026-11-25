@@ -1228,7 +1228,7 @@ export function createWebGLArenaRenderer(deps) {
       if (!state.active.some(({ id, remaining }) => id === ConditionId.BLEEDING && remaining > 0)) continue;
       const { x, y } = displayPosition(id, position);
       if (!inView(x, y, collider.radius * 2)) continue;
-      gore.drip(x, y, collider.radius);
+      gore.drip(x, y, collider.radius, world.get(id, Actor)?.theme);
       nextBleedDrip.set(id, combatTime + 0.24);
     }
   }
