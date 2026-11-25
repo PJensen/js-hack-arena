@@ -14,7 +14,7 @@ const oreMaterials = {
 export function createOreRenderer(device, grid, sites) {
   const { gl } = device;
   const { vertices, glintCenters } = createOreMesh();
-  const program = device.program(ORE_VERTEX, createOreFragment(glintCenters.length / 2));
+  const program = device.program(ORE_VERTEX, createOreFragment(glintCenters.length / 3));
   const shader = {
     program,
     view: uniform(gl, program, 'u_view'),
@@ -34,7 +34,7 @@ export function createOreRenderer(device, grid, sites) {
     gl.useProgram(shader.program);
     gl.bindVertexArray(mesh.vao);
     gl.uniform4fv(shader.view, view);
-    gl.uniform2fv(shader.glintCenters, glintCenters);
+    gl.uniform3fv(shader.glintCenters, glintCenters);
     gl.clear(gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
     for (const { x, y, normalX, normalY, kind } of visible) {

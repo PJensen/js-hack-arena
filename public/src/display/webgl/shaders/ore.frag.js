@@ -8,7 +8,7 @@ flat in float v_material;
 uniform vec3 u_albedo;
 uniform vec3 u_reflection;
 uniform float u_roughness;
-uniform vec2 u_glint_centers[${nuggetCount}];
+uniform vec3 u_glint_centers[${nuggetCount}];
 uniform float u_glint_time;
 out vec4 out_color;
 
@@ -37,11 +37,13 @@ void main() {
   if (u_glint_time >= 0.0) {
     float phase = fract(u_glint_time * 0.48 + v_material * 0.381966);
     float flash = 1.0 - smoothstep(0.006, 0.068, abs(phase - 0.5));
-    vec2 center = u_glint_centers[int(v_material) - 1];
-    float mark = glintShape(abs(v_local_position.xz - center));
-    float cap = smoothstep(0.82, 0.99, normal.z);
-    vec3 highlight = mix(u_reflection, vec3(1.0, 0.99, 0.96), 0.87);
-    metal += highlight * (flash * mark * cap * 0.72);
+    vec3 offset = v_local_position - u_glint_centers[int(v_material) - 1];
+    float cap = (1.0 - smoothstep(0.03, 0.22, abs(offset.y))) * smoothstep(0.92, 0.99, normal.z);
+    float mark = glintShape(abs(offset.xz));
+    float reflectedLight = 1.0 - smoothstep(0.3, 1.35, length(offset.xz));
+    // Light up the metal around the glint so the bright point reads as part of the fragment.
+    vec3 highlight = mix(u_reflection, vec3(1.0, 0.99, 0.96), 0.50);
+    metal += (highlight * mark * 0.57 + u_reflection * reflectedLight * 0.20) * (flash * cap);
   }
   out_color = vec4(metal, 1.0);
 }`;
