@@ -21,9 +21,13 @@ export function createOreMesh() {
   // Bury the bases below the crown so only the exposed metal tips show.
   const nugget = [[-3, -0.8], [-1.8, -2.6], [1.7, -2.2], [3.2, 0], [1.8, 2.4], [-1.6, 1.9]];
   const vein = [[-15, 0, 19.5, 1.05], [-7, -4, 23, 1.1], [1, 3, 22.6, 0.9], [9, -1, 19, 0.95]];
+  const nuggetLayers = [[0, 1.1, 0], [4.2, 0.94, 0.35], [6, 0.56, -0.4]];
+  const [, , capOffset] = nuggetLayers.at(-1);
+  const glintCenters = new Float32Array(vein.length * 2);
   for (const [index, [x, z, base, size]] of vein.entries()) {
-    loft([[0, 1.1, 0], [4.2, 0.94, 0.35], [6, 0.56, -0.4]].map(([height, scale, offset]) =>
+    loft(nuggetLayers.map(([height, scale, offset]) =>
       nugget.map(([px, pz]) => [x + size * (px * scale + offset), base + size * height, z + size * pz * scale])), index + 1);
+    glintCenters.set([x + size * capOffset, z], index * 2);
   }
-  return finish();
+  return { vertices: finish(), glintCenters };
 }
