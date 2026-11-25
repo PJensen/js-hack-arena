@@ -8,6 +8,7 @@ export const AIBehavior = Object.freeze({
   PASSIVE: 'passive',
   BAT: 'bat',
   MIMIC: 'mimic',
+  LOOT_GOBLIN: 'loot_goblin',
 });
 
 export const WEB_WINDUP_SECONDS = 0.35;
@@ -17,6 +18,7 @@ export const BAT_SHRIEK_PULSE = 0.45;
 export const BAT_SHRIEK_RADIUS = 144;
 export const MIMIC_WINDUP_SECONDS = 0.34;
 export const MIMIC_LEAP_SECONDS = 0.24;
+export const LOOT_GOBLIN_ESCAPE_WINDUP = 1.2;
 
 export const AI = defineComponent('AI', {
   behavior:       AIBehavior.CASTER,
@@ -34,6 +36,7 @@ export const AI = defineComponent('AI', {
   mimicClosed:   false,
   mimicWindup:    0,
   mimicLeap:      0,
+  escapeWindup:   0,
   plantAtContact: false,
   aggroRange:     300,
   sight:          true,

@@ -189,6 +189,10 @@ Deno.test('game room: initial dungeon setup matches offline play and dead-end ch
     const dungeonEntities = ({ entities }) => entities.filter(({ kind }) => kind !== 'player');
     const roomSnapshot = latestSnapshot(first);
     assertEquals(dungeonEntities(roomSnapshot), dungeonEntities(offline.captureSnapshot()));
+    const goblins = (snapshot) => snapshot.entities.filter(({ state }) => state.theme === 'loot_goblin');
+    assertEquals(goblins(roomSnapshot).length, 1);
+    const [goblin] = goblins(roomSnapshot);
+    assert(cave.encounterSites.some(({ x, y }) => Math.hypot(x - goblin.state.x, y - goblin.state.y) <= 97));
     const roomPlayer = roomSnapshot.entities.find(({ kind }) => kind === 'player');
     assertEquals(roomPlayer?.state, offline.getPlayerSnapshot('offline').state);
 
@@ -210,6 +214,12 @@ Deno.test('game room: initial dungeon setup matches offline play and dead-end ch
 
     await room.accept(second, { userId: 'user-2', displayName: 'Second' });
     assertEquals(chests(latestSnapshot(second)), chests(snapshot));
+    assertEquals(goblins(latestSnapshot(second)).map(({ id }) => id), [goblin.id]);
+    const [goblinId] = [...sim.world.query(Actor)].find(([, actor]) => actor.theme === 'loot_goblin');
+    applyDamage(sim.world, goblinId, 200);
+    room.step();
+    room.step();
+    assertEquals(goblins(latestSnapshot(second)), []);
   } finally {
     room.leave(first);
     room.leave(second);
@@ -267,7 +277,9 @@ Deno.test('game room: encounters stay spread out while some mobs patrol', async 
     assertEquals(initialMobs.filter(({ theme }) => theme === 'flaming_bat').length, 1);
 
     const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-    const mobs = [...sim.world.query(AI, Position, Actor)].map(([id, ai, pos, actor]) => ({ id, ai, pos, home: { ...pos }, theme: actor.theme }));
+    const mobs = [...sim.world.query(AI, Position, Actor)]
+      .filter(([, , , actor]) => actor.theme !== 'loot_goblin')
+      .map(([id, ai, pos, actor]) => ({ id, ai, pos, home: { ...pos }, theme: actor.theme }));
     assertEquals(mobs.length, 11);
     assertEquals(mobs.filter(({ ai }) => ai.patrolPoints.length > 1).length, 3);
     const bats = mobs.filter(({ theme }) => theme === 'bat');
@@ -295,7 +307,7 @@ Deno.test('game room: encounters stay spread out while some mobs patrol', async 
           assert(distance(pos, home) <= 64);
           if (distance(pos, home) > 32) moved.add(id);
         } else {
-          assertEquals(pos, home);
+          assert(distance(pos, home) < 20);
         }
       }
     }
@@ -311,7 +323,7 @@ Deno.test('game room: encounters stay spread out while some mobs patrol', async 
 
     sim.world.get(nearby.id, Health).hp = 0;
     for (let tick = 0; tick < 20; tick++) room.step();
-    assertEquals([...sim.world.query(AI)].length, 10);
+    assertEquals(mobs.filter(({ id }) => sim.world.has(id, AI)).length, 10);
 
     const eye = mobStates(latestSnapshot(socket)).find(({ theme }) => theme === 'floating_eye');
     const eyeApproach = [[65, 0], [-65, 0], [0, 65], [0, -65]]

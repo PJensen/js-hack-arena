@@ -4,7 +4,7 @@ import {
   Mining, PickupLock, PlayerTag, PointLight, Position, Powerups, Projectile, Ring, Spellbook,
   Velocity, WeaponPickup,
 } from '../../rules/components/index.js';
-import { AI, BAT_SHRIEK_PULSE, BAT_SHRIEK_RADIUS, BAT_SHRIEK_WINDUP, MIMIC_LEAP_SECONDS, MIMIC_WINDUP_SECONDS, WEB_WINDUP_SECONDS } from '../../rules/components/AI.js';
+import { AI, BAT_SHRIEK_PULSE, BAT_SHRIEK_RADIUS, BAT_SHRIEK_WINDUP, LOOT_GOBLIN_ESCAPE_WINDUP, MIMIC_LEAP_SECONDS, MIMIC_WINDUP_SECONDS, WEB_WINDUP_SECONDS } from '../../rules/components/AI.js';
 import { SHADOW_BOLT_LIFETIME } from '../../rules/components/Projectile.js';
 import { AuraId } from '../../rules/data/auraCatalog.js';
 import { ConditionId, conditions as conditionCatalog } from '../../rules/data/conditionCatalog.js';
@@ -38,6 +38,7 @@ import { LOOT_FRAGMENT } from './shaders/loot.frag.js';
 import { SPELLBOOK_FRAGMENT } from './shaders/spellbook.frag.js';
 import { LOOT_SHAFT_VERTEX } from './shaders/lootShaft.vert.js';
 import { LOOT_SHAFT_FRAGMENT } from './shaders/lootShaft.frag.js';
+import { LOOT_GOBLIN_FLASH_FRAGMENT } from './shaders/lootGoblinFlash.frag.js';
 import { WORLD_VERTEX } from './shaders/world.vert.js';
 import { CAVE_VERTEX } from './shaders/cave.vert.js';
 import { CAVE_FRAGMENT } from './shaders/cave.frag.js';
@@ -74,6 +75,7 @@ import { SPORE_CLOUD_FRAGMENT } from './shaders/sporeCloud.frag.js';
 // Lighting is a core gameplay/readability layer. Keep enough simultaneous
 // sources for actors, loot, projectiles, and transient spell illumination.
 export const MAX_DYNAMIC_LIGHTS = 24;
+const LOOT_GOBLIN_FLASH_SECONDS = 0.48;
 
 function cleaveIntensity({ rend, charge = 0 }) {
   return rend ? 0 : charge ** 2;
@@ -82,6 +84,7 @@ function cleaveIntensity({ rend, charge = 0 }) {
 function statusBarPadding(actor) {
   if (actor?.name === 'Goblin Raider') return 29;
   const theme = actor?.theme;
+  if (theme === 'loot_goblin') return 33;
   if (theme === 'mimic') return 32;
   if (theme === 'shadow') return 25;
   return theme === 'spider' || theme === 'floating_eye' || theme === 'gas_spore' ||
@@ -190,6 +193,9 @@ export function createWebGLArenaRenderer(deps) {
   const disc = worldProgram(device, DISC_FRAGMENT);
   disc.color = uniform(gl, disc.program, 'u_color');
   disc.stroke = uniform(gl, disc.program, 'u_stroke');
+  const goblinFlash = worldProgram(device, LOOT_GOBLIN_FLASH_FRAGMENT);
+  goblinFlash.age = uniform(gl, goblinFlash.program, 'u_age');
+  goblinFlash.strength = uniform(gl, goblinFlash.program, 'u_strength');
   const batFlame = worldProgram(device, BAT_FLAME_FRAGMENT);
   batFlame.time = uniform(gl, batFlame.program, 'u_time');
   batFlame.alpha = uniform(gl, batFlame.program, 'u_alpha');
@@ -409,7 +415,11 @@ export function createWebGLArenaRenderer(deps) {
   let torchParticleSequence = 0;
   let burningParticleAccumulator = 0;
   let batEmberAccumulator = 0;
+  const goblinFlashes = [];
 
+  world.on('loot_goblin.escaped', ({ x, y }) => {
+    goblinFlashes.push({ x, y, age: 0 });
+  });
   world.on('spell.bolt', (event) => {
     bolts.push({ ...event, age: 0, duration: 0.18 });
   });
@@ -736,6 +746,33 @@ export function createWebGLArenaRenderer(deps) {
     gl.drawArrays(gl.LINES, 0, points.length / 2);
   }
 
+  function drawGoblinTreasure({ x, y, facing, escape, radius, id }, now) {
+    const still = motionPreference.matches;
+    const packX = x - Math.cos(facing) * radius * 1.03;
+    const packY = y - Math.sin(facing) * radius * 1.03 - radius * 1.64;
+    for (let index = 0; index < (escape > 0 ? 7 : 3); index++) {
+      const travel = still ? (index + 1) / 8 : (now * (0.92 + escape) + index * 0.37 + id * 0.19) % 1;
+      const px = packX + Math.cos(index * 2.4) * (5 + travel * escape * 20);
+      const py = packY - travel * (10 + escape * 35);
+      const alpha = Math.sin(Math.PI * travel) * (0.52 + escape * 0.46);
+      const size = 0.8 + alpha * (1.4 + escape * 2);
+      drawLines(new Float32Array([px - size, py, px + size, py, px, py - size * 1.7, px, py + size * 1.7]),
+        [1, 0.81, 0.30, alpha]);
+    }
+  }
+
+  function drawGoblinFlash({ x, y, age }) {
+    const progress = age / LOOT_GOBLIN_FLASH_SECONDS;
+    const still = motionPreference.matches;
+    const size = still ? 115 : 135 + Math.sqrt(progress) * 45;
+    gl.useProgram(goblinFlash.program);
+    gl.bindVertexArray(quadVao);
+    setWorld(goblinFlash, x, y - 13, size, size * 1.13);
+    gl.uniform1f(goblinFlash.age, progress);
+    gl.uniform1f(goblinFlash.strength, still ? 0.65 : 1.2);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
   function drawArrow(x, y, vx, vy, power) {
     const angle = Math.atan2(vy, vx);
     const length = 14 + power * 8;
@@ -794,6 +831,10 @@ export function createWebGLArenaRenderer(deps) {
         intensity = 0.72 + 0.16 * Math.sin(now * 2.1 + id * 1.7);
       } else if (world.get(id, Actor)?.theme === 'flaming_bat') {
         intensity = still ? 1.25 : 1.48 * emberLight(now, id * 0.73);
+      } else if (world.get(id, Actor)?.theme === 'loot_goblin') {
+        const windup = world.get(id, AI).escapeWindup;
+        intensity = (still ? 1.45 : 1.45 + Math.sin(now * 7) * 0.16) +
+          (windup > 0 ? 1.7 * (1 - windup / LOOT_GOBLIN_ESCAPE_WINDUP) : 0);
       } else if (world.has(id, AI)) {
         intensity = 0.58 + 0.08 * Math.sin(now * 1.3 + id * 0.9);
       }
@@ -1506,6 +1547,7 @@ export function createWebGLArenaRenderer(deps) {
       drawDisc(shown.x + Math.cos(facing) * collider.radius, shown.y + Math.sin(facing) * collider.radius, 2.2, [0.95, 1, 0.72, 1], [0.95, 1, 0.72, 1]);
     }
     const gazeRays = [];
+    const goblinTreasure = [];
     const batShrieks = [];
     const batFlames = [];
     const models = [];
@@ -1540,7 +1582,8 @@ export function createWebGLArenaRenderer(deps) {
         if (actor.rare) drawGlyph('★', shown.x + radius * 1.2, shown.y - radius * 1.75, 10, [1, 0.78, 0.18, 1]);
         continue;
       }
-      if (actor.name === 'Goblin Raider') {
+      const lootGoblin = actor.theme === 'loot_goblin';
+      if (actor.name === 'Goblin Raider' || lootGoblin) {
         const { radius } = collider;
         if (!inView(shown.x, shown.y, radius * 3)) continue;
         const still = motionPreference.matches;
@@ -1548,8 +1591,12 @@ export function createWebGLArenaRenderer(deps) {
         const attack = swing ? (still ? 0.24 : Math.min(1, swing.age / swing.duration)) : null;
         const heading = swing ? Math.atan2(swing.y - swing.fromY, swing.x - swing.fromX) : facing;
         const stride = still ? 0 : Math.min(1, speed / 125) * (swing ? 0.35 : 1);
+        const windup = world.get(id, AI)?.escapeWindup ?? 0;
+        const escape = windup > 0 ? 1 - windup / LOOT_GOBLIN_ESCAPE_WINDUP : 0;
         drawDisc(shown.x, shown.y + 2, radius * 0.95, [0.03, 0.02, 0.012, 0.43], [0, 0, 0, 0]);
-        drawGoblin(view, shown.x, shown.y, radius, heading, combatTime * 11 + id * 1.47, stride, attack);
+        drawGoblin(view, shown.x, shown.y, radius, heading, combatTime * (lootGoblin ? 15 : 11) + id * 1.47,
+          stride, attack, lootGoblin, escape);
+        if (lootGoblin) goblinTreasure.push({ ...shown, facing, radius, escape, id });
         if (actor.rare) drawGlyph('★', shown.x + radius * 0.75, shown.y - radius * 2.15, 10, [1, 0.78, 0.18, 1]);
         continue;
       }
@@ -1661,6 +1708,13 @@ export function createWebGLArenaRenderer(deps) {
     // Lighting is a full-world GPU composition pass. Everything except the
     // intentionally luminous VFX and HUD participates in darkness and color.
     const actorLights = presentBurning(now, renderDt);
+    for (const { x, y, age } of goblinFlashes) {
+      if (inView(x, y, 150)) {
+        const fade = Math.exp(-5 * age / LOOT_GOBLIN_FLASH_SECONDS) * (1 - age / LOOT_GOBLIN_FLASH_SECONDS);
+        const strength = motionPreference.matches ? 2.1 : 4.6;
+        actorLights.push({ x, y, radius: 150, intensity: strength * fade, r: 1, g: 0.78, b: 0.36 });
+      }
+    }
     for (const { x, y, emitter, flicker } of batFlamePuffs) {
       actorLights.push({ x, y, radius: 80, intensity: 1.42 * flicker * emitter.remaining / emitter.duration, r: 1, g: 0.34, b: 0.09 });
     }
@@ -1678,6 +1732,13 @@ export function createWebGLArenaRenderer(deps) {
     drawLighting(collectLights(now, actorLights, campfires));
     drawDecorationEmission(now);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    for (const treasure of goblinTreasure) drawGoblinTreasure(treasure, now);
+    for (let index = goblinFlashes.length - 1; index >= 0; index--) {
+      const flash = goblinFlashes[index];
+      if (inView(flash.x, flash.y, 100)) drawGoblinFlash(flash);
+      flash.age += renderDt;
+      if (flash.age >= LOOT_GOBLIN_FLASH_SECONDS) goblinFlashes.splice(index, 1);
+    }
     for (const ray of gazeRays) drawGazeRay(ray, now);
     for (const { x, y, tip, heat, phase, flicker } of batFlames) {
       drawBatFlame(x, y, tip ? 11 : 16, (tip ? 22 : 27) + flicker * 5, phase, heat * 0.92);

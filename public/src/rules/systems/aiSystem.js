@@ -37,6 +37,7 @@ export function createAISystem(ctx) {
     const players = [...world.query(Position, Health, Actor)]
       .filter(([, , , actor]) => actor.kind === ActorKind.PLAYER);
     for (const [id, pos, vel, spd, fac, ai, col] of world.query(Position, Velocity, Speed, Facing, AI, Collider)) {
+      if (ai.behavior === AIBehavior.LOOT_GOBLIN) continue;
       const gaze = ai.behavior === AIBehavior.GAZE;
       const bat = ai.behavior === AIBehavior.BAT;
       const mimic = ai.behavior === AIBehavior.MIMIC;

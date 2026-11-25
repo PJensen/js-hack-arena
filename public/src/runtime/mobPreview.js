@@ -1,9 +1,10 @@
 import { findReachableNear } from '../rules/geometry/landmarks.js';
-import { spawnBat, spawnCaster, spawnFlamingBat, spawnFloatingEye, spawnGasSpore, spawnMelee, spawnMimic, spawnSpider, spawnTank } from '../rules/spawner.js';
+import { spawnBat, spawnCaster, spawnFlamingBat, spawnFloatingEye, spawnGasSpore, spawnLootGoblin, spawnMelee, spawnMimic, spawnSpider, spawnTank } from '../rules/spawner.js';
 
 const spawners = new Map([
   ['spider', spawnSpider],
   ['goblin', spawnMelee],
+  ['loot_goblin', spawnLootGoblin],
   ['wraith', spawnCaster],
   ['cube', spawnTank],
   ['floating_eye', spawnFloatingEye],

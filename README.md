@@ -88,6 +88,13 @@ either at the end of a spoke or in a regular encounter.
 
 Open `/?spawn=goblin&seed=42` for an isolated Goblin Raider preview. Enter the
 dungeon to see its 3D walk and blade swing in combat.
+
+One Loot Goblin roams each dungeon. Its gold-filled sack lights the floor
+around it. Once it spots you or takes a hit, it bolts through the passages,
+leaving coins and the occasional gem. Hits spill both, and catching it before
+it stops and vanishes in a golden flash pays out the rest of the sack. Try
+`/?spawn=loot_goblin&seed=42` for an isolated chase.
+
 Open `/?spawn=wraith&seed=42` for the same preview with the floating Wraith and
 its shadow bolts.
 

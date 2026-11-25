@@ -3,7 +3,7 @@ import { GOBLIN_VERTEX } from './shaders/goblin.vert.js';
 import { PROP_MESH_FRAGMENT } from './shaders/propMesh.frag.js';
 
 const ATTRIB_FLOATS = 15;
-const PART_CAPACITY = 32;
+const PART_CAPACITY = 36;
 const skin = [0.51, 0.65, 0.27];
 const darkSkin = [0.33, 0.43, 0.17];
 const leather = [0.44, 0.27, 0.18];
@@ -12,6 +12,9 @@ const scarf = [0.85, 0.28, 0.12];
 const iron = [0.51, 0.59, 0.60];
 const edge = [0.92, 0.93, 0.80];
 const eye = [1, 0.73, 0.20];
+const canvas = [0.78, 0.47, 0.19];
+const seam = [0.95, 0.72, 0.39];
+const gold = [1.34, 0.99, 0.24];
 
 export function createGoblinMesh(device) {
   const { gl } = device;
@@ -39,8 +42,8 @@ export function createGoblinMesh(device) {
   }
   gl.bindVertexArray(null);
 
-  return function draw(view, x, y, radius, heading, phase, stride, attack) {
-    const count = writePose(pose, phase, stride, attack);
+  return function draw(view, x, y, radius, heading, phase, stride, attack, lootGoblin = false, escape = 0) {
+    const count = writePose(pose, phase, stride, attack, lootGoblin, escape);
     gl.useProgram(program);
     gl.uniform4fv(locations.view, view);
     gl.uniform2f(locations.origin, x, y);
@@ -56,16 +59,16 @@ export function createGoblinMesh(device) {
   };
 }
 
-function writePose(output, phase, stride, attack) {
+function writePose(output, phase, stride, attack, lootGoblin, escape) {
   let count = 0;
   // Coordinates are forward, height, and across. Attack progress is supplied
   // by the confirmed contact event, while locomotion only uses visible speed.
   const step = Math.cos(phase) * stride;
   const bob = Math.abs(Math.sin(phase)) * 0.095 * stride;
   const slash = attack === null ? 0 : Math.sin(Math.PI * Math.pow(attack, 0.6));
-  const lean = 0.16 * stride + slash * 0.22;
-  const shoulder = 1.38 + bob - slash * 0.20;
-  const head = 1.82 + bob - slash * 0.17;
+  const lean = (lootGoblin ? 0.24 : 0.16) * stride + slash * 0.22 + escape * 0.10;
+  const shoulder = 1.38 + bob - slash * 0.20 - escape * 0.17;
+  const head = 1.82 + bob - slash * 0.17 - escape * 0.22;
   ellipsoid(-0.18, 0.86 + bob, 0, 0.35, 0.29, 0.42, boots);
   ellipsoid(-0.12 + lean, 1.21 + bob - slash * 0.09, 0, 0.40, 0.48, 0.56, leather);
   ellipsoid(-0.38 + lean, shoulder - 0.08, 0, 0.19, 0.36, 0.49, scarf);
@@ -95,6 +98,29 @@ function writePose(output, phase, stride, attack) {
   segment(leftShoulder, leftElbow, 0.22, 0.20, leather);
   segment(leftElbow, leftFist, 0.18, 0.17, darkSkin);
   ellipsoid(...leftFist, 0.19, 0.17, 0.17, skin);
+
+  if (lootGoblin) {
+    const packHeight = 1.43 + bob * 1.7 - escape * 0.12;
+    const sway = step * 0.12;
+    const grip = [0.12 + lean, shoulder - 0.15, 0.53];
+    const elbow = [0.24 + lean, shoulder - 0.37, 0.68];
+    segment([-0.07 + lean, shoulder, 0.42], elbow, 0.22, 0.19, leather);
+    segment(elbow, grip, 0.16, 0.16, darkSkin);
+    ellipsoid(...grip, 0.17, 0.17, 0.16, skin);
+    ellipsoid(-0.84, packHeight, sway, 0.65, 0.69, 0.73, canvas);
+    ellipsoid(-0.96, packHeight + 0.49, sway, 0.30, 0.32, 0.36, canvas);
+    ellipsoid(-0.98, packHeight + 0.71, sway, 0.26, 0.07, 0.29, seam);
+    ellipsoid(-1.03, packHeight + 0.80, sway, 0.33, 0.12, 0.34, canvas);
+    ellipsoid(-1.05, packHeight + 0.88, sway, 0.20, 0.07, 0.23, gold);
+    ellipsoid(-1.17, packHeight + 0.81, sway + 0.19, 0.12, 0.09, 0.07, gold);
+    for (const side of [-1, 1]) {
+      segment([-1.24, packHeight + 0.33, sway + side * 0.49],
+        [-0.77, packHeight - 0.38, sway + side * 0.54], 0.04, 0.055, seam);
+      segment([-0.51, packHeight + 0.49, sway + side * 0.42],
+        [0.22 + lean, shoulder - 0.38, side * 0.43], 0.08, 0.09, seam);
+    }
+    return count;
+  }
 
   const rightShoulder = [-0.12 + lean, shoulder, 0.46];
   const rightElbow = [-0.49 + lean + slash * 0.98, shoulder - 0.27, 0.72 - slash * 0.19];

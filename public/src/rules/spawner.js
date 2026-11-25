@@ -19,6 +19,7 @@ export const GAS_SPORE_LIGHT = Object.freeze({ radius: 66, r: 167, g: 101, b: 18
 export const BAT_LIGHT = Object.freeze({ radius: 55, r: 151, g: 118, b: 196 });
 export const FLAMING_BAT_LIGHT = Object.freeze({ radius: 100, r: 255, g: 108, b: 35 });
 export const EPIC_CHEST_LIGHT = Object.freeze({ radius: 100, r: 200, g: 80, b: 255 });
+export const LOOT_GOBLIN_LIGHT = Object.freeze({ radius: 125, r: 255, g: 188, b: 52 });
 
 /**
  * Find open ground near a point using the grid.
@@ -142,6 +143,13 @@ export const spawnMelee = defineMob({
   behavior: AIBehavior.MELEE, preferredDist: 10, castRate: 99,
   projSpeed: 0, meleeDamage: 14, weapon: 'Jagged Blade', aggroRange: 340,
   searchRadius: 64,
+});
+
+export const spawnLootGoblin = defineMob({
+  name: 'Loot Goblin', glyph: 'g', theme: 'loot_goblin', radius: 12,
+  speed: 178, hp: 64, mana: 0, manaRegen: 0,
+  light: LOOT_GOBLIN_LIGHT, behavior: AIBehavior.LOOT_GOBLIN, aggroRange: 165,
+  meleeDamage: 0, weapon: '', searchRadius: 64,
 });
 
 export const spawnTank = defineMob({

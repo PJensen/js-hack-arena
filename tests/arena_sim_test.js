@@ -6,7 +6,7 @@ import {
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { AI, Actor, Auras, Conditions, Facing, Gold, Health, Input, ItemInfo, Lifetime, Mana, PointLight, Position, Powerups, Projectile, Ring, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
 import { generateArenaCave, generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
-import { GOLD_LIGHT, attachAuraEmitter, spawnAuraField, spawnBat, spawnEpicChest, spawnEpicSword, spawnFlamingBat, spawnFloatingEye, spawnFuryRune, spawnGasSpore, spawnHasteRune, spawnItem, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
+import { GOLD_LIGHT, LOOT_GOBLIN_LIGHT, attachAuraEmitter, spawnAuraField, spawnBat, spawnEpicChest, spawnEpicSword, spawnFlamingBat, spawnFloatingEye, spawnFuryRune, spawnGasSpore, spawnHasteRune, spawnItem, spawnLootGoblin, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
 import { BAT_SHRIEK_WINDUP, GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
 import { applyAura, applyCondition, applyDamage } from '../public/src/rules/effects.js';
 import { getStatMultiplier } from '../public/src/rules/stats.js';
@@ -15,6 +15,7 @@ import { EffectKind, EffectStat } from '../public/src/rules/data/effectCatalog.j
 import { SpellCastMode, spells as spellCatalog } from '../public/src/rules/data/spellCatalog.js';
 import { getPreviewMob, spawnPreviewMob } from '../public/src/runtime/mobPreview.js';
 import { createArenaDungeonSimulation } from '../public/src/rules/sim/arenaDungeon.js';
+import { getMiningMaterial } from '../public/src/rules/data/miningMaterials.js';
 import {
   SIM_DT,
   SIM_MODE,
@@ -53,6 +54,84 @@ function makeOpenSim(seed = 1234, options = {}) {
     ...options,
   });
 }
+
+Deno.test('loot goblin: sight starts a chase around a hallway bend and escape replicates once', () => {
+  const clearance = (x, y, left, top, right, bottom) => Math.min(x - left, y - top, right - x, bottom - y);
+  const grid = {
+    cellSize: 4,
+    distanceMove: (x, y) => Math.max(
+      clearance(x, y, 60, 65, 252, 135),
+      clearance(x, y, 210, 90, 282, 420),
+    ),
+  };
+  const sim = makeOpenSim(42, { enemyCount: 0, grid, spawns: [{ x: 100, y: 100 }] });
+  sim.addPlayer('chaser');
+  const goblin = spawnLootGoblin(sim.world, grid, 180, 100, null);
+  const position = sim.world.get(goblin, Position);
+  const radius = sim.world.get(goblin, Collider).radius;
+  for (let i = 0; i < 38; i++) {
+    sim.step();
+    assert(grid.distanceMove(position.x, position.y) >= radius - 0.01);
+  }
+  assert(position.y > 160, 'goblin should turn down the hallway away from the player');
+  const gold = (snapshot) => snapshot.entities.filter(({ state }) => state.effect === 'gold');
+  assert(gold(sim.captureSnapshot()).length > 0);
+
+  for (let i = 38; i < 241; i++) sim.step();
+  const stopped = { ...position };
+  const windingUp = sim.captureSnapshot();
+  const mob = windingUp.entities.find(({ state }) => state.theme === 'loot_goblin');
+  assert(mob.state.escapeWindup > 0);
+  const replica = makeOpenSim(42, { mode: SIM_MODE.REPLICA, grid });
+  const flashes = [];
+  replica.world.on('loot_goblin.escaped', ({ x, y }) => flashes.push({ x, y }));
+  replica.applySnapshot(windingUp);
+  const [copyId, copyAI] = [...replica.world.query(AI)][0];
+  assertEquals(copyAI.escapeWindup, mob.state.escapeWindup);
+  assertEquals(replica.world.get(copyId, PointLight), { enabled: true, ...LOOT_GOBLIN_LIGHT });
+  for (let i = 0; i < 24; i++) sim.step();
+  // A loot entity can reuse the ECS slot before the next network snapshot.
+  spawnItem(sim.world, stopped.x, stopped.y, { type: 'copper_ore' });
+  const escaped = sim.captureSnapshot();
+  replica.applySnapshot(escaped);
+  assertEquals(replica.world.alive.has(copyId), false);
+  assertEquals(replica.applySnapshot(escaped), false);
+  assertEquals(flashes, [stopped]);
+  assertEquals(gold(escaped).length, gold(windingUp).length);
+  assert(escaped.entities.some(({ state }) => getMiningMaterial(state.effect)?.shape === 'gem'));
+  assert(escaped.entities.some(({ id, state }) => id.startsWith('item:') && state.effect === 'copper_ore'));
+  assert(!escaped.events.some(({ type }) => type === 'entity.died'));
+  sim.addPlayer('late');
+  assert(!sim.captureSnapshot().entities.some(({ state }) => state.theme === 'loot_goblin'));
+});
+
+Deno.test('loot goblin: roams without line of sight and spills treasure on hits and death', () => {
+  const grid = {
+    cellSize: 4,
+    distanceMove: (x) => x >= 130 && x <= 150 ? 0 : Math.min(Math.abs(x - 130), Math.abs(x - 150)),
+  };
+  const sim = makeOpenSim(42, { enemyCount: 0, grid });
+  const player = sim.addPlayer('chaser');
+  const goblin = spawnLootGoblin(sim.world, grid, 185, 100, null);
+  const position = sim.world.get(goblin, Position);
+  for (let i = 0; i < 25; i++) sim.step();
+  assert(Math.hypot(position.x - 185, position.y - 100) > 35);
+  const loot = () => sim.captureSnapshot().entities.filter(({ kind }) => kind === 'item').map(({ state }) => state);
+  assertEquals(loot(), []);
+
+  applyDamage(sim.world, goblin, 1, { sourceId: player, periodic: true });
+  assertEquals(loot(), []);
+  applyDamage(sim.world, goblin, 5, { sourceId: player });
+  assertEquals(loot().filter(({ effect }) => effect === 'gold').length, 1);
+  assertEquals(loot().filter(({ effect }) => getMiningMaterial(effect)?.shape === 'gem').length, 1);
+  for (let i = 0; i < 241; i++) sim.step();
+  assert(sim.world.get(goblin, AI).escapeWindup > 0, 'a hit starts the timer without sight');
+  applyDamage(sim.world, goblin, 200, { sourceId: player });
+  for (let i = 0; i < 30; i++) sim.step();
+  assert(!sim.world.has(goblin, AI));
+  assert(loot().some(({ effect, count }) => effect === 'gold' && count === 18));
+  assertEquals(sim.captureSnapshot().events.filter(({ type }) => type === 'loot_goblin.escaped'), []);
+});
 
 Deno.test("spell catalog: all spells compose a cast mode and global cooldown", () => {
   const modes = new Set();

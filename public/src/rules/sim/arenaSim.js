@@ -1,6 +1,7 @@
 import { World } from '../../lib/ecs-js/index.js';
 import {
   AI,
+  AIBehavior,
   ArrowAmmo,
   Conditions,
   AuraEmitter,
@@ -41,6 +42,7 @@ import { getMiningMaterial, miningMaterialIds } from '../data/miningMaterials.js
 import { effectSystem, projectConditions, projectAuraEmitter } from '../effects.js';
 import { normalizeStatModifiers } from '../stats.js';
 import { createGridCarver } from '../geometry/carve.js';
+import { findReachableNear } from '../geometry/landmarks.js';
 import { sweepMaxFree } from '../geometry/sweep.js';
 import {
   spawnAuraField,
@@ -58,6 +60,7 @@ import {
   spawnGold,
   GOLD_LIGHT,
   findOpenNear,
+  LOOT_GOBLIN_LIGHT,
   spawnItem,
   spawnMelee,
   spawnPlayer,
@@ -70,6 +73,7 @@ import { createAISystem } from '../systems/aiSystem.js';
 import { createBumpSystem } from '../systems/bumpSystem.js';
 import { deathSystem } from '../systems/deathSystem.js';
 import { lootTossSystem, tossLoot } from '../systems/lootTossSystem.js';
+import { installLootGoblinRules } from '../systems/lootGoblinSystem.js';
 import { createMovementSystem } from '../systems/movementSystem.js';
 import { installManaCombatDelay, manaSystem } from '../systems/manaSystem.js';
 import { createOreMining } from '../systems/oreMining.js';
@@ -92,6 +96,7 @@ const PRESENTATION_EVENTS = Object.freeze([
   'entity.died',
   'chest.opened',
   'item.pickup',
+  'loot_goblin.escaped',
   'melee.hit',
   'mimic.awakened',
   'projectile.expired',
@@ -153,6 +158,7 @@ export function createArenaSimulation({
   if (mode === SIM_MODE.AUTHORITY) {
     installAuthoritativeRules(world, grid, mining);
     installEventJournal(world, eventHistory, () => ({ tick, sequence: ++eventSequence }), projectEventPayload);
+    world.on('loot_goblin.escaped', ({ id }) => forgetEntity(id));
     installLootRules(world);
     for (const { x, y } of campfires) spawnAuraField(world, x, y, AuraId.CAMPFIRE);
     for (const site of chestSites) {
@@ -162,8 +168,8 @@ export function createArenaSimulation({
     }
   }
 
-  function placeEncounter(site, spawn) {
-    const count = Math.min(spawn.packSize, encounters.remaining(spawn));
+  function placeEncounter(site, spawn, size = spawn.packSize) {
+    const count = Math.min(size, encounters.remaining(spawn));
     if (count <= 0) return;
     const mobs = spawnEncounter(world, grid, site, spawn, count);
     for (const id of mobs) ensureNetworkId(id, 'mob');
@@ -191,6 +197,11 @@ export function createArenaSimulation({
         const group = ENCOUNTER_GROUPS[Math.floor(index / groupSize) % ENCOUNTER_GROUPS.length];
         const variant = encounterSites ? encounters.choose('encounter') : null;
         placeEncounter(site, variant ?? group[(index % groupSize) % group.length]);
+      }
+      for (const [index, site] of (encounterSites ?? []).entries()) {
+        for (const { spawn, size } of encounters.roamingAt(index, encounterSites.length)) {
+          placeEncounter(findReachableNear(grid, site, [96, 72, 48]) ?? site, spawn, size);
+        }
       }
       if (sites.length) revision += 1;
     }
@@ -420,6 +431,7 @@ export function createArenaSimulation({
         ...(ai.mimicClosed && { mimicClosed: true }),
         ...(ai.mimicWindup > 0 && { mimicWindup: ai.mimicWindup }),
         ...(ai.mimicLeap > 0 && { mimicLeap: ai.mimicLeap }),
+        ...(ai.escapeWindup > 0 && { escapeWindup: ai.escapeWindup }),
         ...(gazeTarget && { gaze: { target: gazeTarget, charge: ai.gazeCharge } }),
         conditions: projectConditions(world, entityId),
         auraEmitter: projectAuraEmitter(world, entityId),
@@ -642,6 +654,7 @@ export function createArenaSimulation({
       ai.mimicClosed = state.mimicClosed;
       ai.mimicWindup = state.mimicWindup;
       ai.mimicLeap = state.mimicLeap;
+      ai.escapeWindup = state.escapeWindup;
       ai.target = state.gaze ? entityByNetworkId.get(state.gaze.target) ?? null : null;
       ai.gazeCharge = ai.target != null ? state.gaze.charge : 0;
       world.get(entityId, Conditions).active = state.conditions.map(replicaCondition);
@@ -748,6 +761,10 @@ export function createArenaSimulation({
     targetWorld.on('entity.died', (event) => {
       if (event.kind === ActorKind.PLAYER) { retargetEnemies(); return; }
       if (event.kind !== ActorKind.MOB) return;
+      if (targetWorld.get(event.id, AI)?.behavior === AIBehavior.LOOT_GOBLIN) {
+        forgetEntity(event.id);
+        return;
+      }
       spawnPotion(targetWorld, event.x, event.y);
       const drop = rollTable(mobDropTable, mobDropTotalWeight, targetWorld.rand);
       const itemId = spawnItem(targetWorld, event.x + targetWorld.rand() * 12 - 6, event.y + targetWorld.rand() * 12 - 6, drop);
@@ -831,6 +848,7 @@ function installAuthoritativeRules(world, grid, mining) {
     createPickupSystem({ grid, mine: mining.start }),
     createProjectileSystem({ grid, carve: createGridCarver(grid) }),
     deathSystem,
+    installLootGoblinRules(world, grid),
   ];
   world.setScheduler((targetWorld, dt) => {
     for (const system of systems) system(targetWorld, dt);
@@ -1017,6 +1035,7 @@ function normalizeMobState(id, state) {
     mimicClosed: Boolean(state.mimicClosed),
     mimicWindup: Math.max(0, finiteNumber(state.mimicWindup ?? 0, `${id}.mimicWindup`)),
     mimicLeap: Math.max(0, finiteNumber(state.mimicLeap ?? 0, `${id}.mimicLeap`)),
+    escapeWindup: Math.max(0, finiteNumber(state.escapeWindup ?? 0, `${id}.escapeWindup`)),
     gaze: state.gaze == null ? null : {
       target: normalizeNetworkId(state.gaze.target),
       charge: Math.min(1, Math.max(0, finiteNumber(state.gaze.charge, `${id}.gaze.charge`))),
@@ -1282,6 +1301,7 @@ function lightForTheme(theme) {
   if (theme === 'bat') return BAT_LIGHT;
   if (theme === 'flaming_bat') return FLAMING_BAT_LIGHT;
   if (theme === 'mimic') return EPIC_CHEST_LIGHT;
+  if (theme === 'loot_goblin') return LOOT_GOBLIN_LIGHT;
   return { radius: 105, r: 145, g: 70, b: 220 };
 }
 
