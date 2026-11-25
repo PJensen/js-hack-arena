@@ -9,7 +9,7 @@ import { createGorePass, GORE_LIMITS } from '../public/src/display/passes/gore.j
 import { writeSpiderPose } from '../public/src/display/webgl/spiderMesh.js';
 import { buildTerrainMesh } from '../public/src/display/webgl/terrainMesh.js';
 import { createDungeonDecorations } from '../public/src/display/worldDecorations.js';
-import { biolum, emberLight, torchLight } from '../public/src/display/lightPatterns.js';
+import { biolum, emberLight, fireFlicker, torchLight } from '../public/src/display/lightPatterns.js';
 import { generateArenaCave, generateCave } from '../public/src/rules/geometry/caveGen.js';
 import { sweepMaxFree } from '../public/src/rules/geometry/sweep.js';
 
@@ -209,14 +209,26 @@ Deno.test('webgl foundation: torches stay clear of each authored campfire', () =
 Deno.test('webgl foundation: fire and bioluminescence have distinct, repeatable rhythms', () => {
   assert(torchLight(1, 0) !== torchLight(1, Math.PI));
   const flare = 0.76 / 0.23;
-  assert(emberLight(flare, 0) > emberLight(flare - 0.7, 0) + 0.15);
-  assert(emberLight(flare, 0) > emberLight(flare + 0.7, 0) + 0.15);
+  const coalGlow = (time) => emberLight(time, 0) / fireFlicker(time, 0);
+  assert(coalGlow(flare) > coalGlow(flare - 0.7) + 0.15);
+  assert(coalGlow(flare) > coalGlow(flare + 0.7) + 0.15);
   const bright = biolum(1.8, 0);
   const dim = biolum(5.5, 0);
   assert(bright.intensity > dim.intensity + 0.3);
   assert(dim.intensity > 0.45);
   assert(Math.abs(bright.b - dim.b) > 0.08);
   assertEquals(biolum(1.8, 0), bright);
+});
+
+Deno.test('webgl foundation: fire flicker varies smoothly by source and respects reduced motion', () => {
+  const samples = Array.from({ length: 61 }, (_, frame) => fireFlicker(frame / 60, 0));
+  assert(samples.every((value) => value >= 0.75 && value <= 1.25));
+  assert(Math.max(...samples) - Math.min(...samples) > 0.15);
+  assert(samples.slice(1).every((value, index) => Math.abs(value - samples[index]) < 0.1));
+  assertEquals(samples[30], fireFlicker(0.5, 0));
+  assert(samples[30] !== fireFlicker(0.5, 1));
+  assertEquals(torchLight(0, 1, true), torchLight(1, 2, true));
+  assertEquals(emberLight(0, 1, true), emberLight(1, 2, true));
 });
 
 Deno.test('webgl foundation: terrain mesh retains open floor and raises solid density', () => {

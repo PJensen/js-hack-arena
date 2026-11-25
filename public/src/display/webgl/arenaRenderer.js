@@ -13,7 +13,7 @@ import { createMeleeImpact } from '../passes/meleeImpact.js';
 import { createFloatTextPass } from '../passes/floatText.js';
 import { createGorePass } from '../passes/gore.js';
 import { createHudStatus } from '../ui/hudStatus.js';
-import { biolum, emberLight, torchLight } from '../lightPatterns.js';
+import { biolum, emberLight, fireFlicker, torchLight } from '../lightPatterns.js';
 import { createWebGLDevice } from './device.js';
 import { createGoreRenderer } from './goreRenderer.js';
 import { createSpiderMesh } from './spiderMesh.js';
@@ -565,17 +565,17 @@ export function createWebGLArenaRenderer(deps) {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  function drawBatFlamePuff({ x, y, emitter }, now) {
+  function drawBatFlamePuff({ x, y, emitter, flicker }, now) {
     const progress = 1 - emitter.remaining / emitter.duration;
     const radius = emitter.radius;
     const still = motionPreference.matches;
     const alpha = Math.min(1, emitter.remaining / 0.36);
     const spread = still ? radius * 0.34 : radius * (0.19 + progress * 0.39);
-    const height = still ? 25 : 21 + 18 * Math.sin(Math.PI * progress);
+    const height = still ? 25 : (21 + 18 * Math.sin(Math.PI * progress)) * flicker;
     drawDisc(x, y, radius, [0.75, 0.16, 0.025, 0.08 * alpha], [1, 0.47, 0.13, 0.20 * alpha]);
     for (const side of [-1, 0, 1]) {
       const scale = 1 - Math.abs(side) * 0.26;
-      drawBatFlame(x + side * spread, y + Math.abs(side) * 4, 25 * scale, height * scale, (still ? 0 : now) + side * 2.6, alpha * 0.85);
+      drawBatFlame(x + side * spread, y + Math.abs(side) * 4, 25 * scale, height * scale, (still ? 0 : now) + side * 2.6, alpha * 0.85 * flicker);
     }
   }
 
@@ -734,6 +734,7 @@ export function createWebGLArenaRenderer(deps) {
 
   function collectLights(now, burningLights, campfires) {
     const candidates = burningLights;
+    const still = motionPreference.matches;
     for (const [id, position, source] of world.query(Position, PointLight)) {
       if (!source.enabled) continue;
       const shown = displayPosition(id, position);
@@ -750,7 +751,7 @@ export function createWebGLArenaRenderer(deps) {
       } else if (world.has(id, GroundItem)) {
         intensity = 0.72 + 0.16 * Math.sin(now * 2.1 + id * 1.7);
       } else if (world.get(id, Actor)?.theme === 'flaming_bat') {
-        intensity = motionPreference.matches ? 1.25 : 1.48 * emberLight(now, id * 0.73);
+        intensity = still ? 1.25 : 1.48 * emberLight(now, id * 0.73);
       } else if (world.has(id, AI)) {
         intensity = 0.58 + 0.08 * Math.sin(now * 1.3 + id * 0.9);
       }
@@ -761,7 +762,7 @@ export function createWebGLArenaRenderer(deps) {
     }
     for (const torch of decorations?.torches || []) {
       const y = torch.y - 12;
-      const intensity = torchLight(now, torch.phase);
+      const intensity = torchLight(now, torch.phase, still);
       const radius = 155 * (0.84 + 0.20 * intensity);
       if (!inView(torch.x, y, radius)) continue;
       candidates.push({
@@ -772,7 +773,7 @@ export function createWebGLArenaRenderer(deps) {
     }
     for (const campfire of campfires) {
       const y = campfire.y - 8;
-      const intensity = emberLight(now, campfire.phase);
+      const intensity = emberLight(now, campfire.phase, still);
       const radius = 185 * (0.77 + 0.25 * intensity);
       if (inView(campfire.x, y, radius)) {
         candidates.push({
@@ -1073,7 +1074,7 @@ export function createWebGLArenaRenderer(deps) {
       if (inView(shown.x, shown.y, 85)) {
         lights.push({
           x: shown.x, y: shown.y - 4, radius: 85,
-          intensity: 0.76 * emberLight(now, phase),
+          intensity: 0.76 * emberLight(now, phase, motionPreference.matches),
           r: 1, g: 0.34, b: 0.10,
         });
       }
@@ -1100,15 +1101,17 @@ export function createWebGLArenaRenderer(deps) {
 
   function drawDungeonDecorations(now, renderDt, campfires) {
     torchParticleAccumulator += renderDt;
-    const emitParticles = torchParticleAccumulator >= 0.055;
-    if (emitParticles) torchParticleAccumulator %= 0.055;
+    const particleTick = torchParticleAccumulator >= 0.055;
+    if (particleTick) torchParticleAccumulator %= 0.055;
+    const still = motionPreference.matches;
+    const emitParticles = particleTick && !still;
     for (const campfire of campfires) {
       if (!inView(campfire.x, campfire.y, 90)) continue;
       gl.useProgram(campfireProgram);
       gl.uniform4fv(campfireLocations.view, view);
       gl.uniform2f(campfireLocations.position, campfire.x, campfire.y);
-      gl.uniform1f(campfireLocations.time, now + campfire.phase);
-      gl.uniform1f(campfireLocations.intensity, emberLight(now, campfire.phase));
+      gl.uniform1f(campfireLocations.time, (still ? 0 : now) + campfire.phase);
+      gl.uniform1f(campfireLocations.intensity, emberLight(now, campfire.phase, still));
       drawPropMesh(campfireMesh);
       if (emitParticles) {
         const drift = Math.sin(now * 112.7 + campfire.phase);
@@ -1142,11 +1145,13 @@ export function createWebGLArenaRenderer(deps) {
 
   // Draw after darkness composition to retain the emissive details.
   function drawDecorationEmission(now) {
+    const still = motionPreference.matches;
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     for (const torch of decorations?.torches || []) {
       if (!inView(torch.x, torch.y, 90)) continue;
-      const intensity = torchLight(now, torch.phase);
-      drawFlame(torch.x, torch.y - 15, 28 + intensity * 6, 28 + intensity * 18, now + torch.phase, 0.83 * intensity);
+      const intensity = torchLight(now, torch.phase, still);
+      const height = 28 + intensity * 18;
+      drawFlame(torch.x, torch.y + 7 - height * 0.5, 28 + intensity * 6, height, (still ? 0 : now) + torch.phase, 0.83 * intensity);
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     const fungus = decorations?.mushroom;
@@ -1413,7 +1418,10 @@ export function createWebGLArenaRenderer(deps) {
     const batFlamePuffs = [];
     for (const [, { x, y }, emitter] of world.query(Position, AuraEmitter)) {
       if (emitter.id === AuraId.CAMPFIRE && emitter.active) campfires.push({ x, y, phase: x * 0.013 + y * 0.017 });
-      if (emitter.id === AuraId.BAT_FLAME_PUFF && emitter.active && inView(x, y, 80)) batFlamePuffs.push({ x, y, emitter });
+      if (emitter.id === AuraId.BAT_FLAME_PUFF && emitter.active && inView(x, y, 80)) {
+        const flicker = motionPreference.matches ? 1 : fireFlicker(now, x * 0.013 + y * 0.017);
+        batFlamePuffs.push({ x, y, emitter, flicker });
+      }
     }
     drawDungeonDecorations(now, renderDt, campfires);
 
@@ -1450,7 +1458,7 @@ export function createWebGLArenaRenderer(deps) {
         const flap = still ? 0.14 : 0.19 + Math.sin(phase) * (0.73 - shriek * 0.38);
         const bank = flaming ? (still ? 0.28 : 0.34 + Math.sin(phase * 0.27) * 0.22) : 0;
         drawDisc(shown.x, shown.y + 3, collider.radius * 0.91, [0.06, 0.02, 0.07, 0.45], [0, 0, 0, 0]);
-        const heat = flaming ? (still ? 0.92 : 0.86 + Math.sin(phase * 0.63) * 0.12) : 0;
+        const heat = flaming ? (still ? 0.92 : (0.86 + Math.sin(phase * 0.63) * 0.12) * fireFlicker(now, id * 0.73)) : 0;
         const anchors = drawBat(view, shown.x, shown.y, collider.radius, facing + bank, height, flap, shriek, heat);
         if (anchors) {
           for (const [index, anchor] of anchors.entries()) {
@@ -1546,8 +1554,8 @@ export function createWebGLArenaRenderer(deps) {
     // Lighting is a full-world GPU composition pass. Everything except the
     // intentionally luminous VFX and HUD participates in darkness and color.
     const actorLights = presentBurning(now, renderDt);
-    for (const { x, y, emitter } of batFlamePuffs) {
-      actorLights.push({ x, y, radius: 80, intensity: 1.42 * emitter.remaining / emitter.duration, r: 1, g: 0.34, b: 0.09 });
+    for (const { x, y, emitter, flicker } of batFlamePuffs) {
+      actorLights.push({ x, y, radius: 80, intensity: 1.42 * flicker * emitter.remaining / emitter.duration, r: 1, g: 0.34, b: 0.09 });
     }
     for (const { from, to, charge } of gazeRays) {
       const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / 32));

@@ -1,18 +1,39 @@
 // Presentation waveforms inspired by JSHack's temporalPatterns.js. Sample by
 // elapsed seconds and source phase so the prop and its light follow each other.
-export function torchLight(time, phase) {
-  return 0.84 +
+function signedNoise(sample, phase) {
+  const value = Math.sin(sample * 127.1 + phase * 311.7) * 43758.5453;
+  return 2 * (value - Math.floor(value)) - 1;
+}
+
+function smoothNoise(time, phase) {
+  const sample = Math.floor(time);
+  const fraction = time - sample;
+  const blend = fraction * fraction * (3 - 2 * fraction);
+  const start = signedNoise(sample, phase);
+  return start + (signedNoise(sample + 1, phase) - start) * blend;
+}
+
+export function fireFlicker(time, phase) {
+  return 1 + 0.17 * smoothNoise(time * 7, phase) + 0.08 * smoothNoise(time * 13, phase + 1.7);
+}
+
+export function torchLight(time, phase, still = false) {
+  if (still) return 0.84;
+  const sway = 0.84 +
     0.15 * Math.sin(time * 1.4 + phase) +
     0.08 * Math.sin(time * 3.1 + phase * 1.7) +
     0.04 * Math.sin(time * 7.9 + phase * 0.6);
+  return sway * fireFlicker(time, phase);
 }
 
-export function emberLight(time, phase) {
+export function emberLight(time, phase, still = false) {
+  if (still) return 0.87;
   const cycle = time * 0.23 + phase / (2 * Math.PI);
   const peak = Math.max(0, 1 - Math.abs(cycle - Math.floor(cycle) - 0.76) / 0.15);
   const flare = peak * peak * (3 - 2 * peak);
-  return 0.87 + 0.10 * Math.sin(time * 1.07 + phase) +
+  const coals = 0.87 + 0.10 * Math.sin(time * 1.07 + phase) +
     0.05 * Math.sin(time * 2.41 + phase * 1.3) + 0.26 * flare;
+  return coals * fireFlicker(time, phase);
 }
 
 export function biolum(time, phase) {
