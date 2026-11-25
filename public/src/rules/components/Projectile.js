@@ -1,6 +1,8 @@
 // Marks an entity as a projectile with damage payload.
 import { defineComponent } from '../../lib/ecs-js/index.js';
 
+export const SHADOW_BOLT_LIFETIME = 2.5;
+
 export const Projectile = defineComponent('Projectile', {
   damage: 10,
   owner: null,        // entity ID of shooter (for friendly-fire checks)

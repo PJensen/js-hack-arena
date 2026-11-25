@@ -469,7 +469,8 @@ const carve = createGridCarver(grid);
 const cam = createCamera();
 cam.x = cam.targetX = spawn.x;
 cam.y = cam.targetY = spawn.y;
-cam.scale = cam.targetScale = 1.8;
+const wraithPreview = mobPreview === getPreviewMob('wraith');
+cam.scale = cam.targetScale = wraithPreview ? Math.min(1.8, window.innerWidth / 340) : 1.8;
 
 const fx = new ParticleFX({ capacity: 2048, seedBase: SEED });
 

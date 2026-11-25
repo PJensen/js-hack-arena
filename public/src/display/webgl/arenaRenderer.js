@@ -1,10 +1,11 @@
 import {
   Actor, ActorKind, BowWeapon, Conditions, AuraEmitter, Collider,
-  Consumable, Facing, Gold, GroundItem, Health, Input, ItemInfo, ItemSlot, LootToss, Mana, MeleeWeapon,
+  Consumable, Facing, Gold, GroundItem, Health, Input, ItemInfo, ItemSlot, Lifetime, LootToss, Mana, MeleeWeapon,
   PickupLock, PlayerTag, PointLight, Position, Powerups, Projectile, Ring, Spellbook,
   Velocity, WeaponPickup,
 } from '../../rules/components/index.js';
 import { AI, BAT_SHRIEK_PULSE, BAT_SHRIEK_RADIUS, BAT_SHRIEK_WINDUP, WEB_WINDUP_SECONDS } from '../../rules/components/AI.js';
+import { SHADOW_BOLT_LIFETIME } from '../../rules/components/Projectile.js';
 import { AuraId } from '../../rules/data/auraCatalog.js';
 import { ConditionId, conditions as conditionCatalog } from '../../rules/data/conditionCatalog.js';
 import { spells as spellCatalog } from '../../rules/data/spellCatalog.js';
@@ -18,6 +19,7 @@ import { createWebGLDevice } from './device.js';
 import { createGoreRenderer } from './goreRenderer.js';
 import { createSpiderMesh } from './spiderMesh.js';
 import { createGoblinMesh } from './goblinMesh.js';
+import { createWraithMesh } from './wraithMesh.js';
 import { createBatMesh } from './batMesh.js';
 import { createFloatingEyeMesh } from './floatingEyeMesh.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
@@ -68,6 +70,7 @@ export const MAX_DYNAMIC_LIGHTS = 24;
 function statusBarPadding(actor) {
   if (actor?.name === 'Goblin Raider') return 29;
   const theme = actor?.theme;
+  if (theme === 'shadow') return 25;
   return theme === 'spider' || theme === 'floating_eye' || theme === 'gas_spore' ||
     theme === 'bat' || theme === 'flaming_bat' ? 20 : 9;
 }
@@ -330,6 +333,7 @@ export function createWebGLArenaRenderer(deps) {
   const goreRenderer = createGoreRenderer(device, QUAD);
   const spiderMesh = createSpiderMesh(device);
   const drawGoblin = createGoblinMesh(device);
+  const drawWraith = createWraithMesh(device);
   const drawBat = createBatMesh(device);
   const drawFloatingEye = createFloatingEyeMesh(device);
 
@@ -1444,12 +1448,30 @@ export function createWebGLArenaRenderer(deps) {
     const gazeRays = [];
     const batShrieks = [];
     const batFlames = [];
+    const wraithCasts = new Map();
+    const castTail = SHADOW_BOLT_LIFETIME - 0.32;
+    for (const [, projectile, lifetime] of world.query(Projectile, Lifetime)) {
+      if (projectile.style !== 'shadow' || projectile.owner == null || lifetime.ttl <= castTail) continue;
+      const cast = Math.min(1, (lifetime.ttl - castTail) / 0.27);
+      wraithCasts.set(projectile.owner, Math.max(cast, wraithCasts.get(projectile.owner) ?? 0));
+    }
     for (const [id, position, collider, actor] of world.query(Position, Collider, Actor)) {
       if (actor.kind !== ActorKind.MOB) continue;
       const shown = displayPosition(id, position);
       const velocity = world.get(id, Velocity);
       const speed = Math.hypot(velocity?.vx || 0, velocity?.vy || 0);
       const facing = world.get(id, Facing)?.angle ?? 0;
+      if (actor.theme === 'shadow') {
+        const { radius } = collider;
+        if (!inView(shown.x, shown.y, radius * 3)) continue;
+        const still = motionPreference.matches;
+        const phase = still ? 0 : combatTime * 3 + id * 1.7;
+        const hover = still ? 0.25 : 0.25 + Math.sin(phase) * 0.17;
+        drawDisc(shown.x, shown.y + 3, radius * 0.79, [0.12, 0.035, 0.20, 0.32], [0, 0, 0, 0]);
+        drawWraith(view, shown.x, shown.y, radius, facing, phase, hover, wraithCasts.get(id) ?? 0);
+        if (actor.rare) drawGlyph('★', shown.x + radius * 1.2, shown.y - radius * 1.75, 10, [1, 0.78, 0.18, 1]);
+        continue;
+      }
       if (actor.name === 'Goblin Raider') {
         const { radius } = collider;
         if (!inView(shown.x, shown.y, radius * 3)) continue;
@@ -1522,9 +1544,8 @@ export function createWebGLArenaRenderer(deps) {
       }
       const moving = Math.min(1, speed / 70);
       const stride = Math.sin(combatTime * (4.2 + moving * 6) + id * 1.71);
-      let bob = stride * (actor.name === 'Wraith' ? 3.5 : 1.6) * (0.4 + moving * 0.6);
+      let bob = stride * 1.6 * (0.4 + moving * 0.6);
       let lean = velocity ? Math.max(-2.5, Math.min(2.5, velocity.vx * 0.018)) : 0;
-      if (actor.name === 'Wraith') bob += Math.sin(combatTime * 2.1 + id) * 2.4;
       if (actor.name === 'Gelatinous Cube') {
         bob = Math.abs(stride) * -1.4;
         lean *= 0.25;

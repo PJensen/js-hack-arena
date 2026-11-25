@@ -6,6 +6,7 @@ import { applyCondition, getStatMultiplier, isActionLocked } from '../effects.js
 import { ConditionId } from '../data/conditionCatalog.js';
 import { ImpactKind } from '../data/spellCatalog.js';
 import { BAT_SHRIEK_PULSE, BAT_SHRIEK_RADIUS, BAT_SHRIEK_WINDUP, GAZE_CHARGE_SECONDS, WEB_WINDUP_SECONDS } from '../components/AI.js';
+import { SHADOW_BOLT_LIFETIME } from '../components/Projectile.js';
 
 const PATH_REFRESH = 0.5;        // recompute every 0.5s
 const GAZE_FLASH_SECONDS = 0.25;
@@ -179,7 +180,7 @@ export function createAISystem(ctx) {
             burstColor: '#d0a0ff',
             style: 'shadow',
           });
-          world.add(boltId, Lifetime,   { ttl: 2.5 });
+          world.add(boltId, Lifetime,   { ttl: SHADOW_BOLT_LIFETIME });
           world.add(boltId, Collider,   { radius: 5 });
         }
       } else {

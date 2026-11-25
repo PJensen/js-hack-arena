@@ -4,7 +4,7 @@ import {
   assertEquals,
   assertThrows,
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
-import { AI, Actor, Auras, Facing, Gold, Health, Input, ItemInfo, Mana, PointLight, Position, Powerups, Projectile, Ring, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
+import { AI, Actor, Auras, Facing, Gold, Health, Input, ItemInfo, Lifetime, Mana, PointLight, Position, Powerups, Projectile, Ring, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
 import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
 import { GOLD_LIGHT, spawnAuraField, spawnBat, spawnEpicChest, spawnEpicSword, spawnFlamingBat, spawnFloatingEye, spawnFuryRune, spawnGasSpore, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
 import { BAT_SHRIEK_WINDUP, GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
@@ -408,6 +408,14 @@ Deno.test("arena sim: enemy projectiles retain faction and owner identity after 
   authority.addPlayer('peer-a');
   authority.step(); // the caster fires immediately
   const mobId = [...authority.world.query(AI)][0][0];
+  const replica = makeOpenSim(789, { mode: SIM_MODE.REPLICA });
+  assertEquals(replica.applySnapshot(authority.captureSnapshot()), true);
+  const [[replicaCaster]] = [...replica.world.query(AI)];
+  const [[, shadowBolt, lifetime]] = [...replica.world.query(Projectile, Lifetime)];
+  assertEquals(shadowBolt.style, 'shadow');
+  assertEquals(shadowBolt.owner, replicaCaster);
+  const initialTtl = lifetime.ttl;
+
   authority.world.get(mobId, Health).hp = 0;
   authority.step();
 
@@ -415,8 +423,8 @@ Deno.test("arena sim: enemy projectiles retain faction and owner identity after 
   const enemyProjectile = snapshot.entities.find((entity) => entity.kind === 'projectile' && entity.state.team === 'enemies');
   assert(enemyProjectile);
   assert(enemyProjectile.state.owner.startsWith('mob:'));
-  const replica = makeOpenSim(789, { mode: SIM_MODE.REPLICA });
   assertEquals(replica.applySnapshot(snapshot), true);
+  assert(lifetime.ttl < initialTtl);
 });
 
 Deno.test("arena sim: snapshot records are versioned and validated", () => {
