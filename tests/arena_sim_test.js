@@ -214,9 +214,11 @@ Deno.test("arena sim: Cleave hits its arc, respects walls and spends replicated 
     return replica.world.get(target, Health).hp;
   }), [82, 82]);
 
-  for (let i = 0; i < 10; i++) sim.step();
+  for (let i = 0; i < 13; i++) sim.step();
   assertEquals(stamina.stamina, 75);
-  for (let i = 0; i < 35; i++) sim.step();
+  for (let i = 0; i < 20; i++) sim.step();
+  assertAlmostEquals(stamina.stamina, 83);
+  for (let i = 0; i < 43; i++) sim.step();
   assertEquals(stamina.stamina, 100);
   assertEquals(front.health.hp, 82);
 });

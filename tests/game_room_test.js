@@ -595,7 +595,7 @@ Deno.test('game room: walking through the campfire applies and replicates timed 
   }
 });
 
-Deno.test('game room: a starter Cleave consumes stamina and broadcasts the swing', async () => {
+Deno.test('game room: a starter Cleave consumes stamina, broadcasts the swing and recovers gradually', async () => {
   const room = new GameRoom(makeRoomState(), makeEnv());
   const socket = new FakeSocket();
   await room.accept(socket, { userId: 'user-1', displayName: 'First' });
@@ -625,6 +625,11 @@ Deno.test('game room: a starter Cleave consumes stamina and broadcasts the swing
     assertEquals(swing.payload.charge, 1);
     assertEquals(swing.payload.meleeArc.hits, []);
     assert(swing.payload.caster.startsWith('player:'));
+
+    for (let i = 0; i < 33; i++) room.step();
+    room.broadcastSnapshot();
+    const recovering = latestSnapshot(socket).entities.find((entity) => entity.kind === 'player').state;
+    assertAlmostEquals(recovering.stamina, 83);
   } finally {
     room.leave(socket);
   }
