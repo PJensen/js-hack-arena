@@ -5,3 +5,7 @@ export const EffectKind = Object.freeze({
   PERIODIC_HEAL: 'periodic_heal',
   APPLY_CONDITION: 'apply_condition',
 });
+
+export const EffectStat = Object.freeze({
+  CONDITION_DURATION_DEALT: 'conditionDurationDealt',
+});

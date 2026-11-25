@@ -99,6 +99,10 @@ your feet. For a combat test, combine it with a mob preview such as
 `/?spawn=spider&seed=42&give=haste_ring,spellbook:blizzard`.
 Runs with `give` are offline and use separate, temporary progress.
 
+Frostband (rare, found in mob loot) makes Frozen you inflict last 5% longer.
+Rimeband (epic, found in epic chests) increases it by 10%. Preview either with
+`/?spawn=spider&seed=42&give=frostband` or `/?spawn=spider&seed=42&give=rimeband`.
+
 To install Hack Arena as a standalone app, choose **Install Hack Arena** on the
 entry screen when offered. You can also use your browser's install menu.
 

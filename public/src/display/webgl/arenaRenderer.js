@@ -16,6 +16,7 @@ import { createMeleeImpact } from '../passes/meleeImpact.js';
 import { createFloatTextPass } from '../passes/floatText.js';
 import { createGorePass } from '../passes/gore.js';
 import { createHudStatus } from '../ui/hudStatus.js';
+import { compareDirection, ringTooltipRows } from '../ui/itemTooltip.js';
 import { spellCastProgress } from '../spellCastProgress.js';
 import { biolum, emberLight, fireFlicker, torchLight } from '../lightPatterns.js';
 import { createWebGLDevice, uniform } from './device.js';
@@ -85,10 +86,6 @@ function statusBarPadding(actor) {
   if (theme === 'shadow') return 25;
   return theme === 'spider' || theme === 'floating_eye' || theme === 'gas_spore' ||
     theme === 'bat' || theme === 'flaming_bat' ? 20 : 9;
-}
-
-function compareDirection(next, current) {
-  return next > current ? 'up' : next < current ? 'down' : '';
 }
 
 function rarityColor(rarity) {
@@ -1395,10 +1392,7 @@ export function createWebGLArenaRenderer(deps) {
     const currentMelee = world.get(playerId, MeleeWeapon);
     const currentBow = world.get(playerId, BowWeapon);
     const rows = candidate.mine ? [] : candidate.ring
-      ? [{
-        kind: 'equip', label: 'Equip: ', value: `${Math.round(candidate.ring.haste * 100)}% haste`,
-        change: compareDirection(candidate.ring.haste, world.get(playerId, Ring)?.haste ?? 0),
-      }]
+      ? ringTooltipRows(candidate.ring, world.get(playerId, Ring))
       : candidate.pickup.slot === 'ranged'
       ? [
         {

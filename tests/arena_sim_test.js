@@ -6,9 +6,11 @@ import {
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { AI, Actor, Auras, Facing, Gold, Health, Input, ItemInfo, Lifetime, Mana, PointLight, Position, Powerups, Projectile, Ring, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
 import { generateArenaCave, generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
-import { GOLD_LIGHT, spawnAuraField, spawnBat, spawnEpicChest, spawnEpicSword, spawnFlamingBat, spawnFloatingEye, spawnFuryRune, spawnGasSpore, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
+import { GOLD_LIGHT, attachAuraEmitter, spawnAuraField, spawnBat, spawnEpicChest, spawnEpicSword, spawnFlamingBat, spawnFloatingEye, spawnFuryRune, spawnGasSpore, spawnHasteRune, spawnItem, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
 import { BAT_SHRIEK_WINDUP, GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
 import { applyAura, applyDamage, getStatMultiplier } from '../public/src/rules/effects.js';
+import { ConditionId } from '../public/src/rules/data/conditionCatalog.js';
+import { EffectKind, EffectStat } from '../public/src/rules/data/effectCatalog.js';
 import { SpellCastMode, spells as spellCatalog } from '../public/src/rules/data/spellCatalog.js';
 import { getPreviewMob, spawnPreviewMob } from '../public/src/runtime/mobPreview.js';
 import { createArenaDungeonSimulation } from '../public/src/rules/sim/arenaDungeon.js';
@@ -728,6 +730,53 @@ Deno.test("arena sim: fixed cast-time spells can be interrupted before resolutio
   assert(sim.captureSnapshot().events.some((event) => event.type === 'spell.interrupted' && event.payload.reason === 'damage'));
 });
 
+Deno.test('arena sim: Frost Bolt uses the source ring after charge scaling', () => {
+  for (const [item, duration] of [[null, 2.4], ['frostband', 2.52], ['rimeband', 2.64]]) {
+    const sim = makeOpenSim(910, { enemyCount: 0 });
+    sim.addPlayer('peer-a');
+    const { id: target } = spawnIdleTarget(sim, 180, 100);
+    if (item) {
+      spawnItem(sim.world, 100, 100, { type: item });
+      sim.setPlayerInput('peer-a', { seq: 1, pickupX: 100, pickupY: 100 });
+      sim.step();
+    }
+    sim.setPlayerInput('peer-a', { seq: 2, aimX: 1, fire: true, spellSlot: 0 });
+    for (let i = 0; i <= Math.ceil(1 / SIM_DT); i++) sim.step();
+    sim.setPlayerInput('peer-a', { seq: 3, fire: false });
+    for (let i = 0; i < 10; i++) sim.step();
+    const frozen = sim.world.get(target, Auras).active.find(({ id }) => id === ConditionId.FROZEN);
+    assert(frozen);
+    assertAlmostEquals(frozen.duration, duration);
+  }
+});
+
+Deno.test('arena sim: condition duration modifiers also apply on aura refresh', () => {
+  const sim = makeOpenSim(911, { enemyCount: 0 });
+  const player = sim.addPlayer('peer-a');
+  const { id: target } = spawnIdleTarget(sim, 150, 100);
+  spawnRing(sim.world, 100, 100, {
+    name: 'Bleeding Ring', haste: 0,
+    modifiers: [{
+      kind: EffectKind.STAT_MULTIPLIER, stat: EffectStat.CONDITION_DURATION_DEALT,
+      conditionId: ConditionId.BLEEDING, value: 1.1,
+    }],
+  });
+  sim.setPlayerInput('peer-a', { seq: 1, pickupX: 100, pickupY: 100 });
+  sim.step();
+  attachAuraEmitter(sim.world, player, {
+    radius: 75, targets: 'hostile', effects: [
+      { kind: EffectKind.APPLY_CONDITION, conditionId: ConditionId.BLEEDING, duration: 1 },
+      { kind: EffectKind.APPLY_CONDITION, conditionId: ConditionId.FROZEN, duration: 1 },
+    ],
+  });
+  for (let tick = 0; tick < 3; tick++) {
+    sim.step();
+    const active = sim.world.get(target, Auras).active;
+    assertAlmostEquals(active.find(({ id }) => id === ConditionId.BLEEDING).remaining, 1.1);
+    assertAlmostEquals(active.find(({ id }) => id === ConditionId.FROZEN).remaining, 1);
+  }
+});
+
 Deno.test("arena sim: Blizzard channels once per global tick and movement interrupts it", () => {
   const sim = makeOpenSim(909, { enemyCount: 1, respawnEnemies: false });
   const playerId = sim.addPlayer('peer-a');
@@ -740,7 +789,10 @@ Deno.test("arena sim: Blizzard channels once per global tick and movement interr
   const mana = sim.world.get(playerId, Mana);
   mana.regenPerSecond = 0;
 
-  sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: book.spells.indexOf('blizzard') });
+  spawnItem(sim.world, 100, 100, { type: 'rimeband' });
+  sim.setPlayerInput('peer-a', { seq: 1, pickupX: 100, pickupY: 100 });
+  sim.step();
+  sim.setPlayerInput('peer-a', { seq: 2, aimX: 1, fire: true, spellSlot: book.spells.indexOf('blizzard') });
   sim.step();
   assertEquals(book.castPhase, 'channeling');
   const manaAtStart = mana.mana;
@@ -748,9 +800,11 @@ Deno.test("arena sim: Blizzard channels once per global tick and movement interr
   for (let i = 0; i < 3; i++) sim.step();
   assertEquals(mana.mana, manaAtStart - 3);
   assertEquals(health.hp, hpAtStart - 3);
-  assert(sim.world.get(mobId, Auras).active.some((aura) => aura.id === 'frozen'));
+  const frozen = sim.world.get(mobId, Auras).active.find(({ id }) => id === ConditionId.FROZEN);
+  assert(frozen);
+  assertAlmostEquals(frozen.remaining, 0.385);
 
-  sim.setPlayerInput('peer-a', { seq: 2, moveX: 1, aimX: 1, fire: true, spellSlot: book.spells.indexOf('blizzard') });
+  sim.setPlayerInput('peer-a', { seq: 3, moveX: 1, aimX: 1, fire: true, spellSlot: book.spells.indexOf('blizzard') });
   sim.step();
   assertEquals(book.castPhase, 'idle');
   assert(sim.captureSnapshot().events.some((event) => event.type === 'spell.interrupted' && event.payload.reason === 'moved'));

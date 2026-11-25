@@ -9,6 +9,8 @@ import { Gold } from './components/Gold.js';
 import { MaterialStacks } from './components/MaterialStacks.js';
 import { Ring } from './components/Ring.js';
 import { getMiningMaterial, miningMaterialIds } from './data/miningMaterials.js';
+import { ringCatalog } from './data/ringCatalog.js';
+import { normalizeRingModifiers } from './ringModifiers.js';
 
 export const GOLD_LIGHT = Object.freeze({ radius: 36, r: 255, g: 190, b: 45 });
 export const SPIDER_LIGHT = Object.freeze({ radius: 56, r: 148, g: 98, b: 70 });
@@ -371,11 +373,13 @@ export function spawnWeaponPickup(world, x, y, {
 
 export function spawnRing(world, x, y, {
   name = 'Haste Ring', glyph = Ring.defaults.glyph, rarity = 'epic', haste = 0.05,
+  modifiers = Ring.defaults.modifiers,
 } = {}) {
+  const ringModifiers = normalizeRingModifiers(modifiers);
   const id = world.create();
   world.add(id, Position, { x, y });
   world.add(id, ItemInfo, { name, glyph, slot: ItemSlot.RING, rarity });
-  world.add(id, Ring, { name, glyph, rarity, haste });
+  world.add(id, Ring, { name, glyph, rarity, haste, modifiers: ringModifiers });
   world.add(id, GroundItem);
   world.add(id, Collider, { radius: 10 });
   world.add(id, PointLight, lightForRarity(rarity));
@@ -509,6 +513,9 @@ const itemSpawners = new Map([
   ['fury_rune', (world, x, y) => spawnFuryRune(world, x, y)],
   ['ward_rune', (world, x, y) => spawnWardRune(world, x, y)],
   ['haste_ring', (world, x, y) => spawnRing(world, x, y)],
+  ...Object.entries(ringCatalog).map(([id, ring]) => [
+    id, (world, x, y) => spawnRing(world, x, y, { haste: Ring.defaults.haste, ...ring }),
+  ]),
   ['short_bow', (world, x, y) => spawnBow(world, x, y)],
   ['void_reaver', spawnEpicSword],
   ['shadow_longbow', spawnEpicBow],

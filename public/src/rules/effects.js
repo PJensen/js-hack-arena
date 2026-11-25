@@ -1,6 +1,7 @@
-import { Actor, ActorKind, AuraEmitter, AuraMemberships, Collider, Conditions, Health, Position, Powerups } from './components/index.js';
+import { Actor, ActorKind, AuraEmitter, AuraMemberships, Collider, Conditions, Health, Position, Powerups, Ring } from './components/index.js';
 import { conditions as conditionCatalog } from './data/conditionCatalog.js';
-import { EffectKind } from './data/effectCatalog.js';
+import { EffectKind, EffectStat } from './data/effectCatalog.js';
+import { getRingStatMultiplier } from './ringModifiers.js';
 
 const TIMER_EPSILON = 1e-9;
 
@@ -10,7 +11,7 @@ export function applyCondition(world, targetId, conditionId, sourceId = null, du
   if (!world.has(targetId, Conditions)) world.add(targetId, Conditions);
 
   const state = world.get(targetId, Conditions);
-  const lifetime = positiveDuration(duration, definition.duration);
+  const lifetime = conditionLifetime(world, sourceId, definition, duration);
   const existing = state.active.find((condition) => condition.id === conditionId);
   if (existing) {
     existing.source = sourceId;
@@ -32,10 +33,12 @@ export function applyCondition(world, targetId, conditionId, sourceId = null, du
 }
 
 export function getStatMultiplier(world, targetId, stat, context = {}) {
-  let multiplier = 1;
+  const ring = world.has(targetId, Actor) ? world.get(targetId, Ring) : null;
+  let multiplier = getRingStatMultiplier(ring, stat, context);
   forEachEffect(world, targetId, (effect, source) => {
     if (effect.kind === EffectKind.STAT_MULTIPLIER && effect.stat === stat &&
-      (!effect.damageType || effect.damageType === context.damageType)) {
+      (!effect.damageType || effect.damageType === context.damageType) &&
+      (!effect.conditionId || effect.conditionId === context.conditionId)) {
       multiplier *= finiteNumber(effect.value, 1) ** Math.max(1, source.stacks || 1);
     }
   });
@@ -121,14 +124,20 @@ function refreshCondition(world, targetId, sourceId, { conditionId, duration }) 
   const definition = conditionCatalog[conditionId];
   if (!definition || !health || health.dead || health.hp <= 0) return;
   const existing = world.get(targetId, Conditions)?.active.find(({ id }) => id === conditionId);
-  const lifetime = positiveDuration(duration, definition.duration);
-  if (existing) {
-    // Sustained contact extends the condition without restarting its damage timer.
-    existing.remaining = Math.max(existing.remaining, lifetime);
-    existing.duration = Math.max(existing.duration, lifetime);
-  } else {
-    applyCondition(world, targetId, conditionId, sourceId, lifetime);
+  if (!existing) {
+    applyCondition(world, targetId, conditionId, sourceId, duration);
+    return;
   }
+  const lifetime = conditionLifetime(world, sourceId, definition, duration);
+  // Sustained contact extends the condition without restarting its damage timer.
+  existing.remaining = Math.max(existing.remaining, lifetime);
+  existing.duration = Math.max(existing.duration, lifetime);
+}
+
+function conditionLifetime(world, sourceId, definition, duration) {
+  const base = positiveDuration(duration, definition.duration);
+  if (sourceId == null) return base;
+  return base * getStatMultiplier(world, sourceId, EffectStat.CONDITION_DURATION_DEALT, { conditionId: definition.id });
 }
 
 export function projectConditions(world, targetId) {

@@ -3,6 +3,9 @@
 
 import { createAtlasIcon } from './atlasIcon.js';
 import { ItemSlot } from '../../rules/components/ItemInfo.js';
+import { conditions } from '../../rules/data/conditionCatalog.js';
+import { EffectStat } from '../../rules/data/effectCatalog.js';
+import { getRingStatMultiplier } from '../../rules/ringModifiers.js';
 
 const RARITY_COLORS = Object.freeze({
   common: '#e8f1fa',
@@ -41,6 +44,34 @@ export function itemTooltipIconId(info) {
     case 'uncommon': return 'sword_tier_1';
     default: return 'sword_tier_0';
   }
+}
+
+export function compareDirection(next, current) {
+  return next > current ? 'up' : next < current ? 'down' : '';
+}
+
+const formatPercent = new Intl.NumberFormat('en', { style: 'percent', maximumFractionDigits: 2 });
+
+export function ringTooltipRows(ring, equipped) {
+  const rows = [];
+  if (ring.haste > 0) {
+    rows.push({
+      kind: 'equip', label: 'Equip: ', value: `${formatPercent.format(ring.haste)} haste`,
+      change: compareDirection(ring.haste, equipped?.haste ?? 0),
+    });
+  }
+  const stat = EffectStat.CONDITION_DURATION_DEALT;
+  const conditionIds = new Set(ring.modifiers.filter((modifier) => modifier.stat === stat).map(({ conditionId }) => conditionId));
+  for (const conditionId of conditionIds) {
+    const multiplier = getRingStatMultiplier(ring, stat, { conditionId });
+    const current = getRingStatMultiplier(equipped, stat, { conditionId });
+    rows.push({
+      kind: 'equip', label: 'Equip: ',
+      value: `${conditions[conditionId].name} you inflict lasts ${formatPercent.format(Math.abs(multiplier - 1))} ${multiplier >= 1 ? 'longer' : 'shorter'}`,
+      change: compareDirection(multiplier, current),
+    });
+  }
+  return rows;
 }
 
 function makeRow(row) {

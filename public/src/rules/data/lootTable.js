@@ -52,6 +52,7 @@ export const mobDropTable = [
   { weight: 4, type: 'shadow_longbow' },
   { weight: 2, type: 'godslayer' },
   { weight: 1, type: 'sunfire_longbow' },
+  { weight: 5, type: 'frostband' },
 ];
 
 export const mobDropTotalWeight = mobDropTable.reduce((s, e) => s + e.weight, 0);
@@ -70,6 +71,7 @@ export const epicChestTable = [
   { weight: 8, type: 'ward_rune' },
   { weight: 5, type: 'godslayer' },
   { weight: 5, type: 'sunfire_longbow' },
+  { weight: 5, type: 'rimeband' },
 ];
 
 export const epicChestTotalWeight = epicChestTable.reduce((s, e) => s + e.weight, 0);

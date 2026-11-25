@@ -1,5 +1,6 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.220.0/assert/mod.ts';
-import { Consumable, GroundItem, Position } from '../public/src/rules/components/index.js';
+import { Consumable, GroundItem, Position, Ring } from '../public/src/rules/components/index.js';
+import { ringTooltipRows } from '../public/src/display/ui/itemTooltip.js';
 import { epicChestTable, mobDropTable } from '../public/src/rules/data/lootTable.js';
 import { createArenaSimulation } from '../public/src/rules/sim/arenaSim.js';
 import { itemIds, spawnItem } from '../public/src/rules/spawner.js';
@@ -61,4 +62,16 @@ Deno.test('item catalog spawns every listed item and resolves every weighted dro
     const consumable = world.get(id, Consumable);
     if (consumable) assert(Number.isFinite(consumable.potency), entry.type);
   }
+});
+
+Deno.test('ring tooltip compares authored condition duration bonuses', () => {
+  const { world } = makeSimulation();
+  const rare = world.get(spawnItem(world, 100, 100, { type: 'frostband' }), Ring);
+  const epic = world.get(spawnItem(world, 100, 100, { type: 'rimeband' }), Ring);
+  assertEquals(ringTooltipRows(rare, epic), [{
+    kind: 'equip', label: 'Equip: ', value: 'Frozen you inflict lasts 5% longer', change: 'down',
+  }]);
+  assertEquals(ringTooltipRows(epic, rare), [{
+    kind: 'equip', label: 'Equip: ', value: 'Frozen you inflict lasts 10% longer', change: 'up',
+  }]);
 });

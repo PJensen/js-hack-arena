@@ -1,6 +1,6 @@
-import { assert, assertEquals, assertRejects } from "https://deno.land/std@0.220.0/assert/mod.ts";
+import { assert, assertAlmostEquals, assertEquals, assertRejects } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { timingSafeEqual } from 'node:crypto';
-import { AI, Actor, Conditions, Health, Position, Projectile, Spellbook } from '../public/src/rules/components/index.js';
+import { AI, Actor, Conditions, Health, Position, Projectile, Ring, Spellbook } from '../public/src/rules/components/index.js';
 import { MINING_SECONDS } from '../public/src/rules/components/Mining.js';
 import { SIM_DT, SIM_MODE } from '../public/src/rules/sim/arenaSim.js';
 import { createArenaDungeonSimulation } from '../public/src/rules/sim/arenaDungeon.js';
@@ -10,7 +10,7 @@ import { generateArenaCave } from '../public/src/rules/geometry/caveGen.js';
 import { canMineOre } from '../public/src/rules/geometry/oreSites.js';
 import { sweepMaxFree } from '../public/src/rules/geometry/sweep.js';
 import { applyDamage } from '../public/src/rules/effects.js';
-import { spawnGold, spawnRing } from '../public/src/rules/spawner.js';
+import { spawnGold, spawnItem, spawnMelee, spawnRing } from '../public/src/rules/spawner.js';
 import { MESSAGE, decodeMessage, encodeMessage, makeRoomSeed } from '../public/src/shared/net/protocol.js';
 import { createRoomHandoff, verifyRoomHandoff } from '../worker/auth.js';
 import { CharacterProgress } from '../worker/characterProgress.js';
@@ -383,6 +383,48 @@ Deno.test('game room: a ring equips through pickup intent and swapping drops the
     const dropped = swapped.find(({ kind, state }) => kind === 'item' && state.slot === 'ring');
     assertEquals(dropped.state.ring, ring.state.ring);
     assertEquals(dropped.state.pickupLock.owner, player.id);
+  } finally {
+    room.leave(socket);
+  }
+});
+
+Deno.test('game room: condition duration rings survive swaps and replicate from the authority', async () => {
+  const room = new GameRoom(makeRoomState(), makeEnv());
+  const socket = new FakeSocket();
+  await room.accept(socket, { userId: 'user-1', displayName: 'First' });
+  try {
+    const { peerId } = socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    const sim = room.ensureSim();
+    const { x, y } = sim.world.get(sim.getPlayerEntity(peerId), Position);
+    for (const [seq, type] of [[1, 'frostband'], [2, 'rimeband']]) {
+      spawnItem(sim.world, x, y, { type });
+      room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, { input: { seq, pickupX: x, pickupY: y } }));
+      room.step();
+    }
+    room.broadcastSnapshot();
+    const snapshot = latestSnapshot(socket);
+    const rare = snapshot.entities.find(({ kind, state }) => kind === 'item' && state.ring?.name === 'Frostband');
+    assertEquals(rare.state.ring.modifiers[0].value, 1.05);
+    const cave = generateArenaCave(room.seed);
+    const replica = createArenaDungeonSimulation({ seed: room.seed, cave, mode: SIM_MODE.REPLICA });
+    replica.applySnapshot(snapshot);
+    const equipped = replica.world.get(replica.getPlayerEntity(peerId), Ring);
+    assertEquals(equipped.name, 'Rimeband');
+    assertEquals(equipped.modifiers[0].value, 1.1);
+    assertEquals(equipped.haste, 0);
+    const dropped = [...replica.world.query(Ring)].find(([, ring]) => ring.name === 'Frostband');
+    assertEquals(dropped[1].modifiers, rare.state.ring.modifiers);
+
+    const target = spawnMelee(sim.world, cave.grid, x + 60, y, null);
+    sim.world.get(target, AI).aggroRange = 0;
+    sim.world.get(target, Health).hp = 100;
+    room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, { input: { seq: 3, aimX: 1, fire: true, spellSlot: 0 } }));
+    for (let i = 0; i <= Math.ceil(1 / SIM_DT); i++) room.step();
+    room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, { input: { seq: 4, fire: false } }));
+    for (let i = 0; i < 10; i++) room.step();
+    const frozen = sim.world.get(target, Conditions).active.find(({ id }) => id === 'frozen');
+    assert(frozen);
+    assertAlmostEquals(frozen.duration, 2.64);
   } finally {
     room.leave(socket);
   }

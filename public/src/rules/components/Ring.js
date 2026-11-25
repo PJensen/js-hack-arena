@@ -5,4 +5,5 @@ export const Ring = defineComponent('Ring', {
   glyph: '○',
   rarity: '',
   haste: 0,
+  modifiers: Object.freeze([]),
 });
