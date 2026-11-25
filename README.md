@@ -194,6 +194,9 @@ client can discard acknowledged inputs before replaying the remainder.
 - Usable potions
 - More enemy types
 - More 3D models
+- Installing to desktop (PWA)
+- Socials
+- Metatags
 
 ## Commands
 
