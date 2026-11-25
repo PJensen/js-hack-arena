@@ -100,11 +100,12 @@
                      border-radius:8px; color:#dcecf7; background:transparent; cursor:pointer; }
     #hud { position:fixed; top:max(10px,env(safe-area-inset-top)); left:max(10px,env(safe-area-inset-left));
            right:max(10px,env(safe-area-inset-right)); max-width:1100px; margin:0 auto;
-           display:grid; grid-template-columns:auto repeat(3,minmax(0,1fr)) minmax(0,auto) auto;
-           align-items:center; gap:9px; min-height:42px; padding:6px 9px;
-           font-size:12px; color:rgba(224,240,255,.78); text-align:center; z-index:40;
-           background:linear-gradient(180deg,rgba(11,22,36,.88),rgba(5,10,18,.72));
-           border:1px solid var(--edge); border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.28); }
+           display:flex; flex-direction:column; gap:4px; z-index:40; }
+    .hud-top-bar { display:grid; grid-template-columns:auto repeat(3,minmax(0,1fr)) minmax(0,auto) auto;
+                   align-items:center; gap:9px; min-height:42px; padding:6px 9px;
+                   font-size:12px; color:rgba(224,240,255,.78); text-align:center;
+                   background:linear-gradient(180deg,rgba(11,22,36,.88),rgba(5,10,18,.72));
+                   border:1px solid var(--edge); border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.28); }
     .brand { color:#e9fbff; font-weight:900; letter-spacing:.14em; text-shadow:0 0 12px rgba(112,230,255,.55); }
     .hud-resource { position:relative; min-width:0; height:25px; overflow:hidden; border-radius:999px;
                     background:linear-gradient(180deg,rgba(3,6,13,.86),rgba(19,24,35,.92));
@@ -132,12 +133,19 @@
     @keyframes resource-drain-flash { 0% { filter:brightness(1.5); } 100% { filter:brightness(1); } }
     @keyframes mana-surge { to { box-shadow:inset 0 2px 4px rgba(0,0,0,.5),0 0 16px rgba(75,175,255,.42); } }
     .hud-meta { max-width:min(240px,22vw); color:rgba(203,220,235,.48); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    #hud-conditions { grid-row:2; grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:4px; }
+    #hud-conditions { display:flex; flex-wrap:wrap; gap:4px; align-self:flex-start; max-width:100%; }
     #hud-conditions[hidden] { display:none; }
-    .hud-condition-badge { display:grid; justify-items:center; padding:2px 3px;
-                        background:rgba(5,10,18,.86); border:1px solid var(--edge); border-radius:5px;
-                        color:#fff8ea; font:700 10px/1.15 ui-monospace,monospace; pointer-events:auto; }
-    .hud-condition-badge .arena-condition-icon { width:32px; }
+    .hud-condition-badge { position:relative; display:flex; align-items:center; justify-content:center;
+                           flex:0 0 44px; width:44px; aspect-ratio:1; overflow:hidden;
+                           background:rgba(5,10,18,.9); border:1px solid var(--edge); border-radius:5px;
+                           color:#fff8ea; font:700 9px/1 ui-monospace,monospace; text-shadow:0 1px 2px #000; }
+    .arena-condition-icon { width:100%; aspect-ratio:1; background-repeat:no-repeat; }
+    .hud-condition-name, .hud-condition-time { position:absolute; white-space:nowrap; }
+    .hud-condition-name { inset:auto 0 0; padding:3px 2px 2px; text-align:center;
+                          font:700 8px/1 system-ui,sans-serif;
+                          overflow:hidden; text-overflow:ellipsis; background:linear-gradient(transparent,#050a12 60%); }
+    .hud-condition-time { top:1px; right:1px; padding:1px 2px; border-radius:3px; background:rgba(5,10,18,.88);
+                          font-variant-numeric:tabular-nums; }
     #hud-materials { position:absolute; top:calc(100% + 5px); left:0;
                      max-width:min(380px, 50vw); padding:6px 8px; background:rgba(5,10,18,.86);
                      color:#f1dfaa; border:1px solid var(--edge); border-radius:6px; font:12px/1.4 system-ui,sans-serif; }
@@ -239,10 +247,9 @@
               --chat-bottom:calc(var(--spell-bar-bottom) + var(--spell-slot-size) + 12px); }
     }
     @media (max-width:760px) {
-      #hud { grid-auto-flow:row; grid-template-columns:repeat(3,minmax(0,1fr)); max-width:calc(100vw - 20px); gap:4px; padding:6px 7px; font-size:11px; }
+      .hud-top-bar { grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; padding:6px 7px; font-size:11px; }
       .brand { grid-row:1; letter-spacing:.06em; justify-self:start; }
       .hud-meta { grid-row:1; grid-column:2 / -1; max-width:none; text-align:right; }
-      #hud-conditions { grid-row:3; }
       #reset-dungeon { position:absolute; top:calc(100% + 5px); right:0; }
       .joystick { width:104px; height:104px; }
       :root { --spell-bar-bottom:calc(var(--controls-bottom) + 117px);
@@ -272,12 +279,14 @@
     </form>
   </div>
   <div id="hud">
-    <span class="brand">HACK//ARENA</span>
-    <div class="hud-resource" id="hud-hp-bar"></div>
-    <div class="hud-resource" id="hud-mana-bar"></div>
-    <div class="hud-resource" id="hud-stamina-bar"></div>
-    <span class="hud-meta" id="hud-meta">connecting</span>
-    <button id="reset-dungeon" type="button" title="Leave this room and generate a fresh dungeon">New Dungeon</button>
+    <div class="hud-top-bar">
+      <span class="brand">HACK//ARENA</span>
+      <div class="hud-resource" id="hud-hp-bar"></div>
+      <div class="hud-resource" id="hud-mana-bar"></div>
+      <div class="hud-resource" id="hud-stamina-bar"></div>
+      <span class="hud-meta" id="hud-meta">connecting</span>
+      <button id="reset-dungeon" type="button" title="Leave this room and generate a fresh dungeon">New Dungeon</button>
+    </div>
     <div id="hud-conditions" role="group" aria-label="Active conditions" hidden></div>
     <output id="hud-materials" aria-label="Collected materials" hidden></output>
   </div>

@@ -20,7 +20,7 @@ export function getConditionFrame(id) {
 export function createConditionIcon(id) {
   const { x, y } = getConditionFrame(id);
   const icon = document.createElement('span');
-  icon.className = 'arena-atlas-icon arena-condition-icon';
+  icon.className = 'arena-condition-icon';
   icon.setAttribute('aria-hidden', 'true');
   icon.style.backgroundImage = `url("${conditionSheetUrl}")`;
   icon.style.backgroundSize = `${columns * 100}% ${rows * 100}%`;

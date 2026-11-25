@@ -1,6 +1,6 @@
 import { createAtlasIcon } from './atlasIcon.js';
 import { createConditionIcon } from './conditionIcon.js';
-import { conditions as conditionCatalog } from '../../rules/data/conditionCatalog.js';
+import { ConditionId, conditions as conditionCatalog } from '../../rules/data/conditionCatalog.js';
 import { getMiningMaterial } from '../../rules/data/miningMaterials.js';
 
 const POWERUP_ICONS = [
@@ -9,6 +9,11 @@ const POWERUP_ICONS = [
   ['furySeconds', 'battle_fury', 'Fury'],
   ['wardSeconds', 'harmony_ward', 'Ward'],
 ];
+const BADGE_CAPTIONS = new Map([
+  [ConditionId.REGENERATION, 'Regen'],
+  [ConditionId.HEALTH_POTION, 'Healing'],
+  [ConditionId.IMMOBILIZED, 'Immobile'],
+]);
 
 export function createHudReadout(root, conditionRow, materialReadout) {
   let shown = '';
@@ -52,7 +57,13 @@ export function createHudReadout(root, conditionRow, materialReadout) {
         badge.title = name;
         badge.setAttribute('role', 'img');
         badge.setAttribute('aria-label', `${name}, ${time} remaining`);
-        badge.append(createConditionIcon(id), `${name} ${time}`);
+        const caption = document.createElement('span');
+        caption.className = 'hud-condition-name';
+        caption.textContent = BADGE_CAPTIONS.get(id) ?? name;
+        const timer = document.createElement('span');
+        timer.className = 'hud-condition-time';
+        timer.textContent = time;
+        badge.append(createConditionIcon(id), caption, timer);
         return badge;
       }));
     }
