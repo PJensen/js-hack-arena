@@ -8,7 +8,7 @@ import {
   normalizeSeed,
   normalizeRoomId,
   normalizePlayerName,
-} from './index.js';
+} from '../shared/net/protocol.js';
 import { normalizeSnapshot } from '../rules/sim/arenaSim.js';
 
 const JOIN_TIMEOUT_MS = 15000;
