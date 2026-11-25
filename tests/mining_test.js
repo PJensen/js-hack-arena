@@ -1,7 +1,7 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.220.0/assert/mod.ts';
 import { Position } from '../public/src/rules/components/index.js';
 import { MINING_SECONDS } from '../public/src/rules/components/Mining.js';
-import { getMiningMaterial } from '../public/src/rules/data/miningMaterials.js';
+import { getMiningMaterial, rollMiningGemstone } from '../public/src/rules/data/miningMaterials.js';
 import { SIM_DT, SIM_MODE, createArenaSimulation } from '../public/src/rules/sim/arenaSim.js';
 
 const wallOre = { x: 100, y: 200, normalX: 1, normalY: 0, kind: 'copper' };
@@ -18,8 +18,7 @@ const drops = (sim) => sim.captureSnapshot().entities
 Deno.test('mining validates range, intent, and clear access, then breaks a deposit once', () => {
   let obstructed = false;
   const grid = { cellSize: 8, distanceMove: (x) => obstructed && x > 72 && x < 82 ? 0 : distanceMove(x) };
-  // This vein rolled a gem at 20% and misses at 10%.
-  const sim = makeSim({ seed: 14, grid });
+  const sim = makeSim({ seed: 1, grid });
   const miner = sim.addPlayer('miner');
   const mine = (peer, ore = wallOre) => sim.setPlayerInput(peer, { pickupX: ore.x, pickupY: ore.y, mine: true });
   const order = () => sim.getPlayerSnapshot('miner').state.mining;
@@ -104,6 +103,20 @@ Deno.test('mining yields collectible rocks and seeded gems that rebound before s
   }
   assertEquals(drops(sim), []);
   assertEquals(sim.getPlayerSnapshot('miner').state.materials, { copper_ore: 3, [gem.state.effect]: 1 });
+});
+
+Deno.test('mining weights gemstone types separately from the chance to find a gem', () => {
+  const gems = Array.from({ length: 100 }, (_, i) => rollMiningGemstone(() => (i + 0.5) / 100));
+  assertEquals(new Set(gems).size, 12);
+  assertEquals(gems.filter((id) => id === 'citrine').length, 18);
+  assertEquals(gems.filter((id) => id === 'diamond').length, 2);
+
+  const sim = makeSim({ seed: 14 });
+  sim.addPlayer('miner');
+  sim.setPlayerInput('miner', { pickupX: wallOre.x, pickupY: wallOre.y, mine: true });
+  sim.step();
+  sim.step(MINING_SECONDS);
+  assertEquals(drops(sim).map(({ state }) => state.effect), ['copper_ore', 'copper_ore', 'copper_ore', 'ruby']);
 });
 
 Deno.test('replicas learn which buried deposits are exposed and mined from snapshots', () => {

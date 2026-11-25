@@ -1,5 +1,5 @@
 import { Health, Input, Mining, Position, Spellbook } from '../components/index.js';
-import { gemstoneIds, oreMaterialId } from '../data/miningMaterials.js';
+import { oreMaterialId, rollMiningGemstone } from '../data/miningMaterials.js';
 import { mulberry32 } from '../geometry/caveGen.js';
 import { canMineOre, isOreExposed } from '../geometry/oreSites.js';
 import { sweepMaxFree } from '../geometry/sweep.js';
@@ -7,7 +7,7 @@ import { spawnItem } from '../spawner.js';
 import { tossLoot } from './lootTossSystem.js';
 
 const TARGET_RADIUS = 24;
-const GEMSTONE_CHANCE = 0.10;
+const GEMSTONE_CHANCE = 0.20;
 const ROCK_SPREAD = [-0.78, 0.57, 1.10];
 
 function canKeepMining(input, book) {
@@ -65,8 +65,7 @@ export function createOreMining({ seed, grid, sites }) {
     const ore = oreMaterialId(site.kind);
     for (const spread of ROCK_SPREAD) drop(ore, spread, 46 + random() * 24, 16 + random() * 8);
     if (random() < GEMSTONE_CHANCE) {
-      const gemstone = gemstoneIds[Math.floor(random() * gemstoneIds.length)];
-      drop(gemstone, -1.2, 78, 28);
+      drop(rollMiningGemstone(random), -1.2, 78, 28);
     }
   }
 
