@@ -15,8 +15,9 @@ import { canMineOre } from '../../rules/geometry/oreSites.js';
 import { createMeleeImpact } from '../passes/meleeImpact.js';
 import { createFloatTextPass } from '../passes/floatText.js';
 import { createGorePass } from '../passes/gore.js';
-import { createHudStatus } from '../ui/hudStatus.js';
+import { createHudReadout } from '../ui/hudReadout.js';
 import { compareDirection, ringTooltipRows } from '../ui/itemTooltip.js';
+import { getConditionFrame, conditionCellSize, conditionSheetUrl } from '../ui/conditionIcon.js';
 import { spellCastProgress } from '../spellCastProgress.js';
 import { biolum, emberLight, fireFlicker, torchLight } from '../lightPatterns.js';
 import { createWebGLDevice, uniform } from './device.js';
@@ -180,10 +181,12 @@ function uploadCubeMesh(device, vertices) {
 
 export function createWebGLArenaRenderer(deps) {
   const { canvas, overlayCanvas, cam, grid, bounds, decorations, getMineableOre = () => [], world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars, stepParticles, speechBubbles } = deps;
-  const syncHudStatus = createHudStatus(hud.meta, hud.materials);
+  const syncHudReadout = createHudReadout(hud.meta, hud.conditions, hud.materials);
   const device = createWebGLDevice(canvas);
   const { gl } = device;
   const overlay = overlayCanvas?.getContext('2d') || null;
+  const conditionSheet = new Image();
+  conditionSheet.src = conditionSheetUrl;
 
   const caveProgram = device.program(CAVE_VERTEX, CAVE_FRAGMENT);
   const caveLocations = {
@@ -1053,21 +1056,45 @@ export function createWebGLArenaRenderer(deps) {
           drawDisc(position.x, position.y, collider.radius + 3 + pulse * 2, [0.1, 0.72, 0.28, 0.12], [0.35, 1, 0.52, 0.58]);
         }
         drawGlyph('✚', position.x, position.y - collider.radius - 9 - pulse * 3, 10, [0.55, 1, 0.68, 0.95]);
-      } else {
-        drawGlyph(condition.glyph || '•', position.x, position.y - collider.radius - 9, 10, [0.9, 0.9, 1, 0.9]);
       }
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
-  function activeConditionLabels(conditionState) {
-    if (!conditionState?.active) return [];
-    return conditionState.active.map((condition) => {
+  function drawConditionLabels(active, centerX, y, ratio) {
+    if (!active?.length) return;
+    const iconSize = 14 * ratio;
+    const gap = 4 * ratio;
+    const separator = ' · ';
+    const separatorWidth = overlay.measureText(separator).width;
+    const hasSheet = conditionSheet.complete && conditionSheet.naturalWidth > 0;
+    const badgeWidth = hasSheet ? iconSize + gap : 0;
+    const labels = active.map((condition) => {
       const definition = conditionCatalog[condition.id];
       const name = condition.name ?? definition?.name ?? condition.id;
-      const glyph = condition.glyph ?? definition?.glyph ?? '•';
-      return `${glyph} ${name.toUpperCase()} ${condition.remaining.toFixed(1)}s`;
+      const text = `${name.toUpperCase()} ${condition.remaining.toFixed(1)}s`;
+      return { id: condition.id, text, width: overlay.measureText(text).width };
     });
+    const totalWidth = labels.reduce((sum, label) => sum + badgeWidth + label.width, 0)
+      + separatorWidth * (labels.length - 1);
+    let x = centerX - totalWidth / 2;
+    overlay.fillStyle = '#dff7ff';
+    for (const [index, label] of labels.entries()) {
+      if (index > 0) {
+        overlay.strokeText(separator, x + separatorWidth / 2, y);
+        overlay.fillText(separator, x + separatorWidth / 2, y);
+        x += separatorWidth;
+      }
+      if (hasSheet) {
+        const frame = getConditionFrame(label.id);
+        overlay.drawImage(conditionSheet, frame.x * conditionCellSize, frame.y * conditionCellSize,
+          conditionCellSize, conditionCellSize, Math.round(x), Math.round(y - ratio), iconSize, iconSize);
+      }
+      const textX = x + badgeWidth + label.width / 2;
+      overlay.strokeText(label.text, textX, y);
+      overlay.fillText(label.text, textX, y);
+      x += badgeWidth + label.width;
+    }
   }
 
   function drawAuraEmitter(emitter, position, now, entityId) {
@@ -1416,12 +1443,9 @@ export function createWebGLArenaRenderer(deps) {
       overlay.strokeText(label, sx, labelY);
       overlay.fillStyle = actor.rare ? '#ffd65a' : actor.kind === ActorKind.PLAYER ? '#dff8ff' : '#d6c9e8';
       overlay.fillText(label, sx, labelY);
-      const conditionLabel = activeConditionLabels(world.get(id, Conditions)).join(' · ');
-      if (conditionLabel) {
+      if (id !== playerId) {
         const conditionY = actor.theme === 'mimic' ? aboveBar - 14 * ratio : aboveBar;
-        overlay.strokeText(conditionLabel, sx, conditionY);
-        overlay.fillStyle = '#dff7ff';
-        overlay.fillText(conditionLabel, sx, conditionY);
+        drawConditionLabels(world.get(id, Conditions)?.active, sx, conditionY, ratio);
       }
     }
 
@@ -2007,7 +2031,7 @@ export function createWebGLArenaRenderer(deps) {
     }
     const boosted = activePowerups?.manaRegenSeconds > 0;
     resourceBars?.mana?.set(mana?.mana ?? 0, mana?.maxMana ?? 1, { boosted });
-    syncHudStatus({
+    syncHudReadout({
       dead: hp?.dead,
       gold: world.get(playerId, Gold)?.count ?? 0,
       materials: world.get(playerId, MaterialStacks)?.counts,

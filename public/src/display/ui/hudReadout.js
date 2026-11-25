@@ -1,17 +1,18 @@
 import { createAtlasIcon } from './atlasIcon.js';
-import { createStatusIcon } from './statusIcon.js';
+import { createConditionIcon } from './conditionIcon.js';
 import { conditions as conditionCatalog } from '../../rules/data/conditionCatalog.js';
 import { getMiningMaterial } from '../../rules/data/miningMaterials.js';
 
 const POWERUP_ICONS = [
-  ['manaRegenSeconds', 'mana_surge', 'SURGE'],
-  ['hasteSeconds', 'haste_rune', 'HASTE'],
-  ['furySeconds', 'fury_rune', 'FURY'],
-  ['wardSeconds', 'ward_rune', 'WARD'],
+  ['manaRegenSeconds', 'mana_surge', 'Surge'],
+  ['hasteSeconds', 'hastened', 'Haste'],
+  ['furySeconds', 'battle_fury', 'Fury'],
+  ['wardSeconds', 'harmony_ward', 'Ward'],
 ];
 
-export function createHudStatus(root, materialReadout) {
+export function createHudReadout(root, conditionRow, materialReadout) {
   let shown = '';
+  let shownBadges = '';
   let shownMaterials = '';
 
   return function sync({ dead, gold, materials, powerups, conditions, casts, connection }) {
@@ -28,30 +29,40 @@ export function createHudStatus(root, materialReadout) {
       const message = 'YOU DIED · refresh to re-enter';
       if (shown !== message) root.textContent = message;
       shown = message;
+      conditionRow.hidden = true;
       return;
     }
 
-    const statuses = [];
+    const badges = [];
     for (const [field, iconId, label] of POWERUP_ICONS) {
       const remaining = powerups?.[field];
-      if (remaining > 0) statuses.push([iconId, `${label} ${Math.ceil(remaining)}s`, 'powerup']);
+      if (remaining > 0) badges.push([iconId, label, `${Math.ceil(remaining)}s`]);
     }
     for (const condition of conditions?.active ?? []) {
       const name = condition.name ?? conditionCatalog[condition.id]?.name ?? condition.id;
-      statuses.push([condition.id, `${name.toUpperCase()} ${condition.remaining.toFixed(1)}s`, 'condition']);
+      badges.push([condition.id, name, `${condition.remaining.toFixed(1)}s`]);
     }
 
-    const key = JSON.stringify([gold, statuses, casts, connection]);
+    const badgeKey = JSON.stringify(badges);
+    if (badgeKey !== shownBadges) {
+      shownBadges = badgeKey;
+      conditionRow.replaceChildren(...badges.map(([id, name, time]) => {
+        const badge = document.createElement('span');
+        badge.className = 'hud-condition-badge';
+        badge.title = name;
+        badge.setAttribute('role', 'img');
+        badge.setAttribute('aria-label', `${name}, ${time} remaining`);
+        badge.append(createConditionIcon(id), `${name} ${time}`);
+        return badge;
+      }));
+    }
+    conditionRow.hidden = badges.length === 0;
+
+    const key = JSON.stringify([gold, casts, connection]);
     if (shown === key) return;
     shown = key;
     const content = document.createDocumentFragment();
     content.append(createAtlasIcon('coin_pouch', 'Gold'), ` ${gold}`);
-    for (const [iconId, label, kind] of statuses) {
-      content.append(' · ');
-      const icon = kind === 'condition' ? createStatusIcon(iconId) : createAtlasIcon(iconId);
-      if (icon) content.append(icon, ' ');
-      content.append(label);
-    }
     content.append(` · casts ${casts}`);
     if (connection) content.append(` · ${connection}`);
     root.replaceChildren(content);
