@@ -15,6 +15,7 @@ const SOUND = Object.freeze({
   poisonCast: `${AUDIO_ROOT}spell_acid_spit.mp3`,
   poisonImpact: `${AUDIO_ROOT}status_slimed.mp3`,
   shadowImpact: `${AUDIO_ROOT}spell_agony.mp3`,
+  cleaveCast: `${AUDIO_ROOT}spell_cleave.mp3`,
   meleeHit: `${AUDIO_ROOT}melee_hit.mp3`,
   rangedShot: `${AUDIO_ROOT}ranged_shot.mp3`,
   pickupGeneric: `${AUDIO_ROOT}pickup_generic.mp3`,
@@ -185,6 +186,7 @@ export function createArenaAudio({ world, getPlayerPosition }) {
       ice_armor: SOUND.buffCast,
       regeneration: SOUND.healing,
       blizzard: SOUND.frostCast,
+      cleave: SOUND.cleaveCast,
       arrow: SOUND.rangedShot,
     }[spellId] || null;
   }
