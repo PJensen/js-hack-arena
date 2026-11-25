@@ -30,6 +30,8 @@ export function applyImpacts(world, targetId, sourceId, impacts, context = {}) {
         periodic: context.periodic,
         meleeArc: context.meleeArc,
         impactAngle: context.impactAngle,
+        canCrit: context.canCrit,
+        onDamage: context.onDamage,
       }) > 0 || applied;
     } else if (impact.kind === ImpactKind.HEAL) {
       applied = applyHealing(world, targetId, impact.amount, {

@@ -5,6 +5,7 @@
 import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, Health, Mana, Stamina, Powerups, FOV, PointLight, AI, AIBehavior, Projectile, Lifetime, Spellbook, SpellId, ItemInfo, ItemSlot, Consumable, GroundItem, MeleeWeapon, WeaponPickup, BowWeapon, ArrowAmmo, RecoverableArrows, Conditions, AuraEmitter } from './components/index.js';
 import { auras as auraCatalog } from './data/auraCatalog.js';
 import { ConditionId, HEALTH_POTION_AMOUNT } from './data/conditionCatalog.js';
+import { CritBag } from './components/CritBag.js';
 import { Gold } from './components/Gold.js';
 import { MaterialStacks } from './components/MaterialStacks.js';
 import { Ring } from './components/Ring.js';
@@ -99,6 +100,7 @@ export function spawnPlayer(world, x, y, name = 'Player') {
   world.add(id, Input);
   world.add(id, Actor,    { kind: ActorKind.PLAYER, team: 'friendly', name, glyph: '@' });
   world.add(id, Health,   { hp: 100, maxHp: 100 });
+  world.add(id, CritBag);
   world.add(id, Mana,     { mana: 100, maxMana: 100, regenPerSecond: 3 });
   world.add(id, Stamina);
   world.add(id, Powerups);

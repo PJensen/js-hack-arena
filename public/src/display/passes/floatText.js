@@ -6,7 +6,7 @@ const LANES = [0, -1, 1, -2, 2];
 export function createFloatTextPass() {
   const numbers = [];
 
-  function add({ x, y, target, amount, incoming = false, periodic = false, killed = false }) {
+  function add({ x, y, target, amount, incoming = false, periodic = false, killed = false, critical = false }) {
     if (!Number.isFinite(amount) || amount === 0 || !Number.isFinite(x) || !Number.isFinite(y)) return;
 
     const healing = amount < 0;
@@ -14,7 +14,7 @@ export function createFloatTextPass() {
       ? number.target == null && number.x === x && number.y === y
       : number.target === target);
     const batch = nearby.find((number) => number.batchAge < BATCH_SECONDS &&
-      number.healing === healing && number.periodic === periodic);
+      number.healing === healing && number.periodic === periodic && number.critical === critical);
     if (batch) {
       batch.amount += Math.abs(amount);
       batch.age = 0;
@@ -24,7 +24,7 @@ export function createFloatTextPass() {
 
     const lane = LANES.find((lane) => !nearby.some((number) => number.lane === lane && number.age < 0.4)) ?? 0;
     numbers.push({
-      x, y, target, lane, healing, incoming, periodic, killed,
+      x, y, target, lane, healing, incoming, periodic, killed, critical,
       amount: Math.abs(amount), age: 0, batchAge: 0,
       lifetime: healing ? 1.05 : periodic ? 0.72 : 0.92,
     });
@@ -55,18 +55,18 @@ export function createFloatTextPass() {
       if (x < -45 * ratio || x > width + 45 * ratio || y < -40 * ratio || y > height + 40 * ratio) continue;
 
       const baseSize = (number.periodic ? 15 : number.healing ? 19 : 21) +
-        Math.min(5, Math.log2(1 + number.amount) * 0.85) + (number.killed ? 2 : 0);
+        Math.min(5, Math.log2(1 + number.amount) * 0.85) + (number.killed ? 2 : 0) + (number.critical ? 4 : 0);
       const pop = reducedMotion || number.periodic ? 1 :
         1 + (number.healing ? 0.15 : 0.48) * Math.max(0, 1 - number.age / 0.18) ** 2;
       const value = Math.round(number.amount * 10) / 10;
-      const label = (number.healing ? '+' : '−') + value;
+      const label = (number.healing ? '+' : '−') + value + (number.critical ? '!' : '');
       ctx.font = `900 ${Math.round(baseSize * pop * ratio)}px ui-monospace, monospace`;
       ctx.globalAlpha = Math.min(1, (1 - progress) * 2.75);
       ctx.strokeStyle = '#11101a';
       ctx.lineWidth = (number.periodic ? 2.5 : 4) * ratio;
       ctx.strokeText(label, x, y + ratio);
       ctx.strokeText(label, x, y);
-      ctx.fillStyle = number.healing ? '#9affae' : number.incoming ? '#ff8f96' : '#ffe594';
+      ctx.fillStyle = number.healing ? '#9affae' : number.incoming ? '#ff8f96' : number.critical ? '#ffb252' : '#ffe594';
       ctx.fillText(label, x, y);
     }
     ctx.restore();

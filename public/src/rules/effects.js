@@ -1,10 +1,12 @@
 import { forEachActiveEffect } from './activeEffects.js';
 import { Actor, ActorKind, AuraEmitter, AuraMemberships, Collider, Conditions, Health, Position, Powerups } from './components/index.js';
+import { drawCriticalHit } from './components/CritBag.js';
 import { conditions as conditionCatalog } from './data/conditionCatalog.js';
 import { EffectKind, EffectStat } from './data/effectCatalog.js';
 import { getStatMultiplier } from './stats.js';
 
 const TIMER_EPSILON = 1e-9;
+const CRITICAL_DAMAGE_MULTIPLIER = 2;
 
 export function applyCondition(world, targetId, conditionId, sourceId = null, duration = null) {
   const definition = conditionCatalog[conditionId];
@@ -35,26 +37,32 @@ export function applyCondition(world, targetId, conditionId, sourceId = null, du
 
 export function applyDamage(world, targetId, rawAmount, {
   sourceId = null, damageType = null, x = null, y = null, spellId = null, periodic = false, meleeArc = false,
-  impactAngle = null,
+  impactAngle = null, canCrit = true, onDamage,
 } = {}) {
   const health = world.get(targetId, Health);
   if (!health || health.dead || health.hp <= 0) return 0;
   const ward = world.get(targetId, Powerups)?.wardMultiplier || 1;
   const mitigation = getStatMultiplier(world, targetId, EffectStat.DAMAGE_TAKEN, { damageType });
-  const amount = Math.max(0, Math.round(rawAmount * ward * mitigation));
-  if (amount <= 0) return 0;
+  const adjusted = rawAmount * ward * mitigation;
+  const normalAmount = Math.max(0, Math.round(adjusted));
+  if (normalAmount <= 0) return 0;
+  const critical = canCrit && !periodic && sourceId !== targetId && drawCriticalHit(world, sourceId);
+  const amount = critical ? Math.round(adjusted * CRITICAL_DAMAGE_MULTIPLIER) : normalAmount;
   const hpLost = Math.min(health.hp, amount);
   health.hp -= hpLost;
   const position = world.get(targetId, Position);
   const source = world.get(sourceId, Position);
-  world.emit('damage.dealt', {
+  const event = {
     target: targetId, source: sourceId, amount,
     x: x ?? position?.x ?? 0, y: y ?? position?.y ?? 0,
     damageType, spellId, periodic, hpLost, killed: health.hp === 0,
     targetTheme: world.get(targetId, Actor)?.theme,
     impactAngle: impactAngle ?? (source && position ? Math.atan2(position.y - source.y, position.x - source.x) : null),
     ...(meleeArc && { meleeArc }),
-  });
+    ...(critical && { critical }),
+  };
+  onDamage?.(event);
+  world.emit('damage.dealt', event);
   return amount;
 }
 

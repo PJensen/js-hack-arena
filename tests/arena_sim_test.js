@@ -9,6 +9,7 @@ import { generateArenaCave, generateCave, CaveProfile } from '../public/src/rule
 import { GOLD_LIGHT, LOOT_GOBLIN_LIGHT, attachAuraEmitter, spawnAuraField, spawnBat, spawnEpicChest, spawnEpicSword, spawnFlamingBat, spawnFloatingEye, spawnFuryRune, spawnGasSpore, spawnHasteRune, spawnItem, spawnLootGoblin, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
 import { BAT_SHRIEK_WINDUP, GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
 import { applyAura, applyCondition, applyDamage } from '../public/src/rules/effects.js';
+import { CritBag } from '../public/src/rules/components/CritBag.js';
 import { getStatMultiplier } from '../public/src/rules/stats.js';
 import { ConditionId } from '../public/src/rules/data/conditionCatalog.js';
 import { EffectKind, EffectStat } from '../public/src/rules/data/effectCatalog.js';
@@ -155,6 +156,39 @@ function spawnIdleTarget(sim, x, y) {
   return { id, health };
 }
 
+Deno.test('arena sim: direct hits draw one crit per bag per player', () => {
+  function run() {
+    const sim = makeOpenSim(914, { enemyCount: 0 });
+    const { world } = sim;
+    const player = sim.addPlayer('first');
+    const other = sim.addPlayer('second');
+    const { id: target, health } = spawnIdleTarget(sim, 145, 100);
+    health.hp = health.maxHp = 1000;
+    const hits = [];
+    world.on('damage.dealt', (event) => hits.push(event));
+
+    const rolls = [];
+    for (let i = 0; i < 20; i++) {
+      if (i % 2 === 0) {
+        assertEquals(applyDamage(world, target, 5, { sourceId: other }), hits.at(-1).critical ? 10 : 5);
+      }
+      assertEquals(applyDamage(world, target, 5, { sourceId: player, periodic: true }), 5);
+      assertEquals(applyDamage(world, target, 5, { sourceId: player, canCrit: false }), 5);
+      assertEquals(applyDamage(world, target, 0, { sourceId: player }), 0);
+      const amount = applyDamage(world, target, 5, { sourceId: player, damageType: i % 2 ? 'physical' : 'frost' });
+      assertEquals(amount, hits.at(-1).critical ? 10 : 5);
+      rolls.push(Boolean(hits.at(-1).critical));
+    }
+    assertEquals(rolls.slice(0, 10).filter(Boolean).length, 1);
+    assertEquals(rolls.slice(10).filter(Boolean).length, 1);
+    assertEquals(hits.filter(({ source, critical }) => source === other && critical).length, 1);
+    assertEquals(applyDamage(world, player, 5, { sourceId: target }), 5);
+    return rolls;
+  }
+
+  assertEquals(run(), run());
+});
+
 Deno.test("arena sim: Cleave hits its arc, respects walls and spends replicated stamina", () => {
   const grid = {
     cellSize: 4,
@@ -165,6 +199,7 @@ Deno.test("arena sim: Cleave hits its arc, respects walls and spends replicated 
   };
   const sim = makeOpenSim(915, { enemyCount: 0, grid });
   const playerId = sim.addPlayer('peer-a');
+  Object.assign(sim.world.get(playerId, CritBag), { remaining: 10, critAt: 10 });
   const front = spawnIdleTarget(sim, 145, 100);
   const flank = spawnIdleTarget(sim, 141, 145);
   const behindWall = spawnIdleTarget(sim, 157, 72);
@@ -182,7 +217,7 @@ Deno.test("arena sim: Cleave hits its arc, respects walls and spends replicated 
   assertEquals(front.health.hp, 100);
   sim.setPlayerInput('peer-a', { seq: 2, fire: false });
   sim.step();
-  assertEquals([front.health.hp, flank.health.hp], [82, 82]);
+  assertEquals([front.health.hp, flank.health.hp], [64, 82]);
   assertEquals([behindWall.health.hp, behind.health.hp, outOfRange.health.hp], [100, 100, 100]);
   assertEquals(stamina.stamina, 75);
   assertEquals(sim.world.get(playerId, Mana).mana, 100);
@@ -208,11 +243,13 @@ Deno.test("arena sim: Cleave hits its arc, respects walls and spends replicated 
   assertEquals(damage[0].impactAngle, 0);
   assertEquals(damage.map(({ target, meleeArc, hpLost }) => [target, meleeArc, hpLost]),
     casts[0].meleeArc.hits.map(({ target, amount }) => [target, true, amount]));
+  assertEquals(damage.map(({ critical }) => critical), [true, undefined]);
+  assertEquals(casts[0].meleeArc.hits.map(({ critical }) => critical), [true, undefined]);
   assertEquals(casts[0].meleeArc.hits.map(({ target, x, y }) => {
     assert(target !== front.id && target !== flank.id);
     assertEquals(replica.world.get(target, Position), { x, y });
     return replica.world.get(target, Health).hp;
-  }), [82, 82]);
+  }), [64, 82]);
 
   for (let i = 0; i < 13; i++) sim.step();
   assertEquals(stamina.stamina, 75);
@@ -220,7 +257,7 @@ Deno.test("arena sim: Cleave hits its arc, respects walls and spends replicated 
   assertAlmostEquals(stamina.stamina, 83);
   for (let i = 0; i < 43; i++) sim.step();
   assertEquals(stamina.stamina, 100);
-  assertEquals(front.health.hp, 82);
+  assertEquals(front.health.hp, 64);
 });
 
 Deno.test("arena sim: Rend picks the closest target, applies a finite bleed and denies low stamina", () => {

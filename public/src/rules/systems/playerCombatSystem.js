@@ -151,7 +151,7 @@ function maintainCast(world, grid, playerId, input, book, position, dt) {
     book.charge += dt;
     const fury = world.get(playerId, Powerups)?.furyMultiplier || 1;
     const impacts = resolveImpacts(spell.impacts, { amountMultiplier: fury });
-    const targets = applyArea(world, playerId, spell, impacts, book.castTargetX, book.castTargetY);
+    const targets = applyChannelTick(world, playerId, spell, impacts, book.castTargetX, book.castTargetY);
     world.emit('spell.channel', {
       playerId, spellId, x: book.castTargetX, y: book.castTargetY,
       remaining: book.channelRemaining, manaCost: manaPerTick, targets,
@@ -270,12 +270,12 @@ function castChain(world, grid, playerId, position, spell, impacts) {
   return hit.size > 0;
 }
 
-function applyArea(world, playerId, spell, impacts, x, y) {
+function applyChannelTick(world, playerId, spell, impacts, x, y) {
   let targets = 0;
   for (const [targetId, position, ,] of world.query(Position, Health, AI)) {
     if (Math.hypot(position.x - x, position.y - y) > spell.targeting.areaRadius) continue;
     if (applyImpacts(world, targetId, playerId, impacts, {
-      x: position.x, y: position.y, spellId: spell.id, damageType: spell.element,
+      x: position.x, y: position.y, spellId: spell.id, damageType: spell.element, canCrit: false,
     })) targets += 1;
   }
   return targets;
@@ -299,17 +299,12 @@ function castMeleeArc(world, grid, playerId, origin, book, spell, impacts) {
   targets.sort((a, b) => a.distance - b.distance || a.id - b.id);
   const hits = [];
   for (const { id, position } of targets.slice(0, maxTargets ?? targets.length)) {
-    const health = world.get(id, Health);
-    const before = health.hp;
     applyImpacts(world, id, playerId, impacts, {
       x: position.x, y: position.y, spellId: spell.id, damageType: spell.element, meleeArc: true,
+      onDamage: ({ target, x, y, hpLost, killed, targetTheme, critical }) => hits.push({
+        target, x, y, amount: hpLost, killed, targetTheme, ...(critical && { critical }),
+      }),
     });
-    if (health.hp < before) {
-      hits.push({
-        target: id, x: position.x, y: position.y, amount: before - health.hp, killed: health.hp === 0,
-        targetTheme: world.get(id, Actor)?.theme,
-      });
-    }
   }
   return { range, halfAngle, hits };
 }

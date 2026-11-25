@@ -164,9 +164,10 @@ Deno.test('combat numbers: batch close hits by target and render distinct healin
   pass.add({ ...target, amount: -3 });
   pass.add({ ...target, amount: 2, periodic: true, incoming: true });
   pass.add({ ...target, target: 2, amount: 4 });
+  pass.add({ ...target, amount: 14, critical: true });
   pass.render(ctx, bounds);
   assertEquals(labels.map(([text, color]) => [text, color]), [
-    ['−12', '#ffe594'], ['+3', '#9affae'], ['−2', '#ff8f96'], ['−4', '#ffe594'],
+    ['−12', '#ffe594'], ['+3', '#9affae'], ['−2', '#ff8f96'], ['−4', '#ffe594'], ['−14!', '#ffb252'],
   ]);
   assert(labels[0][2] !== labels[1][2]);
 
