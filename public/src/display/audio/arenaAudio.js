@@ -120,6 +120,14 @@ export function createArenaAudio({ world, getPlayerPosition }) {
   listen('chest.opened', (event) => {
     playAt(SOUND.chestOpen, event, { volume: 0.78, maxVoices: 2, randomPitch: 12 });
   });
+  listen('mimic.awakened', (event) => {
+    playAt(SOUND.chestOpen, event, { volume: 0.9, maxVoices: 2, detune: -190 });
+  });
+  listen('melee.hit', (event) => {
+    if (event.sourceTheme === 'mimic' && event.amount > 0) {
+      playAt(SOUND.meleeHit, event, { volume: 0.8, maxVoices: 3, detune: -220 });
+    }
+  });
 
   return {
     updateLocalCast(book) {

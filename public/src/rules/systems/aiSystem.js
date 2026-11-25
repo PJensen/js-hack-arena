@@ -5,11 +5,14 @@ import { astar } from '../ai/pathfind.js';
 import { applyCondition, getStatMultiplier, isActionLocked } from '../effects.js';
 import { ConditionId } from '../data/conditionCatalog.js';
 import { ImpactKind } from '../data/spellCatalog.js';
-import { BAT_SHRIEK_PULSE, BAT_SHRIEK_RADIUS, BAT_SHRIEK_WINDUP, GAZE_CHARGE_SECONDS, WEB_WINDUP_SECONDS } from '../components/AI.js';
+import { BAT_SHRIEK_PULSE, BAT_SHRIEK_RADIUS, BAT_SHRIEK_WINDUP, GAZE_CHARGE_SECONDS, MIMIC_LEAP_SECONDS, MIMIC_WINDUP_SECONDS, WEB_WINDUP_SECONDS } from '../components/AI.js';
 import { SHADOW_BOLT_LIFETIME } from '../components/Projectile.js';
+import { dealMeleeDamage } from './bumpSystem.js';
 
 const PATH_REFRESH = 0.5;        // recompute every 0.5s
 const GAZE_FLASH_SECONDS = 0.25;
+const MIMIC_LEAP_SPEED = 290;
+const MIMIC_BITE_REACH = 8;
 
 function hasLOS(grid, ax, ay, bx, by, gaze) {
   if (gaze) return sweepMaxFree(grid, ax, ay, bx, by, 5) === 1;
@@ -34,9 +37,11 @@ export function createAISystem(ctx) {
     for (const [id, pos, vel, spd, fac, ai, col] of world.query(Position, Velocity, Speed, Facing, AI, Collider)) {
       const gaze = ai.behavior === AIBehavior.GAZE;
       const bat = ai.behavior === AIBehavior.BAT;
-      const health = gaze || bat ? world.get(id, Health) : null;
+      const mimic = ai.behavior === AIBehavior.MIMIC;
+      const health = gaze || bat || mimic ? world.get(id, Health) : null;
       if (health?.dead || health?.hp <= 0) continue;
-      if (gaze) ai.castCooldown = Math.max(0, ai.castCooldown - dt);
+      if (ai.mimicClosed && !wakeMimic(world, grid, players, pos, col, ai, health)) continue;
+      if (gaze || mimic) ai.castCooldown = Math.max(0, ai.castCooldown - dt);
       if (bat) {
         ai.shriekPulse = Math.max(0, ai.shriekPulse - dt);
         ai.castCooldown = Math.max(0, ai.castCooldown - dt);
@@ -57,6 +62,8 @@ export function createAISystem(ctx) {
         ai.webWindup = 0;
         ai.gazeCharge = 0;
         ai.shriekWindup = 0;
+        ai.mimicWindup = 0;
+        ai.mimicLeap = 0;
         let nearest = null;
         let nearestDistance = Infinity;
         for (const [candidate, candidatePosition, candidateHealth] of players) {
@@ -91,6 +98,10 @@ export function createAISystem(ctx) {
 
       // LOS check
       ai.sight = dist < ai.aggroRange && hasLOS(grid, pos.x, pos.y, tpos.x, tpos.y, gaze);
+
+      if (mimic && stepMimicAttack(world, grid, id, { pos, vel, fac, ai, col, tpos, dist }, dt, moveLocked || castLocked)) {
+        continue;
+      }
 
       if (bat && !ai.sight) {
         ai.target = null;
@@ -128,14 +139,14 @@ export function createAISystem(ctx) {
       } else if (ai.sight) {
         // ── Has LOS — tactical behaviour ──
         aiPaths.delete(id);  // drop path, we can see them
-        ai.castCooldown -= dt;
+        if (!mimic) ai.castCooldown -= dt;
         if (ai.webSpit && stepWebSpit(world, id, ai, pos, fac, dx, dy, dist, dt, castLocked)) {
           vel.vx = 0;
           vel.vy = 0;
           continue;
         }
 
-        const melee = ai.behavior === AIBehavior.MELEE;
+        const melee = ai.behavior === AIBehavior.MELEE || mimic;
         const tooClose = !melee && dist < ai.preferredDist * 0.7;
         const tooFar = dist > ai.preferredDist * 1.3;
 
@@ -147,7 +158,7 @@ export function createAISystem(ctx) {
           vel.vy = -(dy / dist) * movementSpeed;
         } else if (tooFar || melee) {
           let approachSpeed = movementSpeed * (melee ? 1 : 0.6);
-          if (ai.plantAtContact) {
+          if (ai.plantAtContact || mimic) {
             const contact = col.radius + (world.get(ai.target, Collider)?.radius ?? 0) + 1;
             approachSpeed = Math.min(approachSpeed, Math.max(0, dist - contact) / dt);
           }
@@ -222,6 +233,67 @@ export function createAISystem(ctx) {
       }
     }
   };
+}
+
+function wakeMimic(world, grid, players, position, collider, ai, health) {
+  const toucher = players.find(([id, pos, hp]) =>
+    !hp.dead && hp.hp > 0 &&
+    Math.hypot(pos.x - position.x, pos.y - position.y) < collider.radius + world.get(id, Collider).radius + 6 &&
+    hasLOS(grid, position.x, position.y, pos.x, pos.y, true)
+  );
+  if (!toucher && health.hp === health.maxHp) return false;
+  ai.mimicClosed = false;
+  ai.target = toucher?.[0] ?? null;
+  world.emit('mimic.awakened', { x: position.x, y: position.y });
+  return true;
+}
+
+function stepMimicAttack(world, grid, id, { pos, vel, fac, ai, col, tpos, dist }, dt, locked) {
+  if (locked) {
+    ai.mimicWindup = 0;
+    ai.mimicLeap = 0;
+    return false;
+  }
+
+  const contact = col.radius + (world.get(ai.target, Collider)?.radius ?? 0);
+  if (ai.mimicLeap <= 0) {
+    if (ai.mimicWindup <= 0) {
+      if (!ai.sight || ai.castCooldown > 0 || dist > MIMIC_LEAP_SPEED * MIMIC_LEAP_SECONDS + contact) return false;
+      ai.mimicWindup = MIMIC_WINDUP_SECONDS;
+    } else {
+      ai.mimicWindup = Math.max(0, ai.mimicWindup - dt);
+    }
+    fac.angle = Math.atan2(tpos.y - pos.y, tpos.x - pos.x);
+    vel.vx = 0;
+    vel.vy = 0;
+    if (ai.mimicWindup > 1e-6) return true;
+    ai.mimicWindup = 0;
+    ai.mimicLeap = MIMIC_LEAP_SECONDS;
+  }
+
+  const dx = Math.cos(fac.angle);
+  const dy = Math.sin(fac.angle);
+  const forward = (tpos.x - pos.x) * dx + (tpos.y - pos.y) * dy;
+  const travel = MIMIC_LEAP_SPEED * Math.min(dt, ai.mimicLeap);
+  const stride = forward >= dist * 0.85 ? Math.min(travel, Math.max(0, dist - contact)) : travel;
+  const prevX = pos.x;
+  const prevY = pos.y;
+  Object.assign(pos, moveWithSlide(grid, pos.x, pos.y, dx * stride, dy * stride, col.radius));
+  vel.vx = (pos.x - prevX) / dt;
+  vel.vy = (pos.y - prevY) / dt;
+  ai.mimicLeap = Math.max(0, ai.mimicLeap - dt);
+  if (ai.mimicLeap > 1e-6) return true;
+
+  ai.mimicLeap = 0;
+  ai.castCooldown = ai.castRate;
+  const biteX = tpos.x - pos.x;
+  const biteY = tpos.y - pos.y;
+  const biteDistance = Math.hypot(biteX, biteY);
+  if (biteDistance <= contact + MIMIC_BITE_REACH && biteX * dx + biteY * dy >= biteDistance * 0.45 &&
+    hasLOS(grid, pos.x, pos.y, tpos.x, tpos.y, true)) {
+    dealMeleeDamage(world, id, ai.target, tpos);
+  }
+  return true;
 }
 
 function stepBatShriek(world, grid, id, ai, position, distance, dt, castLocked) {

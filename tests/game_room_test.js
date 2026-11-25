@@ -6,7 +6,7 @@ import { GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
 import { sweepMaxFree } from '../public/src/rules/geometry/sweep.js';
 import { applyDamage } from '../public/src/rules/effects.js';
 import { spawnGold, spawnRing } from '../public/src/rules/spawner.js';
-import { MESSAGE, decodeMessage, encodeMessage } from '../public/src/shared/net/protocol.js';
+import { MESSAGE, decodeMessage, encodeMessage, makeRoomSeed } from '../public/src/shared/net/protocol.js';
 import { createRoomHandoff, verifyRoomHandoff } from '../worker/auth.js';
 import { GameRoom } from '../worker/index.js';
 
@@ -174,6 +174,44 @@ Deno.test('game room: dead-end chests match offline placement and open once', ()
   } finally {
     room.leave(first);
     room.leave(second);
+  }
+});
+
+Deno.test('game room: Mimics use both encounter site types and share a dungeon cap', () => {
+  // mimic-50 rolls a leaf Mimic and would also roll a regular Mimic without the cap.
+  for (const [roomId, leaf] of [['mimic-50', true], ['lobby', false]]) {
+    const room = new GameRoom(makeRoomState(), {});
+    room.seed = makeRoomSeed(roomId);
+    const socket = new FakeSocket();
+    room.accept(socket, { userId: 'user-1', displayName: 'First' });
+    try {
+      const cave = room.ensureCave();
+      const offline = createArenaSimulation({ ...cave, seed: room.seed, enemyGroupSize: 3 });
+      offline.addPlayer('offline');
+      const mimics = (snapshot) => snapshot.entities.filter(({ state }) => state.theme === 'mimic');
+      const initial = latestSnapshot(socket);
+      const records = mimics(initial);
+      assertEquals(records.length, 1);
+      assertEquals(records, mimics(offline.captureSnapshot()));
+      const [{ id, kind, state }] = records;
+      assertEquals(kind, 'mob');
+      assertEquals(state.mimicClosed, true);
+      const sites = leaf ? cave.chestSites : cave.encounterSites;
+      assert(sites.some(({ x, y }) => x === state.x && y === state.y));
+      assertEquals(initial.entities.filter(({ state }) => state.effect === 'epic_chest').length, leaf ? 0 : 1);
+
+      const sim = room.ensureSim();
+      const { peerId } = socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
+      Object.assign(sim.world.get(sim.getPlayerEntity(peerId), Position), { x: state.x, y: state.y });
+      room.step();
+      const revealed = mimics(sim.captureSnapshot());
+      assertEquals(revealed.length, 1);
+      assertEquals(revealed[0].id, id);
+      assert(!revealed[0].state.mimicClosed);
+      assert(revealed[0].state.mimicWindup > 0);
+    } finally {
+      room.leave(socket);
+    }
   }
 });
 

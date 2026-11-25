@@ -17,7 +17,7 @@ export function createBumpSystem() {
     }
     const bodies = [];
     for (const [id, position, collider] of world.query(Position, Collider)) {
-      if (world.has(id, Projectile) || world.has(id, GroundItem)) continue;
+      if (world.has(id, Projectile) || world.has(id, GroundItem) || world.get(id, AI)?.mimicClosed) continue;
       const health = world.get(id, Health);
       if (health?.dead || health?.hp <= 0) continue;
       bodies.push({ id, position, collider });
@@ -62,13 +62,14 @@ function resolvePair(world, a, b, cooldowns, time) {
 
   const playerId = aPlayer ? a.id : b.id;
   const mobId = aAI ? a.id : b.id;
-  if (contactMelee.behavior !== AIBehavior.PASSIVE && contactMelee.behavior !== AIBehavior.BAT) {
-    dealDamage(world, mobId, playerId, positionOf(aPlayer ? a : b));
+  const behavior = contactMelee.behavior;
+  if (behavior !== AIBehavior.PASSIVE && behavior !== AIBehavior.BAT && behavior !== AIBehavior.MIMIC) {
+    dealMeleeDamage(world, mobId, playerId, positionOf(aPlayer ? a : b));
   }
-  dealDamage(world, playerId, mobId, positionOf(aAI ? a : b));
+  dealMeleeDamage(world, playerId, mobId, positionOf(aAI ? a : b));
 }
 
-function dealDamage(world, sourceId, targetId, position) {
+export function dealMeleeDamage(world, sourceId, targetId, position) {
   const health = world.get(targetId, Health);
   if (!health) return;
   const weapon = world.get(sourceId, MeleeWeapon);

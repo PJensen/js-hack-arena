@@ -7,6 +7,7 @@ export const AIBehavior = Object.freeze({
   GAZE:   'gaze',
   PASSIVE: 'passive',
   BAT: 'bat',
+  MIMIC: 'mimic',
 });
 
 export const WEB_WINDUP_SECONDS = 0.35;
@@ -14,6 +15,8 @@ export const GAZE_CHARGE_SECONDS = 2.4;
 export const BAT_SHRIEK_WINDUP = 0.55;
 export const BAT_SHRIEK_PULSE = 0.45;
 export const BAT_SHRIEK_RADIUS = 144;
+export const MIMIC_WINDUP_SECONDS = 0.34;
+export const MIMIC_LEAP_SECONDS = 0.24;
 
 export const AI = defineComponent('AI', {
   behavior:       AIBehavior.CASTER,
@@ -28,6 +31,9 @@ export const AI = defineComponent('AI', {
   shriekConditionId: null,
   shriekWindup:   0,
   shriekPulse:    0,
+  mimicClosed:   false,
+  mimicWindup:    0,
+  mimicLeap:      0,
   plantAtContact: false,
   aggroRange:     300,
   sight:          true,

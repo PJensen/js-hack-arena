@@ -1,5 +1,5 @@
 import { findReachableNear } from '../rules/geometry/landmarks.js';
-import { spawnBat, spawnCaster, spawnFlamingBat, spawnFloatingEye, spawnGasSpore, spawnMelee, spawnSpider, spawnTank } from '../rules/spawner.js';
+import { spawnBat, spawnCaster, spawnFlamingBat, spawnFloatingEye, spawnGasSpore, spawnMelee, spawnMimic, spawnSpider, spawnTank } from '../rules/spawner.js';
 
 const spawners = new Map([
   ['spider', spawnSpider],
@@ -10,6 +10,7 @@ const spawners = new Map([
   ['gas_spore', spawnGasSpore],
   ['bat', spawnBat],
   ['flaming_bat', spawnFlamingBat],
+  ['mimic', spawnMimic],
 ]);
 
 export const previewMobNames = [...spawners.keys()].join(', ');

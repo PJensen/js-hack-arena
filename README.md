@@ -74,6 +74,10 @@ Open `/?chest=epic` for an offline Epic Chest preview. Enter the dungeon and
 walk up to the chest near the entrance to see its loot toss. Reload to try again,
 or add `&seed=73` to try another cave.
 
+Open `/?spawn=mimic&seed=42` to preview a Mimic. Walk into the chest to
+wake it, then dodge its jumping bite. Each dungeon can contain at most one Mimic,
+either at the end of a spoke or in a regular encounter.
+
 Open `/?spawn=goblin&seed=42` for an isolated Goblin Raider preview. Enter the
 dungeon to see its 3D walk and blade swing in combat.
 Open `/?spawn=wraith&seed=42` for the same preview with the floating Wraith and

@@ -4,7 +4,7 @@ import {
   PickupLock, PlayerTag, PointLight, Position, Powerups, Projectile, Ring, Spellbook,
   Velocity, WeaponPickup,
 } from '../../rules/components/index.js';
-import { AI, BAT_SHRIEK_PULSE, BAT_SHRIEK_RADIUS, BAT_SHRIEK_WINDUP, WEB_WINDUP_SECONDS } from '../../rules/components/AI.js';
+import { AI, BAT_SHRIEK_PULSE, BAT_SHRIEK_RADIUS, BAT_SHRIEK_WINDUP, MIMIC_LEAP_SECONDS, MIMIC_WINDUP_SECONDS, WEB_WINDUP_SECONDS } from '../../rules/components/AI.js';
 import { SHADOW_BOLT_LIFETIME } from '../../rules/components/Projectile.js';
 import { AuraId } from '../../rules/data/auraCatalog.js';
 import { ConditionId, conditions as conditionCatalog } from '../../rules/data/conditionCatalog.js';
@@ -15,12 +15,14 @@ import { createFloatTextPass } from '../passes/floatText.js';
 import { createGorePass } from '../passes/gore.js';
 import { createHudStatus } from '../ui/hudStatus.js';
 import { biolum, emberLight, fireFlicker, torchLight } from '../lightPatterns.js';
-import { createWebGLDevice } from './device.js';
+import { createWebGLDevice, uniform } from './device.js';
 import { createGoreRenderer } from './goreRenderer.js';
 import { createSpiderMesh } from './spiderMesh.js';
 import { createGoblinMesh } from './goblinMesh.js';
 import { createWraithMesh } from './wraithMesh.js';
 import { createBatMesh } from './batMesh.js';
+import { createMimicMesh } from './mimicMesh.js';
+import { uploadPropMesh } from './propMeshBuilder.js';
 import { createFloatingEyeMesh } from './floatingEyeMesh.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
 import { createCampfireMesh } from './campfireMesh.js';
@@ -74,6 +76,7 @@ function cleaveIntensity({ rend, charge = 0 }) {
 function statusBarPadding(actor) {
   if (actor?.name === 'Goblin Raider') return 29;
   const theme = actor?.theme;
+  if (theme === 'mimic') return 32;
   if (theme === 'shadow') return 25;
   return theme === 'spider' || theme === 'floating_eye' || theme === 'gas_spore' ||
     theme === 'bat' || theme === 'flaming_bat' ? 20 : 9;
@@ -116,12 +119,6 @@ const QUAD = new Float32Array([
   -0.5, 0.5, 0.5, -0.5, 0.5, 0.5,
 ]);
 
-function uniform(gl, program, name) {
-  const found = gl.getUniformLocation(program, name);
-  if (found === null) throw new Error(`WebGL program is missing ${name}`);
-  return found;
-}
-
 function themeIndex(theme) {
   if (theme === 'fire' || theme === 'fury') return 0;
   if (theme === 'shadow' || theme === 'ward') return 1;
@@ -159,20 +156,6 @@ function directionalProgram(device, fragment) {
     time: uniform(gl, program, 'u_time'),
     alpha: uniform(gl, program, 'u_alpha'),
   };
-}
-
-function uploadPropMesh(device, vertices) {
-  const { gl } = device;
-  const vao = device.vertexArray();
-  gl.bindVertexArray(vao);
-  device.buffer(gl.ARRAY_BUFFER, vertices);
-  gl.enableVertexAttribArray(0);
-  gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 28, 0);
-  gl.enableVertexAttribArray(1);
-  gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 28, 12);
-  gl.enableVertexAttribArray(2);
-  gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 28, 24);
-  return { vao, count: vertices.length / 7 };
 }
 
 function uploadCubeMesh(device, vertices) {
@@ -341,6 +324,7 @@ export function createWebGLArenaRenderer(deps) {
   const drawGoblin = createGoblinMesh(device);
   const drawWraith = createWraithMesh(device);
   const drawBat = createBatMesh(device);
+  const drawMimicMesh = createMimicMesh(device);
   const drawFloatingEye = createFloatingEyeMesh(device);
 
   const campfireMesh = uploadPropMesh(device, createCampfireMesh());
@@ -707,6 +691,19 @@ export function createWebGLArenaRenderer(deps) {
     gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
   }
 
+  function drawMimic(shown, id, radius, facing, speed, time) {
+    const ai = world.get(id, AI);
+    const leap = ai.mimicLeap > 0 ? 1 - ai.mimicLeap / MIMIC_LEAP_SECONDS : null;
+    const windup = ai.mimicWindup > 0 ? 1 - ai.mimicWindup / MIMIC_WINDUP_SECONDS : null;
+    const still = motionPreference.matches;
+    const hop = leap !== null ? 20 * Math.sin(Math.PI * leap)
+      : windup === null ? Math.min(1, speed / 85) * 5 * Math.abs(Math.sin(time * 9 + id)) : 0;
+    const jaw = leap !== null ? 1.24 - 1.03 * Math.max(0, (leap - 0.57) / 0.43)
+      : windup !== null ? 0.48 + 0.76 * windup : 0.48;
+    drawDisc(shown.x, shown.y + 4, radius, [0.08, 0.02, 0.05, 0.47], [0, 0, 0, 0]);
+    drawMimicMesh(view, shown.x, shown.y + 5 - (still ? 0 : hop), facing, jaw);
+  }
+
   function drawLines(points, color, width = 1) {
     gl.useProgram(lineProgram);
     gl.bindVertexArray(lineVao);
@@ -772,7 +769,7 @@ export function createWebGLArenaRenderer(deps) {
           : 0.22 + 0.025 * Math.sin(now * 4.7 + id) + 0.015 * Math.sin(now * 11.3);
       } else if (world.has(id, Projectile)) {
         intensity = 1.12 + 0.12 * Math.sin(now * 19 + id * 2.3);
-      } else if (world.has(id, GroundItem)) {
+      } else if (world.has(id, GroundItem) || world.get(id, AI)?.mimicClosed) {
         intensity = 0.72 + 0.16 * Math.sin(now * 2.1 + id * 1.7);
       } else if (world.get(id, Actor)?.theme === 'flaming_bat') {
         intensity = still ? 1.25 : 1.48 * emberLight(now, id * 0.73);
@@ -1300,11 +1297,14 @@ export function createWebGLArenaRenderer(deps) {
     overlay.textBaseline = 'top';
     overlay.font = `700 ${Math.round(11 * ratio)}px ui-monospace, monospace`;
     for (const [id, position, collider, actor] of world.query(Position, Collider, Actor)) {
+      if (world.get(id, AI)?.mimicClosed) continue;
       const shown = displayPosition(id, position);
       if (!inView(shown.x, shown.y, 30)) continue;
       const sx = ((shown.x - view[0]) / view[2] + 0.5) * width;
       const sy = ((shown.y - view[1]) / view[3] + 0.5) * height;
-      const labelY = sy + collider.radius * width / view[2] + 9 * ratio;
+      const barOffset = collider.radius + statusBarPadding(actor);
+      const aboveBar = sy - barOffset * width / view[2] - 14 * ratio;
+      const labelY = actor.theme === 'mimic' ? aboveBar : sy + collider.radius * width / view[2] + 9 * ratio;
       const label = actor.rare ? `★ ${actor.name}` : actor.name;
       overlay.lineWidth = 3 * ratio;
       overlay.strokeStyle = 'rgba(2,5,9,.9)';
@@ -1313,8 +1313,7 @@ export function createWebGLArenaRenderer(deps) {
       overlay.fillText(label, sx, labelY);
       const conditionLabel = activeConditionLabels(world.get(id, Conditions)).join(' · ');
       if (conditionLabel) {
-        const barOffset = collider.radius + statusBarPadding(actor);
-        const conditionY = sy - barOffset * width / view[2] - 14 * ratio;
+        const conditionY = actor.theme === 'mimic' ? aboveBar - 14 * ratio : aboveBar;
         overlay.strokeText(conditionLabel, sx, conditionY);
         overlay.fillStyle = '#dff7ff';
         overlay.fillText(conditionLabel, sx, conditionY);
@@ -1475,6 +1474,7 @@ export function createWebGLArenaRenderer(deps) {
     const gazeRays = [];
     const batShrieks = [];
     const batFlames = [];
+    const models = [];
     const wraithCasts = new Map();
     const castTail = SHADOW_BOLT_LIFETIME - 0.32;
     for (const [, projectile, lifetime] of world.query(Projectile, Lifetime)) {
@@ -1488,6 +1488,12 @@ export function createWebGLArenaRenderer(deps) {
       const velocity = world.get(id, Velocity);
       const speed = Math.hypot(velocity?.vx || 0, velocity?.vy || 0);
       const facing = world.get(id, Facing)?.angle ?? 0;
+      if (actor.theme === 'mimic') {
+        if (!inView(shown.x, shown.y, 48)) continue;
+        if (world.get(id, AI)?.mimicClosed) models.push({ model: 'chest', id, shown });
+        else drawMimic(shown, id, collider.radius, facing, speed, combatTime);
+        continue;
+      }
       if (actor.theme === 'shadow') {
         const { radius } = collider;
         if (!inView(shown.x, shown.y, radius * 3)) continue;
@@ -1662,7 +1668,6 @@ export function createWebGLArenaRenderer(deps) {
 
     // Loot signals are intentionally emissive: shafts remain readable through
     // dungeon darkness, with height and color communicating rarity.
-    const models = [];
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     for (const [id, position, _item, info] of world.query(Position, GroundItem, ItemInfo)) {
       const consumable = world.get(id, Consumable);
@@ -1752,6 +1757,7 @@ export function createWebGLArenaRenderer(deps) {
 
     // World-space status bars for every living actor.
     for (const [id, position, collider, health] of world.query(Position, Collider, Health)) {
+      if (world.get(id, AI)?.mimicClosed) continue;
       const shown = displayPosition(id, position);
       const padding = statusBarPadding(world.get(id, Actor));
       const barWidth = Math.max(25, collider.radius * 2.35);

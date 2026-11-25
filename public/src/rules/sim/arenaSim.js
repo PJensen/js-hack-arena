@@ -34,6 +34,7 @@ import {
 import { epicChestTable, epicChestTotalWeight, mobDropTable, mobDropTotalWeight, rollTable } from '../data/lootTable.js';
 import { AuraId } from '../data/auraCatalog.js';
 import { conditions as conditionCatalog } from '../data/conditionCatalog.js';
+import { createEncounterSelector } from '../data/encounterCatalog.js';
 import { effectSystem, projectConditions, projectAuraEmitter } from '../effects.js';
 import { createGridCarver } from '../geometry/carve.js';
 import { sweepMaxFree } from '../geometry/sweep.js';
@@ -46,6 +47,7 @@ import {
   spawnCaster,
   spawnEpicBow,
   spawnEpicChest,
+  EPIC_CHEST_LIGHT,
   spawnEpicSword,
   spawnFlamingBat,
   FLAMING_BAT_LIGHT,
@@ -100,6 +102,7 @@ const PRESENTATION_EVENTS = Object.freeze([
   'chest.opened',
   'item.pickup',
   'melee.hit',
+  'mimic.awakened',
   'projectile.expired',
   'projectile.hit',
   'projectile.wall',
@@ -151,13 +154,26 @@ export function createArenaSimulation({
   let lastAppliedRevision = -1;
   let lastAppliedEventSequence = -1;
   let populationStarted = false;
+  const encounters = mode === SIM_MODE.AUTHORITY ? createEncounterSelector(seed) : null;
 
   if (mode === SIM_MODE.AUTHORITY) {
     installAuthoritativeRules(world, grid);
     installEventJournal(world, eventHistory, () => ({ tick, sequence: ++eventSequence }), projectEventPayload);
     installLootRules(world);
     for (const { x, y } of campfires) spawnAuraField(world, x, y, AuraId.CAMPFIRE);
-    for (const { x, y } of chestSites) ensureNetworkId(spawnEpicChest(world, x, y), 'item');
+    for (const site of chestSites) {
+      const spawn = encounters.choose('leafRoom');
+      if (spawn) placeEncounter(site, spawn);
+      else ensureNetworkId(spawnEpicChest(world, site.x, site.y), 'item');
+    }
+  }
+
+  function placeEncounter(site, spawn) {
+    const count = Math.min(spawn.packSize, encounters.remaining(spawn));
+    if (count <= 0) return;
+    const mobs = spawnEncounter(world, grid, site, spawn, count);
+    for (const id of mobs) ensureNetworkId(id, 'mob');
+    encounters.record(spawn, mobs.length);
   }
 
   function addPlayer(peerId, _spawnIndex = 0, networkId = null, playerName = 'Adventurer') {
@@ -179,9 +195,8 @@ export function createArenaSimulation({
       const sites = encounterSites ?? buildDefaultEnemySites(spawn, enemyCount, groupSize, patrolRoutes, enemySpawnExclusionRadius);
       for (const [index, site] of sites.entries()) {
         const group = ENCOUNTER_GROUPS[Math.floor(index / groupSize) % ENCOUNTER_GROUPS.length];
-        const spawn = group[(index % groupSize) % group.length];
-        const mobs = spawnEncounter(world, grid, site, spawn);
-        for (const mobId of mobs) ensureNetworkId(mobId, 'mob');
+        const variant = encounterSites ? encounters.choose('encounter') : null;
+        placeEncounter(site, variant ?? group[(index % groupSize) % group.length]);
       }
       if (starterHasteRing) {
         const ringPosition = findOpenNear(grid, spawn.x + 48, spawn.y);
@@ -406,6 +421,9 @@ export function createArenaSimulation({
         webWindup: ai.webWindup,
         ...(ai.shriekWindup > 0 && { shriekWindup: ai.shriekWindup }),
         ...(ai.shriekPulse > 0 && { shriekPulse: ai.shriekPulse }),
+        ...(ai.mimicClosed && { mimicClosed: true }),
+        ...(ai.mimicWindup > 0 && { mimicWindup: ai.mimicWindup }),
+        ...(ai.mimicLeap > 0 && { mimicLeap: ai.mimicLeap }),
         ...(gazeTarget && { gaze: { target: gazeTarget, charge: ai.gazeCharge } }),
         conditions: projectConditions(world, entityId),
         auraEmitter: projectAuraEmitter(world, entityId),
@@ -619,6 +637,9 @@ export function createArenaSimulation({
       ai.webWindup = state.webWindup;
       ai.shriekWindup = state.shriekWindup;
       ai.shriekPulse = state.shriekPulse;
+      ai.mimicClosed = state.mimicClosed;
+      ai.mimicWindup = state.mimicWindup;
+      ai.mimicLeap = state.mimicLeap;
       ai.target = state.gaze ? entityByNetworkId.get(state.gaze.target) ?? null : null;
       ai.gazeCharge = ai.target != null ? state.gaze.charge : 0;
       world.get(entityId, Conditions).active = state.conditions.map(replicaCondition);
@@ -869,9 +890,9 @@ function buildDefaultEnemySites(spawn, count, groupSize, routes, exclusionRadius
   return sites;
 }
 
-function spawnEncounter(world, grid, { x, y, patrolPoints }, spawn) {
+function spawnEncounter(world, grid, { x, y, patrolPoints }, spawn, count) {
   const mobs = [spawn(world, grid, x, y, null, patrolPoints)];
-  if (spawn.packSize === 1) return mobs;
+  if (count === 1) return mobs;
 
   const home = world.get(mobs[0], Position);
   const positions = [home];
@@ -879,7 +900,7 @@ function spawnEncounter(world, grid, { x, y, patrolPoints }, spawn) {
   // Place the other members to either side of the site's patrol first.
   const flank = patrolEnd ? Math.atan2(patrolEnd.y - home.y, patrolEnd.x - home.x) + Math.PI / 2 : 0;
   for (const degrees of [0, 180, 45, 225, 135, 315, 90, 270]) {
-    if (mobs.length === spawn.packSize) break;
+    if (mobs.length === count) break;
     const angle = flank + degrees * Math.PI / 180;
     const point = { x: home.x + Math.cos(angle) * 32, y: home.y + Math.sin(angle) * 32 };
     if (positions.some(({ x, y }) => Math.hypot(x - point.x, y - point.y) < 24)) continue;
@@ -995,6 +1016,9 @@ function normalizeMobState(id, state) {
     webWindup: Math.max(0, finiteNumber(state.webWindup ?? 0, `${id}.webWindup`)),
     shriekWindup: Math.max(0, finiteNumber(state.shriekWindup ?? 0, `${id}.shriekWindup`)),
     shriekPulse: Math.max(0, finiteNumber(state.shriekPulse ?? 0, `${id}.shriekPulse`)),
+    mimicClosed: Boolean(state.mimicClosed),
+    mimicWindup: Math.max(0, finiteNumber(state.mimicWindup ?? 0, `${id}.mimicWindup`)),
+    mimicLeap: Math.max(0, finiteNumber(state.mimicLeap ?? 0, `${id}.mimicLeap`)),
     gaze: state.gaze == null ? null : {
       target: normalizeNetworkId(state.gaze.target),
       charge: Math.min(1, Math.max(0, finiteNumber(state.gaze.charge, `${id}.gaze.charge`))),
@@ -1247,7 +1271,7 @@ function replicaItemLight(effect, rarity = '') {
   if (effect === 'haste') return { radius: 90, r: 55, g: 245, b: 190 };
   if (effect === 'fury') return { radius: 100, r: 255, g: 80, b: 35 };
   if (effect === 'ward') return { radius: 105, r: 195, g: 95, b: 255 };
-  if (effect === 'epic_chest') return { radius: 100, r: 200, g: 80, b: 255 };
+  if (effect === 'epic_chest') return EPIC_CHEST_LIGHT;
   return { radius: 55, r: 210, g: 180, b: 110 };
 }
 
@@ -1259,6 +1283,7 @@ function lightForTheme(theme) {
   if (theme === 'gas_spore') return GAS_SPORE_LIGHT;
   if (theme === 'bat') return BAT_LIGHT;
   if (theme === 'flaming_bat') return FLAMING_BAT_LIGHT;
+  if (theme === 'mimic') return EPIC_CHEST_LIGHT;
   return { radius: 105, r: 145, g: 70, b: 220 };
 }
 

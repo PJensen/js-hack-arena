@@ -1430,6 +1430,57 @@ Deno.test('mob preview: spawns the selected mob once on reachable ground near th
   assertEquals(getPreviewMob('constructor'), undefined);
 });
 
+Deno.test('mimic: contact reveals the same mob, which jumps and bites only at landing', () => {
+  for (const dodge of [false, true]) {
+    const sim = makeOpenSim(924, { enemyCount: 0 });
+    const player = sim.addPlayer('peer-a');
+    const position = sim.world.get(player, Position);
+    const mimic = getPreviewMob('mimic')(sim.world, { distanceMove: () => 100 }, 150, 100, null);
+    const mimicPosition = sim.world.get(mimic, Position);
+    const ai = sim.world.get(mimic, AI);
+    const health = sim.world.get(player, Health);
+    const mobRecord = () => sim.captureSnapshot().entities.find(({ state }) => state.theme === 'mimic');
+    const replica = makeOpenSim(924, { mode: SIM_MODE.REPLICA });
+
+    sim.step();
+    const closed = mobRecord();
+    assertEquals(closed.state.mimicClosed, true);
+    assertEquals(ai.target, null);
+    assertEquals(mimicPosition.x, 150);
+    replica.applySnapshot(sim.captureSnapshot());
+    assertEquals(replica.captureSnapshot().entities.find(({ id }) => id === closed.id).state.mimicClosed, true);
+
+    position.x = 118;
+    sim.step();
+    assertEquals(mobRecord().id, closed.id);
+    assert(!mobRecord().state.mimicClosed);
+    assertEquals(ai.target, player);
+    assert(ai.mimicWindup > 0);
+    assertEquals(health.hp, 100);
+
+    position.x = 104;
+    for (let i = 0; i < 10 && ai.mimicLeap === 0; i++) sim.step();
+    assert(ai.mimicLeap > 0);
+    assert(mimicPosition.x < 150);
+    assertEquals(health.hp, 100);
+    replica.applySnapshot(sim.captureSnapshot());
+    assertEquals(replica.captureSnapshot().entities.find(({ id }) => id === closed.id).state.mimicLeap, ai.mimicLeap);
+
+    if (dodge) position.y += 80;
+    for (let i = 0; i < 10 && ai.mimicLeap > 0; i++) sim.step();
+    assertEquals(ai.mimicLeap, 0);
+    const events = sim.captureSnapshot().events;
+    assertEquals(events.filter(({ type }) => type === 'mimic.awakened').length, 1);
+    assertEquals(events.filter(({ type, payload }) => type === 'melee.hit' && payload.sourceTheme === 'mimic').length, dodge ? 0 : 1);
+    assertEquals(health.hp === 100, dodge);
+
+    applyDamage(sim.world, mimic, 200, { sourceId: player });
+    for (let i = 0; i < 25; i++) sim.step();
+    assertEquals(mobRecord(), undefined);
+    assert(sim.captureSnapshot().entities.some(({ state }) => state.effect === 'gold'));
+  }
+});
+
 Deno.test("arena sim: unalerted patrol mobs stay dormant and dead mobs stay dead", () => {
   const sim = makeOpenSim(907, {
     enemyCount: 1,

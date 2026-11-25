@@ -350,6 +350,7 @@ import { generateArenaCave } from './src/rules/geometry/caveGen.js';
 import { findReachableNear } from './src/rules/geometry/landmarks.js';
 import { resolveSeed } from './src/runtime/rng.js';
 import { getPreviewMob, previewMobNames, spawnPreviewMob } from './src/runtime/mobPreview.js';
+import { spawnEpicChest } from './src/rules/spawner.js';
 import { createFixedTickLoop } from './src/runtime/fixedLoop.js';
 import { createInputRouter } from './src/input/InputRouter.js';
 import { createCamera } from './src/display/camera/controller.js';
@@ -518,7 +519,7 @@ const sim = createArenaSimulation({
   grid,
   spawns,
   campfires,
-  chestSites: isPreview ? (previewChestSite ? [previewChestSite] : []) : chestSites,
+  chestSites: isPreview ? [] : chestSites,
   mode: isNetworked ? SIM_MODE.REPLICA : SIM_MODE.AUTHORITY,
   enemyGroupSize: 3,
   encounterSites: isPreview ? [] : encounterSites,
@@ -554,6 +555,7 @@ if (isNetworked) {
   });
 }
 if (mobPreview) spawnPreviewMob(world, grid, world.get(playerId, Position), mobPreview);
+if (previewChestSite) spawnEpicChest(world, previewChestSite.x, previewChestSite.y);
 const offlineProgressKey = 'hack-arena.offline-progress';
 let offlineProgress = { gold: 0 };
 if (!isNetworked && !isPreview) {

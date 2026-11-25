@@ -1,3 +1,9 @@
+export function uniform(gl, program, name) {
+  const found = gl.getUniformLocation(program, name);
+  if (found === null) throw new Error(`WebGL program is missing ${name}`);
+  return found;
+}
+
 function shader(gl, type, source) {
   const handle = gl.createShader(type);
   if (!handle) throw new Error('WebGL could not allocate a shader');

@@ -14,6 +14,7 @@ export const FLOATING_EYE_LIGHT = Object.freeze({ radius: 76, r: 192, g: 86, b: 
 export const GAS_SPORE_LIGHT = Object.freeze({ radius: 66, r: 167, g: 101, b: 180 });
 export const BAT_LIGHT = Object.freeze({ radius: 55, r: 151, g: 118, b: 196 });
 export const FLAMING_BAT_LIGHT = Object.freeze({ radius: 100, r: 255, g: 108, b: 35 });
+export const EPIC_CHEST_LIGHT = Object.freeze({ radius: 100, r: 200, g: 80, b: 255 });
 
 /**
  * Find open ground near a point using the grid.
@@ -189,10 +190,24 @@ export const spawnFlamingBat = defineMob({
   conditionId: ConditionId.BURNING, aggroRange: 185, searchRadius: 64,
 });
 
+export const spawnMimic = defineMob({
+  name: 'Mimic', glyph: '⌂', theme: 'mimic', radius: 14,
+  speed: 92, hp: 65, mana: 0, manaRegen: 0,
+  light: EPIC_CHEST_LIGHT, behavior: AIBehavior.MIMIC, castRate: 1.1,
+  meleeDamage: 16, weapon: 'Bite', aggroRange: 290, searchRadius: 64,
+  spawnWeights: { leafRoom: 1, encounter: 1 },
+  maxPerDungeon: 1,
+  mimicClosed: true,
+});
+
 function defineMob(config) {
   const spawn = (world, grid, nearX, nearY, targetId, patrolPoints = []) =>
     spawnMob(world, grid, nearX, nearY, targetId, config, patrolPoints);
-  return Object.assign(spawn, { packSize: config.packSize ?? 1 });
+  return Object.assign(spawn, {
+    packSize: config.packSize ?? 1,
+    spawnWeights: config.spawnWeights ?? {},
+    maxPerDungeon: config.maxPerDungeon ?? Infinity,
+  });
 }
 
 function spawnMob(world, grid, nearX, nearY, targetId, config, patrolPoints) {
@@ -220,6 +235,7 @@ function spawnMob(world, grid, nearX, nearY, targetId, config, patrolPoints) {
     webSpit: config.webSpit ?? false,
     shriekConditionId: config.shriekConditionId ?? null,
     plantAtContact: config.plantAtContact ?? false,
+    mimicClosed: config.mimicClosed ?? false,
     aggroRange: config.aggroRange ?? 300,
     patrolPoints: patrolPoints || [],
     patrolIndex: 0,
@@ -447,7 +463,7 @@ export function spawnEpicChest(world, x, y) {
   world.add(id, Consumable, { effect: 'epic_chest', potency: 0 });
   world.add(id, GroundItem);
   world.add(id, Collider, { radius: 12 });
-  world.add(id, PointLight, { radius: 100, r: 200, g: 80, b: 255 });
+  world.add(id, PointLight, EPIC_CHEST_LIGHT);
   return id;
 }
 
