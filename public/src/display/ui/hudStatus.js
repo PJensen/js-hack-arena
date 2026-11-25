@@ -1,4 +1,5 @@
 import { createAtlasIcon } from './atlasIcon.js';
+import { createStatusIcon } from './statusIcon.js';
 import { conditions as conditionCatalog } from '../../rules/data/conditionCatalog.js';
 import { getMiningMaterial } from '../../rules/data/miningMaterials.js';
 
@@ -33,11 +34,11 @@ export function createHudStatus(root, materialReadout) {
     const statuses = [];
     for (const [field, iconId, label] of POWERUP_ICONS) {
       const remaining = powerups?.[field];
-      if (remaining > 0) statuses.push([iconId, `${label} ${Math.ceil(remaining)}s`]);
+      if (remaining > 0) statuses.push([iconId, `${label} ${Math.ceil(remaining)}s`, 'powerup']);
     }
     for (const condition of conditions?.active ?? []) {
       const name = condition.name ?? conditionCatalog[condition.id]?.name ?? condition.id;
-      statuses.push([condition.id, `${name.toUpperCase()} ${condition.remaining.toFixed(1)}s`]);
+      statuses.push([condition.id, `${name.toUpperCase()} ${condition.remaining.toFixed(1)}s`, 'condition']);
     }
 
     const key = JSON.stringify([gold, statuses, casts, connection]);
@@ -45,9 +46,9 @@ export function createHudStatus(root, materialReadout) {
     shown = key;
     const content = document.createDocumentFragment();
     content.append(createAtlasIcon('coin_pouch', 'Gold'), ` ${gold}`);
-    for (const [iconId, label] of statuses) {
+    for (const [iconId, label, kind] of statuses) {
       content.append(' · ');
-      const icon = createAtlasIcon(iconId);
+      const icon = kind === 'condition' ? createStatusIcon(iconId) : createAtlasIcon(iconId);
       if (icon) content.append(icon, ' ');
       content.append(label);
     }
