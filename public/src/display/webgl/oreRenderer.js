@@ -24,7 +24,7 @@ export function createOreRenderer(device, grid, sites) {
   const mesh = uploadPropMesh(device, createOreMesh());
 
   return function drawOre(view, inView) {
-    const visible = sites.filter((site) => inView(site.x, site.y, 32) && isOreWall(grid, site));
+    const visible = sites.filter((site) => inView(site.x, site.y, 40) && isOreWall(grid, site));
     if (!visible.length) return;
     gl.useProgram(shader.program);
     gl.bindVertexArray(mesh.vao);
