@@ -2,6 +2,36 @@
 
 Experimental cooperative cave-delving prototype.
 
+## Game vision
+
+Go into the caves with friends, see how far you can get, and come back with
+something that changes your next run. The first version of that loop could be
+as simple as inviting a friend, clearing a short dungeon, beating a boss, and
+spending your gold on an upgrade you can feel the next time you play.
+
+- **Characters and stats.** Your character keeps their progression, gear, and
+  gold across runs. Start with stats you can feel in a fight, such as health,
+  mana, stamina, armor, and weapon damage. We could add XP and levels as another
+  way to grow. A question for co-op is how much stronger a veteran should be
+  when they join a friend who's just starting out.
+- **Gear and skills.** One idea is for skills to unlock abilities and gear to
+  change how those abilities work. A Rend weapon could make the bleed last
+  longer, while a healer's staff could let Regeneration reach a second ally.
+- **Dungeon runs.** Friends can share a private dungeon instance. Each run has
+  its own encounters, chests, and boss, and everyone brings their own character.
+  Boss fights can give different builds a chance to shine. Bleed and poison
+  can keep working while you dodge, and healing can help a small party recover
+  without requiring a dedicated healer for every run.
+- **Gold, vendors, and mining.** Gold gives you something to work toward even
+  when the loot drops don't go your way. Vendors can sell meaningful upgrades,
+  and ore mined in the caves could let a smith upgrade a weapon you already
+  like. An auction house could give players a place to trade spare gear and
+  materials once there are things people want to buy from each other.
+- **NPC dialogue.** A small, inexpensive language model could give vendors and
+  other NPCs some personality. A smith might comment on the ore you brought
+  back or the boss you just beat. The game would supply those facts and control
+  prices, stock, and rewards.
+
 ## WebGL Incubation
 
 Arena now incubates its next presentation foundation directly under
