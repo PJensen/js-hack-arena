@@ -124,6 +124,7 @@ export function createArenaSimulation({
   grid,
   spawns = [],
   campfires = [],
+  chestSites = [],
   mode = SIM_MODE.AUTHORITY,
   enemyCount = 1,
   enemyGroupSize = 1,
@@ -153,6 +154,7 @@ export function createArenaSimulation({
     installEventJournal(world, eventHistory, () => ({ tick, sequence: ++eventSequence }), projectEventPayload);
     installLootRules(world);
     for (const { x, y } of campfires) spawnAuraField(world, x, y, AuraId.CAMPFIRE);
+    for (const { x, y } of chestSites) ensureNetworkId(spawnEpicChest(world, x, y), 'item');
   }
 
   function addPlayer(peerId, _spawnIndex = 0, networkId = null, playerName = 'Adventurer') {

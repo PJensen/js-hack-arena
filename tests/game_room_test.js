@@ -143,6 +143,40 @@ Deno.test('game room: opening chat interrupts an in-progress cast before release
   }
 });
 
+Deno.test('game room: dead-end chests match offline placement and open once', () => {
+  const room = new GameRoom(makeRoomState(), {});
+  const first = new FakeSocket();
+  const second = new FakeSocket();
+  room.accept(first, { userId: 'user-1', displayName: 'First' });
+  try {
+    const cave = room.ensureCave();
+    const offline = createArenaSimulation({ ...cave, seed: room.seed, enemyGroupSize: 3 });
+    offline.addPlayer('offline');
+    const chests = (snapshot) => snapshot.entities.filter(({ state }) => state.effect === 'epic_chest');
+    const initial = chests(latestSnapshot(first));
+    assert(initial.length > 0);
+    assertEquals(initial.length, cave.chestSites.length);
+    assertEquals(initial, chests(offline.captureSnapshot()));
+
+    const sim = room.ensureSim();
+    const { peerId } = first.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    const position = sim.world.get(sim.getPlayerEntity(peerId), Position);
+    const [{ id, state: { x, y } }] = initial;
+    Object.assign(position, { x, y });
+    room.step();
+    room.step();
+    const snapshot = sim.captureSnapshot();
+    assertEquals(chests(snapshot), initial.filter((chest) => chest.id !== id));
+    assertEquals(snapshot.events.filter(({ type }) => type === 'chest.opened').length, 1);
+
+    room.accept(second, { userId: 'user-2', displayName: 'Second' });
+    assertEquals(chests(latestSnapshot(second)), chests(snapshot));
+  } finally {
+    room.leave(first);
+    room.leave(second);
+  }
+});
+
 Deno.test('game room: encounters stay spread out while some mobs patrol', () => {
   const room = new GameRoom(makeRoomState(), {});
   const socket = new FakeSocket();

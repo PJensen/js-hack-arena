@@ -11,6 +11,7 @@ import { buildTerrainMesh } from '../public/src/display/webgl/terrainMesh.js';
 import { createDungeonDecorations } from '../public/src/display/worldDecorations.js';
 import { biolum, emberLight, torchLight } from '../public/src/display/lightPatterns.js';
 import { generateArenaCave, generateCave } from '../public/src/rules/geometry/caveGen.js';
+import { sweepMaxFree } from '../public/src/rules/geometry/sweep.js';
 
 Deno.test('weapon tooltip: authored names take precedence over weapon type fallbacks', () => {
   assertEquals(weaponTooltipName({ name: 'Shadow Longbow', slot: 'ranged' }), 'Shadow Longbow');
@@ -160,6 +161,23 @@ Deno.test('arena cave expands the playable network without growing the field tex
   assertEquals(cave.campfires.length, 1);
   const [campfire] = cave.campfires;
   assert(cave.grid.distanceMove(campfire.x, campfire.y) >= 38);
+});
+
+Deno.test('arena cave places one reachable chest in each dead-end chamber beyond the entrance', () => {
+  const { grid, routes, spawns: [entrance], chestSites } = generateArenaCave(42);
+  const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const endpoints = routes.flatMap(({ from, to }) => [from, to]);
+  const leaves = endpoints.filter((room) => endpoints.filter((end) => distance(room, end) === 0).length === 1);
+  assert(leaves.some((leaf) => distance(leaf, entrance) === 0));
+  assertEquals(chestSites.length, leaves.length - 1);
+  for (const leaf of leaves) {
+    const nearby = chestSites.filter((site) => distance(site, leaf) <= 48.001);
+    assertEquals(nearby.length, distance(leaf, entrance) === 0 ? 0 : 1);
+    for (const { x, y } of nearby) {
+      assert(grid.distanceMove(x, y) >= 20);
+      assertEquals(sweepMaxFree(grid, leaf.x, leaf.y, x, y, 20), 1);
+    }
+  }
 });
 
 Deno.test('webgl foundation: cave generation retains signed visual density', () => {

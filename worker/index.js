@@ -300,6 +300,7 @@ export class GameRoom {
         grid: caveData.grid,
         spawns: caveData.spawns,
         campfires: caveData.campfires,
+        chestSites: caveData.chestSites,
         enemyGroupSize: 3,
         encounterSites: caveData.encounterSites,
         starterHasteRing: true,

@@ -318,6 +318,8 @@ const ARENA_ENEMY_COUNT = 9;
 const ENTRANCE_EXCLUSION_RADIUS = 320;
 const PATROL_DISTANCE = 64;
 const MOB_CLEARANCE = 20;
+const CHEST_CLEARANCE = 20;
+const CHEST_DISTANCE = 48;
 const pointDistance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 function placeArenaEncounters({ grid, routes, spawns: [start] }) {
@@ -356,6 +358,33 @@ function findPatrolEnd(grid, room) {
   return null;
 }
 
+function placeArenaChests({ grid, routes, spawns: [start] }) {
+  const leafEnds = new Map();
+  for (const { from, to, points } of routes) {
+    for (const [room, approach] of [[from, points[1]], [to, points.at(-2)]]) {
+      const key = `${room.x},${room.y}`;
+      // A room with more than one passage is no longer a dead end.
+      leafEnds.set(key, leafEnds.has(key) ? null : { room, approach });
+    }
+  }
+
+  const sites = [];
+  for (const end of leafEnds.values()) {
+    if (!end) continue;
+    const { room, approach } = end;
+    if (pointDistance(room, start) === 0 || grid.distanceMove(room.x, room.y) < CHEST_CLEARANCE) continue;
+    const distance = pointDistance(room, approach);
+    const offset = distance > 0 ? CHEST_DISTANCE / distance : 0;
+    const back = {
+      x: room.x + (room.x - approach.x) * offset,
+      y: room.y + (room.y - approach.y) * offset,
+    };
+    const clear = sweepMaxFree(grid, room.x, room.y, back.x, back.y, CHEST_CLEARANCE) === 1;
+    sites.push(clear ? back : room);
+  }
+  return sites;
+}
+
 // Shared by the browser and authoritative rooms. Keep the field dimensions
 // close to the original grid while doubling the world scale.
 export function generateArenaCave(seed) {
@@ -367,5 +396,10 @@ export function generateArenaCave(seed) {
   const start = cave.spawns[0];
   const hearth = findOpen(cave.grid, start.x, start.y - 76, 24, 38) ??
     findOpen(cave.grid, start.x, start.y + 76, 24, 38);
-  return { ...cave, campfires: hearth ? [hearth] : [], encounterSites: placeArenaEncounters(cave) };
+  return {
+    ...cave,
+    campfires: hearth ? [hearth] : [],
+    encounterSites: placeArenaEncounters(cave),
+    chestSites: placeArenaChests(cave),
+  };
 }

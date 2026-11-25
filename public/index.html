@@ -406,7 +406,7 @@ const isNetworked = Boolean(netWelcome);
 // ── Seed + cave ─────────────────────────────────────────────────
 const SEED = netWelcome?.seed ?? resolveSeed().seed;
 const caveData = generateArenaCave(SEED);
-const { grid, bounds, spawns, routes, campfires, encounterSites } = caveData;
+const { grid, bounds, spawns, routes, campfires, encounterSites, chestSites } = caveData;
 const spawn = spawns[0];
 const decorations = createDungeonDecorations({ grid, routes, spawns, campfires, seed: SEED });
 
@@ -461,6 +461,7 @@ const sim = createArenaSimulation({
   grid,
   spawns,
   campfires,
+  chestSites: mobPreview ? [] : chestSites,
   mode: isNetworked ? SIM_MODE.REPLICA : SIM_MODE.AUTHORITY,
   enemyGroupSize: 3,
   encounterSites: mobPreview ? [] : encounterSites,
