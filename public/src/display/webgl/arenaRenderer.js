@@ -67,6 +67,10 @@ import { SPORE_CLOUD_FRAGMENT } from './shaders/sporeCloud.frag.js';
 // sources for actors, loot, projectiles, and transient spell illumination.
 export const MAX_DYNAMIC_LIGHTS = 24;
 
+function cleaveIntensity({ rend, charge = 0 }) {
+  return rend ? 0 : charge ** 2;
+}
+
 function statusBarPadding(actor) {
   if (actor?.name === 'Goblin Raider') return 29;
   const theme = actor?.theme;
@@ -287,6 +291,7 @@ export function createWebGLArenaRenderer(deps) {
     angle: uniform(gl, meleeArcProgram, 'u_angle'),
     halfAngle: uniform(gl, meleeArcProgram, 'u_half_angle'),
     progress: uniform(gl, meleeArcProgram, 'u_progress'),
+    power: uniform(gl, meleeArcProgram, 'u_power'),
     rend: uniform(gl, meleeArcProgram, 'u_rend'),
     charging: uniform(gl, meleeArcProgram, 'u_charging'),
   };
@@ -445,19 +450,23 @@ export function createWebGLArenaRenderer(deps) {
     });
   }
 
-  function spawnMeleeSparks(hit, { rend, x, y }) {
+  function spawnMeleeSparks(hit, swing) {
+    const { rend, x, y } = swing;
+    const heat = cleaveIntensity(swing);
+    const burst = motionPreference.matches ? 0 : heat;
     const direction = Math.atan2(hit.y - y, hit.x - x);
-    for (let i = 0; i < (rend ? 15 : 12); i++) {
+    const count = rend ? 15 : 12 + Math.round(burst * 12);
+    for (let i = 0; i < count; i++) {
       const random = 0.5 + 0.5 * Math.sin(i * 81.7 + hit.x * 2.3 + hit.y * 7.9);
       const angle = direction + (random - 0.5) * 2.8;
-      const speed = 55 + (i % 5) * 34;
+      const speed = (55 + (i % 5) * 34) * (1 + burst * 0.48);
       fx.pool.spawn({
         x: hit.x, y: hit.y,
         vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
         ax: 0, ay: 80,
         life: 0.16 + random * 0.24,
-        size0: 3 + random * 4, size1: 0.6,
-        r: 1, g: rend ? 0.12 + random * 0.26 : 0.52 + random * 0.46, b: rend ? 0.21 : 0.32,
+        size0: 3 + random * 4 + burst * 2, size1: 0.6,
+        r: 1, g: rend ? 0.12 + random * 0.26 : 0.52 + random * 0.46 - heat * 0.43, b: rend ? 0.21 : 0.32 - heat * 0.14,
         a0: 0.95, a1: 0,
       });
     }
@@ -610,6 +619,7 @@ export function createWebGLArenaRenderer(deps) {
     gl.uniform1f(meleeArc.angle, swing.angle);
     gl.uniform1f(meleeArc.halfAngle, swing.halfAngle);
     gl.uniform1f(meleeArc.progress, charge ?? swing.age / swing.duration);
+    gl.uniform1f(meleeArc.power, charge ?? swing.charge);
     gl.uniform1i(meleeArc.rend, Number(swing.rend));
     gl.uniform1i(meleeArc.charging, Number(charge !== null));
     gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -619,12 +629,15 @@ export function createWebGLArenaRenderer(deps) {
     const progress = Math.min(1, (swing.age - swing.contactTime) / 0.16);
     if (progress >= 1) return;
     const fade = (1 - progress) ** 2;
-    const core = motionPreference.matches ? 0.25 : 0.78;
-    const color = swing.rend ? [1, 0.19, 0.29] : [1, 0.64, 0.27];
+    const still = motionPreference.matches;
+    const heat = cleaveIntensity(swing);
+    const burst = still ? 0 : heat;
+    const core = still ? 0.25 : 0.78;
+    const color = swing.rend ? [1, 0.19, 0.29] : [1, 0.64 - 0.54 * heat, 0.27 - 0.13 * heat];
     const expansion = 1 - (1 - progress) ** 3;
     for (const hit of swing.hits) {
       if (!inView(hit.x, hit.y, 42)) continue;
-      const radius = (hit.killed ? 19 : 14) + expansion * 17;
+      const radius = (hit.killed ? 19 : 14) + expansion * 17 + 8 * burst;
       drawDisc(hit.x, hit.y, radius, [...color, fade * 0.19], [...color, fade * 0.6]);
       drawDisc(hit.x, hit.y, 8 - progress * 5, [1, 0.94, 0.83, fade * core], [...color, fade * core]);
     }
@@ -821,6 +834,7 @@ export function createWebGLArenaRenderer(deps) {
     }
     for (const swing of meleeImpact.swings) {
       const progress = swing.age / swing.duration;
+      const heat = cleaveIntensity(swing);
       const reach = swing.range * 0.66;
       const tip = Math.min(1, progress * (swing.rend ? 4.8 : 2.8));
       const angle = swing.angle + (2 * tip - 1) * swing.halfAngle;
@@ -829,8 +843,8 @@ export function createWebGLArenaRenderer(deps) {
       const radius = swing.range * 1.65;
       if (inView(x, y, radius)) {
         candidates.push({
-          x, y, radius, intensity: 1.35 * (1 - progress) ** 2,
-          r: 1, g: swing.rend ? 0.13 : 0.61, b: swing.rend ? 0.28 : 0.21,
+          x, y, radius, intensity: (1.35 + (still ? 0 : 0.65 * heat)) * (1 - progress) ** 2,
+          r: 1, g: swing.rend ? 0.13 : 0.61 - 0.51 * heat, b: swing.rend ? 0.28 : 0.21 - 0.07 * heat,
         });
       }
     }
@@ -1755,14 +1769,16 @@ export function createWebGLArenaRenderer(deps) {
 
     // Aim distance follows stick displacement; heading remains the rim dot.
     const aimMagnitude = Math.min(1, Math.hypot(playerInput.aimX, playerInput.aimY));
-    if (aimMagnitude > 0.05 && !world.get(playerId, Health)?.dead) {
+    const book = world.get(playerId, Spellbook);
+    const activeSpell = book && spellCatalog[book.spells[book.charging ? book.chargeSpellIndex : book.activeIndex]];
+    const cleaveSelected = activeSpell?.id === 'cleave';
+    if (aimMagnitude > 0.05 && !(cleaveSelected && book.charging) && !world.get(playerId, Health)?.dead) {
       const aimAngle = Math.atan2(playerInput.aimY, playerInput.aimX);
-      const aimDistance = playerCollider.radius + 12 + aimMagnitude * 72;
+      const stickDistance = playerCollider.radius + 12 + aimMagnitude * 72;
+      const aimDistance = cleaveSelected ? Math.min(stickDistance, activeSpell.targeting.range) : stickDistance;
       const aimX = shownPlayer.x + Math.cos(aimAngle) * aimDistance;
       const aimY = shownPlayer.y + Math.sin(aimAngle) * aimDistance;
       drawLines(new Float32Array([shownPlayer.x, shownPlayer.y, aimX, aimY]), [0.35, 0.9, 1, 0.42]);
-      const book = world.get(playerId, Spellbook);
-      const activeSpell = book?.charging ? spellCatalog[book.spells[book.chargeSpellIndex]] : null;
       const castDuration = activeSpell?.cast.maxCharge || activeSpell?.cast.castTime || activeSpell?.cast.channelDuration || 1;
       const charge = book?.charging ? Math.min(1, book.charge / castDuration) : 0;
       drawDisc(aimX, aimY, 3 + charge * 4, [0.35, 0.9, 1, 0.25 + charge * 0.55], [0.72, 1, 1, 0.9]);
@@ -1809,8 +1825,9 @@ export function createWebGLArenaRenderer(deps) {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     drawParticles(renderScale * ratio);
     if (punch.flash > 0) {
+      const heat = cleaveIntensity(punch);
       drawRect(view[0], view[1], view[2], view[3],
-        punch.rend ? [1, 0.20, 0.31, punch.flash] : [1, 0.79, 0.48, punch.flash]);
+        punch.rend ? [1, 0.20, 0.31, punch.flash] : [1, 0.79 - 0.56 * heat, 0.48 - 0.26 * heat, punch.flash]);
     }
 
     const hp = world.get(playerId, Health);

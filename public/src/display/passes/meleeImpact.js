@@ -16,7 +16,7 @@ export function createMeleeImpact({ playerId, reducedMotion = () => false, onCon
     const { range, halfAngle, hits = [] } = event.meleeArc ?? spells[event.spellId].targeting;
     const charge = Math.min(1, Math.max(0, event.charge ?? 0));
     swings.push({
-      ...event, ...profile, range, halfAngle,
+      ...event, ...profile, range, halfAngle, charge,
       hold: profile.hold + profile.chargeHold * charge,
       age: 0, landed: false, rend: event.spellId === 'rend',
       hits,
@@ -64,6 +64,7 @@ export function createMeleeImpact({ playerId, reducedMotion = () => false, onCon
       zoom: 1 + swing.zoom * decay * strength,
       flash: Math.max(0, 1 - age / 0.064) ** 2 * 0.12,
       rend: swing.rend,
+      charge: swing.charge,
     };
   }
 
@@ -85,7 +86,7 @@ export function createMeleeImpact({ playerId, reducedMotion = () => false, onCon
       if (!hit) continue;
       const recovery = Math.min(1, (swing.age - swing.contactTime) / 0.16);
       const direction = Math.atan2(hit.y - swing.y, hit.x - swing.x);
-      const recoil = (swing.rend ? 6 : 11) * Math.sin(Math.PI * Math.sqrt(recovery));
+      const recoil = (swing.rend ? 6 : 11 + 5 * swing.charge ** 2) * Math.sin(Math.PI * Math.sqrt(recovery));
       x += Math.cos(direction) * recoil;
       y += Math.sin(direction) * recoil;
     }
