@@ -1,6 +1,6 @@
 import {
   Actor, ActorKind, BowWeapon, Conditions, AuraEmitter, Collider,
-  Consumable, Facing, Gold, GroundItem, Health, Input, ItemInfo, ItemSlot, Lifetime, LootToss, Mana, Materials, MeleeWeapon,
+  Consumable, Facing, Gold, GroundItem, Health, Input, ItemInfo, ItemSlot, Lifetime, LootToss, Mana, MaterialStacks, MeleeWeapon,
   PickupLock, PlayerTag, PointLight, Position, Powerups, Projectile, Ring, Spellbook,
   Velocity, WeaponPickup,
 } from '../../rules/components/index.js';
@@ -1904,7 +1904,7 @@ export function createWebGLArenaRenderer(deps) {
     syncHudStatus({
       dead: hp?.dead,
       gold: world.get(playerId, Gold)?.count ?? 0,
-      materials: world.get(playerId, Materials)?.counts,
+      materials: world.get(playerId, MaterialStacks)?.counts,
       powerups: activePowerups,
       conditions: world.get(playerId, Conditions),
       casts: runtimeEvents.casts,

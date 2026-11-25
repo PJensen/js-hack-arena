@@ -27,7 +27,7 @@ export { Consumable } from './Consumable.js';
 export { GroundItem } from './GroundItem.js';
 export { LootToss } from './LootToss.js';
 export { Gold } from './Gold.js';
-export { Materials } from './Materials.js';
+export { MaterialStacks } from './MaterialStacks.js';
 export { MeleeWeapon } from './MeleeWeapon.js';
 export { WeaponPickup } from './WeaponPickup.js';
 export { BowWeapon } from './BowWeapon.js';

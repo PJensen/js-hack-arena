@@ -2,7 +2,7 @@
 // intent from their comparison card. Replaced equipment is dropped nearby.
 import {
   ArrowAmmo, BowWeapon, Collider, Conditions, Consumable, Facing, Gold, GroundItem, Health,
-  Input, ItemInfo, ItemSlot, LootToss, Mana, Materials, MeleeWeapon, PickupLock, Position, Powerups,
+  Input, ItemInfo, ItemSlot, LootToss, Mana, MaterialStacks, MeleeWeapon, PickupLock, Position, Powerups,
   Ring, Spellbook, SpellId, WeaponPickup,
 } from '../components/index.js';
 import { ConditionId } from '../data/conditionCatalog.js';
@@ -172,7 +172,7 @@ function getDropPosition(world, player, itemPosition, grid) {
 function consumeItem(world, player, itemId, position, info, consumable) {
   const { hp, id } = player;
   const material = getMiningMaterial(consumable.effect);
-  const stock = material && world.get(id, Materials);
+  const stock = material && world.get(id, MaterialStacks);
   if (stock) {
     const type = consumable.effect;
     stock.counts[type] = (stock.counts[type] ?? 0) + info.count;

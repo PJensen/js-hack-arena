@@ -6,7 +6,7 @@ import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, H
 import { auras as auraCatalog } from './data/auraCatalog.js';
 import { ConditionId, HEALTH_POTION_AMOUNT } from './data/conditionCatalog.js';
 import { Gold } from './components/Gold.js';
-import { Materials } from './components/Materials.js';
+import { MaterialStacks } from './components/MaterialStacks.js';
 import { Ring } from './components/Ring.js';
 import { getMiningMaterial, miningMaterialIds } from './data/miningMaterials.js';
 
@@ -107,7 +107,7 @@ export function spawnPlayer(world, x, y, name = 'Player') {
   world.add(id, Ring);
   world.add(id, ArrowAmmo, { count: 10 });
   world.add(id, Gold);
-  world.add(id, Materials, { counts: {} });
+  world.add(id, MaterialStacks, { counts: {} });
   world.add(id, Spellbook, {
     spells: [SpellId.FROST_BOLT, SpellId.LIGHTNING, SpellId.CLEAVE, SpellId.REND],
     activeIndex: 0,

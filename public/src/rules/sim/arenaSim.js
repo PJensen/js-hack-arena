@@ -20,7 +20,7 @@ import {
   MeleeWeapon,
   WeaponPickup,
   Mana,
-  Materials,
+  MaterialStacks,
   PointLight,
   Powerups,
   PlayerTag,
@@ -381,7 +381,7 @@ export function createArenaSimulation({
         ring: ring.name ? { ...ring } : null,
         arrowCount: ammo.count,
         gold: world.get(entityId, Gold).count,
-        materials: { ...world.get(entityId, Materials).counts },
+        materials: { ...world.get(entityId, MaterialStacks).counts },
         conditions: projectConditions(world, entityId),
         auraEmitter: projectAuraEmitter(world, entityId),
       },
@@ -603,7 +603,7 @@ export function createArenaSimulation({
       Object.assign(world.get(entityId, Ring), state.ring ?? Ring.defaults);
       world.get(entityId, ArrowAmmo).count = state.arrowCount;
       world.get(entityId, Gold).count = state.gold;
-      world.get(entityId, Materials).counts = state.materials;
+      world.get(entityId, MaterialStacks).counts = state.materials;
       world.get(entityId, Conditions).active = state.conditions.map(replicaCondition);
     } else if (record.kind === 'item') {
       const toss = world.get(entityId, LootToss);
