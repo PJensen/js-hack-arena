@@ -1469,7 +1469,7 @@ export function createWebGLArenaRenderer(deps) {
         batFlamePuffs.push({ x, y, emitter, flicker });
       }
     }
-    drawOre(view, inView);
+    drawOre(view, inView, motionPreference.matches ? null : now);
     drawDungeonDecorations(now, renderDt, campfires);
 
     goreRenderer.drawFloor(gore, view, inView);

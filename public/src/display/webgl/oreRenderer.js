@@ -20,10 +20,11 @@ export function createOreRenderer(device, grid, sites) {
     position: uniform(gl, program, 'u_position'),
     wallNormal: uniform(gl, program, 'u_wall_normal'),
     metal: uniform(gl, program, 'u_metal'),
+    glintTime: uniform(gl, program, 'u_glint_time'),
   };
   const mesh = uploadPropMesh(device, createOreMesh());
 
-  return function drawOre(view, inView) {
+  return function drawOre(view, inView, time) {
     const visible = sites.filter((site) => inView(site.x, site.y, 40) && isOreWall(grid, site));
     if (!visible.length) return;
     gl.useProgram(shader.program);
@@ -35,6 +36,7 @@ export function createOreRenderer(device, grid, sites) {
       gl.uniform2f(shader.position, x, y);
       gl.uniform2f(shader.wallNormal, normalX, normalY);
       gl.uniform3fv(shader.metal, metalColors[kind]);
+      gl.uniform1f(shader.glintTime, time === null ? -1 : time + x * 0.013 + y * 0.017);
       gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
     }
     gl.disable(gl.DEPTH_TEST);
