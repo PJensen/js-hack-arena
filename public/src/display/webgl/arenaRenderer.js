@@ -39,6 +39,7 @@ import { SPELLBOOK_FRAGMENT } from './shaders/spellbook.frag.js';
 import { LOOT_SHAFT_VERTEX } from './shaders/lootShaft.vert.js';
 import { LOOT_SHAFT_FRAGMENT } from './shaders/lootShaft.frag.js';
 import { LOOT_GOBLIN_FLASH_FRAGMENT } from './shaders/lootGoblinFlash.frag.js';
+import { AGONY_AURA_FRAGMENT } from './shaders/agonyAura.frag.js';
 import { WORLD_VERTEX } from './shaders/world.vert.js';
 import { CAVE_VERTEX } from './shaders/cave.vert.js';
 import { CAVE_FRAGMENT } from './shaders/cave.frag.js';
@@ -196,6 +197,10 @@ export function createWebGLArenaRenderer(deps) {
   const goblinFlash = worldProgram(device, LOOT_GOBLIN_FLASH_FRAGMENT);
   goblinFlash.age = uniform(gl, goblinFlash.program, 'u_age');
   goblinFlash.strength = uniform(gl, goblinFlash.program, 'u_strength');
+  const agonyAura = worldProgram(device, AGONY_AURA_FRAGMENT);
+  agonyAura.time = uniform(gl, agonyAura.program, 'u_time');
+  agonyAura.progress = uniform(gl, agonyAura.program, 'u_progress');
+  agonyAura.opacity = uniform(gl, agonyAura.program, 'u_opacity');
   const batFlame = worldProgram(device, BAT_FLAME_FRAGMENT);
   batFlame.time = uniform(gl, batFlame.program, 'u_time');
   batFlame.alpha = uniform(gl, batFlame.program, 'u_alpha');
@@ -1027,14 +1032,16 @@ export function createWebGLArenaRenderer(deps) {
           drawDisc(x, y, size, color, color);
         }
       } else if (condition.id === ConditionId.AGONY) {
-        const progress = 1 - condition.remaining / condition.duration;
-        const r = collider.radius + 4;
-        for (const side of [-1, 1]) {
-          const x = position.x + side * r;
-          const y = position.y - 7 - pulse * 4;
-          drawLines(new Float32Array([x, y - 6, x + side * (4 + progress * 6), y + 2, x, y + 8]),
-            [0.85, 0.45, 1, Math.min(1, condition.remaining * 3) * (0.55 + progress * 0.45)], 2);
-        }
+        const age = Math.max(0, condition.duration - condition.remaining);
+        const radius = collider.radius;
+        if (!inView(position.x, position.y, radius * 3)) continue;
+        gl.useProgram(agonyAura.program);
+        gl.bindVertexArray(quadVao);
+        setWorld(agonyAura, position.x, position.y - radius * 0.85, radius * 4.6, radius * 4.8);
+        gl.uniform1f(agonyAura.time, motionPreference.matches ? 0 : age);
+        gl.uniform1f(agonyAura.progress, age / condition.duration);
+        gl.uniform1f(agonyAura.opacity, Math.min(1, 0.35 + age * 5, condition.remaining * 3));
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
       } else if (condition.visual === 'ice_armor') {
         drawDisc(position.x, position.y, collider.radius + 5 + pulse * 1.5, [0.18, 0.52, 0.9, 0.14], [0.58, 0.9, 1, 0.78]);
         for (let shard = 0; shard < 4; shard++) {
