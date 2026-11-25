@@ -18,7 +18,8 @@ const drops = (sim) => sim.captureSnapshot().entities
 Deno.test('mining validates range, intent, and clear access, then breaks a deposit once', () => {
   let obstructed = false;
   const grid = { cellSize: 8, distanceMove: (x) => obstructed && x > 72 && x < 82 ? 0 : distanceMove(x) };
-  const sim = makeSim({ seed: 1, grid });
+  // This vein rolled a gem at 20% and misses at 10%.
+  const sim = makeSim({ seed: 14, grid });
   const miner = sim.addPlayer('miner');
   const mine = (peer, ore = wallOre) => sim.setPlayerInput(peer, { pickupX: ore.x, pickupY: ore.y, mine: true });
   const order = () => sim.getPlayerSnapshot('miner').state.mining;

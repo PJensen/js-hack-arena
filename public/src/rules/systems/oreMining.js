@@ -7,7 +7,7 @@ import { spawnItem } from '../spawner.js';
 import { tossLoot } from './lootTossSystem.js';
 
 const TARGET_RADIUS = 24;
-const GEMSTONE_CHANCE = 0.20;
+const GEMSTONE_CHANCE = 0.10;
 const ROCK_SPREAD = [-0.78, 0.57, 1.10];
 
 function canKeepMining(input, book) {
