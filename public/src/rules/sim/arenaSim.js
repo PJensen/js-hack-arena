@@ -16,6 +16,7 @@ import {
   Input,
   ItemInfo,
   Lifetime,
+  LootToss,
   MeleeWeapon,
   WeaponPickup,
   Mana,
@@ -75,6 +76,7 @@ import {
 import { createAISystem } from '../systems/aiSystem.js';
 import { createBumpSystem } from '../systems/bumpSystem.js';
 import { deathSystem } from '../systems/deathSystem.js';
+import { lootTossSystem, tossLoot } from '../systems/lootTossSystem.js';
 import { createMovementSystem } from '../systems/movementSystem.js';
 import { installManaCombatDelay, manaSystem } from '../systems/manaSystem.js';
 import { createPickupSystem } from '../systems/pickupSystem.js';
@@ -448,6 +450,7 @@ export function createArenaSimulation({
     const weapon = world.get(entityId, WeaponPickup);
     const ring = world.get(entityId, Ring);
     const pickupLock = world.get(entityId, PickupLock);
+    const toss = world.get(entityId, LootToss);
     return {
       id: ensureNetworkId(entityId, 'item'),
       kind: 'item',
@@ -463,6 +466,7 @@ export function createArenaSimulation({
           slot: weapon.slot, damage: weapon.damage, infiniteArrows: weapon.infiniteArrows,
         } : null,
         ring: ring ? { ...ring } : null,
+        ...(toss && { tossHeight: toss.height }),
         pickupLock: pickupLock?.remaining > 0 ? {
           owner: ensureNetworkId(pickupLock.owner, 'player'),
           remaining: pickupLock.remaining,
@@ -588,6 +592,11 @@ export function createArenaSimulation({
       world.get(entityId, Gold).count = state.gold;
       world.get(entityId, Conditions).active = state.conditions.map(replicaCondition);
     } else if (record.kind === 'item') {
+      const toss = world.get(entityId, LootToss);
+      if (state.tossHeight == null) {
+        if (toss) world.remove(entityId, LootToss);
+      } else if (toss) toss.height = state.tossHeight;
+      else world.add(entityId, LootToss, { height: state.tossHeight });
       const lock = state.pickupLock;
       if (lock) {
         const owner = lock.owner == null ? null : entityByNetworkId.get(lock.owner) ?? null;
@@ -716,10 +725,13 @@ export function createArenaSimulation({
       ensureNetworkId(spawnGold(targetWorld, gold.x, gold.y, goldCount), 'item');
       revision += 1;
     });
-    targetWorld.on('chest.opened', ({ x, y }) => {
+    targetWorld.on('chest.opened', ({ entity, x, y }) => {
       const drop = rollTable(epicChestTable, epicChestTotalWeight, targetWorld.rand);
       const itemId = spawnDrop(targetWorld, drop, x, y);
-      if (itemId != null) ensureNetworkId(itemId, 'item');
+      if (itemId != null) {
+        tossLoot(targetWorld, itemId, grid, entity);
+        ensureNetworkId(itemId, 'item');
+      }
     });
   }
 
@@ -774,6 +786,7 @@ function installAuthoritativeRules(world, grid) {
     createAISystem({ grid }),
     createPlayerCombatSystem({ grid }),
     createBumpSystem(),
+    lootTossSystem,
     createPickupSystem({ grid }),
     createProjectileSystem({ grid, carve: createGridCarver(grid) }),
     deathSystem,
@@ -1017,6 +1030,7 @@ function normalizeItemState(id, state) {
     spellId: state.spellId == null ? null : String(state.spellId),
     weapon,
     ring: normalizeRingState(id, state.ring),
+    ...(state.tossHeight != null && { tossHeight: Math.max(0, finiteNumber(state.tossHeight, `${id}.tossHeight`)) }),
     pickupLock: state.pickupLock == null ? null : normalizePickupLock(id, state.pickupLock),
     auraEmitter: normalizeAuraEmitter(id, state.auraEmitter),
   };

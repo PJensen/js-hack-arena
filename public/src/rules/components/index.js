@@ -25,6 +25,7 @@ export { PlayerTag } from './PlayerTag.js';
 export { Spellbook, SpellId } from './Spellbook.js';
 export { Consumable } from './Consumable.js';
 export { GroundItem } from './GroundItem.js';
+export { LootToss } from './LootToss.js';
 export { Gold } from './Gold.js';
 export { MeleeWeapon } from './MeleeWeapon.js';
 export { WeaponPickup } from './WeaponPickup.js';

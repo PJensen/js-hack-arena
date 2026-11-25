@@ -2,7 +2,7 @@
 // intent from their comparison card. Replaced equipment is dropped nearby.
 import {
   ArrowAmmo, BowWeapon, Collider, Conditions, Consumable, Facing, Gold, GroundItem, Health,
-  Input, ItemInfo, ItemSlot, Mana, MeleeWeapon, PickupLock, Position, Powerups,
+  Input, ItemInfo, ItemSlot, LootToss, Mana, MeleeWeapon, PickupLock, Position, Powerups,
   Ring, Spellbook, SpellId, WeaponPickup,
 } from '../components/index.js';
 import { ConditionId } from '../data/conditionCatalog.js';
@@ -33,7 +33,8 @@ export function createPickupSystem({ grid = null } = {}) {
       let selected = null;
       let selectedDistance = Infinity;
       for (const [itemId, ipos, _collider, _ground, info] of world.query(Position, Collider, GroundItem, ItemInfo)) {
-        if (toDestroy.has(itemId) || (!world.has(itemId, WeaponPickup) && !world.has(itemId, Ring))) continue;
+        if (toDestroy.has(itemId) || world.has(itemId, LootToss)) continue;
+        if (!world.has(itemId, WeaponPickup) && !world.has(itemId, Ring)) continue;
         const lock = world.get(itemId, PickupLock);
         if (lock?.owner === player.id && lock.remaining > 0) continue;
         const targetDistance = Math.hypot(ipos.x - targetX, ipos.y - targetY);
@@ -49,7 +50,8 @@ export function createPickupSystem({ grid = null } = {}) {
     }
 
     for (const [itemId, ipos, icol] of world.query(Position, Collider, GroundItem)) {
-      if (toDestroy.has(itemId) || world.has(itemId, WeaponPickup) || world.has(itemId, Ring)) continue;
+      if (toDestroy.has(itemId) || world.has(itemId, LootToss)) continue;
+      if (world.has(itemId, WeaponPickup) || world.has(itemId, Ring)) continue;
       const lock = world.get(itemId, PickupLock);
       const info = world.get(itemId, ItemInfo);
       for (const player of players) {

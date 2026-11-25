@@ -167,6 +167,7 @@ Deno.test('game room: dead-end chests match offline placement and open once', ()
     const snapshot = sim.captureSnapshot();
     assertEquals(chests(snapshot), initial.filter((chest) => chest.id !== id));
     assertEquals(snapshot.events.filter(({ type }) => type === 'chest.opened').length, 1);
+    assert(snapshot.entities.some(({ kind, state }) => kind === 'item' && state.tossHeight > 0));
 
     room.accept(second, { userId: 'user-2', displayName: 'Second' });
     assertEquals(chests(latestSnapshot(second)), chests(snapshot));

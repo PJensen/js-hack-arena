@@ -349,14 +349,40 @@ Deno.test('arena sim: gold drops once, lights replicas and credits the collectin
   assertEquals(pickups, [count]);
 });
 
-Deno.test('arena sim: opening an epic chest replaces it with rolled loot', () => {
-  const sim = makeOpenSim(123, { enemyCount: 0 });
-  sim.addPlayer('peer-a');
+Deno.test('arena sim: epic chest loot arcs around blocked exits and can only be equipped on landing', () => {
+  const grid = {
+    cellSize: 4,
+    cols: 256,
+    rows: 256,
+    moveGrid: new Float32Array(256 * 256).fill(100),
+    distanceMove: (x) => Math.max(0, 130 - x),
+  };
+  const sim = makeOpenSim(123, { enemyCount: 0, grid });
+  const player = sim.addPlayer('peer-a');
+  sim.world.rand = () => 0.1;
   spawnEpicChest(sim.world, 100, 100);
   sim.step();
-  const items = sim.captureSnapshot().entities.filter(record => record.kind === 'item');
-  assertEquals(items.length, 1);
-  assert(items[0].state.effect !== 'epic_chest');
+  const items = () => sim.captureSnapshot().entities.filter(({ kind }) => kind === 'item');
+  assertEquals(items().length, 1);
+  const [drop] = items();
+  assertEquals(drop.state.name, 'Void Reaver');
+  assertEquals(drop.state.tossHeight, 0);
+  sim.setPlayerInput('peer-a', { seq: 1, pickupX: 100, pickupY: 138 });
+  sim.step(0.275);
+  const airborne = items()[0].state;
+  assertAlmostEquals(airborne.tossHeight, 30);
+  assertAlmostEquals(airborne.x, 100);
+  assertAlmostEquals(airborne.y, 138);
+  assertEquals(sim.getPlayerSnapshot('peer-a').state.weapon.name, 'Fists');
+  sim.step(0.275);
+  const landed = items()[0].state;
+  assertEquals(landed.tossHeight, undefined);
+  assertAlmostEquals(landed.y, 176);
+  assert(grid.distanceMove(landed.x, landed.y) >= 14);
+  sim.setPlayerInput('peer-a', { seq: 2, pickupX: landed.x, pickupY: landed.y });
+  sim.step();
+  assertEquals(sim.getPlayerSnapshot('peer-a').state.weapon.name, 'Void Reaver');
+  assertEquals(items().length, 0);
 });
 
 Deno.test("arena sim: replica re-emits new presentation events once", () => {
@@ -776,9 +802,13 @@ Deno.test("arena sim: Epic Chests can drop an instant health potion", () => {
   const potion = sim.captureSnapshot().entities.find(({ kind }) => kind === 'item');
   assertEquals(potion.state.name, 'Instant Health Potion');
   assertEquals(potion.state.potency, 50);
-  sim.step();
-  assert(sim.captureSnapshot().entities.some(({ id }) => id === potion.id));
   health.hp = 60;
+  sim.step(0.1);
+  assertEquals(health.hp, 60);
+  sim.step(0.5);
+  const landed = sim.captureSnapshot().entities.find(({ id }) => id === potion.id);
+  assertEquals(landed.state.tossHeight, undefined);
+  Object.assign(position, { x: landed.state.x, y: landed.state.y });
   sim.step();
   assertEquals(health.hp, 100);
   assertEquals(sim.world.get(playerId, Auras).active.length, 0);

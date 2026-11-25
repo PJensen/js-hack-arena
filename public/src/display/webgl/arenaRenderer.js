@@ -1,6 +1,6 @@
 import {
   Actor, ActorKind, BowWeapon, Conditions, AuraEmitter, Collider,
-  Consumable, Facing, Gold, GroundItem, Health, Input, ItemInfo, ItemSlot, Mana, MeleeWeapon,
+  Consumable, Facing, Gold, GroundItem, Health, Input, ItemInfo, ItemSlot, LootToss, Mana, MeleeWeapon,
   PickupLock, PlayerTag, PointLight, Position, Powerups, Projectile, Ring, Spellbook,
   Velocity, WeaponPickup,
 } from '../../rules/components/index.js';
@@ -653,7 +653,7 @@ export function createWebGLArenaRenderer(deps) {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  function drawLootModel(model, id, shown, info, effect, now) {
+  function drawLootModel(model, id, shown, info, effect, airborne, now) {
     const angle = now * 0.85 + id * 1.7;
     const bob = Math.sin(now * 2.8 + id) * 1.5;
     const potion = model === 'potion';
@@ -661,7 +661,8 @@ export function createWebGLArenaRenderer(deps) {
     gl.bindVertexArray(mesh.vao);
     gl.uniform2f(loot.position, shown.x, shown.y + 5 + (model === 'chest' ? 0 : bob));
     gl.uniform1f(loot.angle, model === 'chest' ? -0.52 : angle);
-    gl.uniform1f(loot.lean, model === 'sword' ? -0.48 : 0);
+    const lean = model === 'sword' ? -0.48 : 0;
+    gl.uniform1f(loot.lean, lean + (airborne ? Math.sin(now * 13 + id) * 0.5 : 0));
     if (potion) {
       const blue = effect === 'mana';
       gl.uniform3f(loot.body, blue ? 0.2 : 0.95, blue ? 0.58 : 0.12, blue ? 1 : 0.34);
@@ -1309,6 +1310,7 @@ export function createWebGLArenaRenderer(deps) {
     const previewRadius = 132;
     let candidate = null;
     for (const [id, position, _ground, info] of world.query(Position, GroundItem, ItemInfo)) {
+      if (world.has(id, LootToss)) continue;
       const pickup = world.get(id, WeaponPickup);
       const ring = world.get(id, Ring);
       if (!pickup && !ring) continue;
@@ -1589,11 +1591,20 @@ export function createWebGLArenaRenderer(deps) {
     for (const [id, position, _item, info] of world.query(Position, GroundItem, ItemInfo)) {
       const consumable = world.get(id, Consumable);
       if (['mana_regen', 'haste', 'fury', 'ward'].includes(consumable?.effect)) continue;
-      const shown = displayPosition(id, position);
+      const ground = displayPosition(id, position);
+      const toss = world.get(id, LootToss);
+      const height = presentation?.lootHeight?.(id) ?? toss?.height ?? 0;
+      const airborne = Boolean(toss) || height > 0;
+      const shown = height > 0 ? { x: ground.x, y: ground.y - height } : ground;
       const weapon = world.get(id, WeaponPickup);
       const effect = consumable?.effect;
       const shaft = lootShaftHeight(info, effect);
       if (!inView(shown.x, shown.y, Math.max(32, shaft + 16))) continue;
+      if (airborne) {
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        drawDisc(ground.x, ground.y + 5, 8, [0.02, 0.01, 0.04, 0.55], [0, 0, 0, 0]);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+      }
       if (effect === 'gold') {
         const bob = Math.sin(now * 3 + id) * 1.5;
         drawGlyph('$', shown.x, shown.y - 2 + bob, 19, [1, 0.78, 0.25, 0.95]);
@@ -1603,9 +1614,9 @@ export function createWebGLArenaRenderer(deps) {
       const potion = healthPotion || effect === 'mana';
       const model = weapon ? (weapon.slot === 'ranged' ? 'bow' : 'sword')
         : effect === 'epic_chest' ? 'chest' : potion ? 'potion' : null;
-      if (model) models.push({ model, id, shown, info, effect });
+      if (model) models.push({ model, id, shown, info, effect, airborne });
       const pulse = 0.5 + 0.5 * Math.sin(now * 2.4 + id * 0.73);
-      if (shaft > 0) {
+      if (shaft > 0 && !airborne) {
         const glow = lootGlowColor(info, effect);
         drawLootShaft(shown.x, shown.y + 5, shaft, glow, (motionPreference.matches ? 0 : now) + id * 0.29);
       }
@@ -1626,8 +1637,8 @@ export function createWebGLArenaRenderer(deps) {
       gl.enable(gl.DEPTH_TEST);
       gl.useProgram(lootProgram);
       gl.uniform4fv(loot.view, view);
-      for (const { model, id, shown, info, effect } of models) {
-        drawLootModel(model, id, shown, info, effect, now);
+      for (const { model, id, shown, info, effect, airborne } of models) {
+        drawLootModel(model, id, shown, info, effect, airborne, now);
       }
       gl.disable(gl.DEPTH_TEST);
     }
@@ -1638,13 +1649,14 @@ export function createWebGLArenaRenderer(deps) {
       const effect = world.get(id, Consumable)?.effect;
       if (!['mana_regen', 'haste', 'fury', 'ward'].includes(effect)) continue;
       const shown = displayPosition(id, position);
+      const height = presentation?.lootHeight?.(id) ?? world.get(id, LootToss)?.height ?? 0;
       const bob = Math.sin(now * 3 + id) * 2.5;
       const pulse = 0.5 + 0.5 * Math.sin(now * 4.5 + id);
       const theme = themeForPowerup(effect);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-      drawPotionGlow(theme, shown.x, shown.y + bob, 18 + pulse * 2.5, now + id * 0.13, 1);
+      drawPotionGlow(theme, shown.x, shown.y - height + bob, 18 + pulse * 2.5, now + id * 0.13, 1);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-      drawGlyph(info.glyph, shown.x, shown.y + bob, 18, [0.96, 1, 1, 1]);
+      drawGlyph(info.glyph, shown.x, shown.y - height + bob, 18, [0.96, 1, 1, 1]);
     }
 
     const activePowerups = world.get(playerId, Powerups);

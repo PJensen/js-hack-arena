@@ -1,9 +1,10 @@
 import { assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { createSnapshotInterpolator } from '../public/src/display/snapshotInterpolator.js';
 import { createLocalPlayerPrediction } from '../public/src/display/localPlayerPrediction.js';
-import { Position } from '../public/src/rules/components/index.js';
+import { LootToss, Position } from '../public/src/rules/components/index.js';
 import { applyCondition } from '../public/src/rules/effects.js';
 import { SIM_MODE, createArenaSimulation } from '../public/src/rules/sim/arenaSim.js';
+import { spawnEpicChest } from '../public/src/rules/spawner.js';
 
 function makeSim(mode) {
   const grid = {
@@ -43,6 +44,32 @@ Deno.test('snapshot interpolation does not mutate authoritative positions', () =
   now = 100;
   assertEquals(interpolator.position(entityId, authoritative).x, 110);
   assertEquals(replica.world.get(entityId, Position).x, 110);
+});
+
+Deno.test('snapshot interpolation carries airborne loot height through landing', () => {
+  let now = 0;
+  const authority = makeSim(SIM_MODE.AUTHORITY);
+  authority.addPlayer('peer-a');
+  const replica = makeSim(SIM_MODE.REPLICA);
+  const interpolation = createSnapshotInterpolator({ sim: replica, now: () => now });
+  spawnEpicChest(authority.world, 10, 10);
+  authority.step();
+  interpolation.applySnapshot(authority.captureSnapshot());
+  const [[itemId]] = replica.world.query(LootToss);
+
+  authority.step(0.275);
+  interpolation.applySnapshot(authority.captureSnapshot());
+  assertEquals(replica.world.get(itemId, LootToss).height, 30);
+  now = 50;
+  assertEquals(interpolation.lootHeight(itemId), 15);
+  now = 100;
+  authority.step(0.275);
+  interpolation.applySnapshot(authority.captureSnapshot());
+  assertEquals(replica.world.has(itemId, LootToss), false);
+  now = 150;
+  assertEquals(interpolation.lootHeight(itemId), 15);
+  now = 200;
+  assertEquals(interpolation.lootHeight(itemId), 0);
 });
 
 Deno.test('local prediction is presentation-only', () => {

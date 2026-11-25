@@ -518,6 +518,7 @@ const localPrediction = isNetworked
   ? createLocalPlayerPrediction({ world, playerId, grid })
   : null;
 const presentation = isNetworked ? {
+  lootHeight: interpolation.lootHeight,
   position(entityId, position) {
     return entityId === playerId
       ? localPrediction.position()
