@@ -102,25 +102,21 @@ Deno.test("moveWithSlide: zero delta stays put", () => {
   assertEquals(y, 50);
 });
 
-// ── Cave generation (vector) ───────────────────────────────────
+// ── Cave generation ────────────────────────────────────────────
 
 Deno.test("generateCave: deterministic with same seed", () => {
   const a = generateCave({ seed: 12345, width: 1000, height: 1000 });
   const b = generateCave({ seed: 12345, width: 1000, height: 1000 });
-  assertEquals(a.kernel.carves.length, b.kernel.carves.length);
-  assertEquals(a.rooms.length, b.rooms.length);
-  assertEquals(a.spawns.length, b.spawns.length);
-  if (a.spawns.length > 0) {
-    assertAlmostEquals(a.spawns[0].x, b.spawns[0].x, 0.01);
-    assertAlmostEquals(a.spawns[0].y, b.spawns[0].y, 0.01);
-  }
+  assertEquals(a.spawns, b.spawns);
+  assertEquals(a.routes, b.routes);
+  assertEquals(a.grid.moveGrid, b.grid.moveGrid);
+  assertEquals(a.grid.densityGrid, b.grid.densityGrid);
 });
 
 Deno.test("generateCave: different seeds differ", () => {
   const a = generateCave({ seed: 111, width: 1000, height: 1000 });
   const b = generateCave({ seed: 222, width: 1000, height: 1000 });
-  assert(a.kernel.carves.length !== b.kernel.carves.length ||
-         (a.spawns[0] && b.spawns[0] && a.spawns[0].x !== b.spawns[0].x));
+  assert(a.grid.moveGrid.some((clearance, i) => clearance !== b.grid.moveGrid[i]));
 });
 
 Deno.test("generateCave: at least one spawn", () => {
@@ -128,53 +124,37 @@ Deno.test("generateCave: at least one spawn", () => {
   assert(cave.spawns.length >= 1);
 });
 
-Deno.test("generateCave: all profiles produce carves", () => {
+Deno.test("generateCave: all profiles produce open floor and connecting routes", () => {
   for (const [name, profile] of Object.entries(CaveProfile)) {
     const cave = generateCave({ seed: 99, width: 1000, height: 1000, profile });
-    assert(cave.kernel.carves.length > 0, `${name} produced 0 carves`);
+    assert(cave.grid.moveGrid.some((clearance) => clearance > 0), `${name} produced no open floor`);
+    assert(cave.routes.length > 0, `${name} produced no routes`);
   }
 });
 
-Deno.test("generateCave: has rooms", () => {
+Deno.test("generateCave: route samples follow open floor between their endpoints", () => {
   const cave = generateCave({ seed: 42, width: 2000, height: 2000 });
-  assert(cave.rooms.length > 0, `expected rooms, got ${cave.rooms.length}`);
-});
-
-Deno.test("generateCave: rooms have vector data (x, y, r)", () => {
-  const cave = generateCave({ seed: 42, width: 2000, height: 2000 });
-  for (const room of cave.rooms) {
-    assert(typeof room.x === 'number');
-    assert(typeof room.y === 'number');
-    assert(typeof room.r === 'number');
-    assert(room.r > 0);
+  for (const { from, to, points, radius } of cave.routes) {
+    assertEquals(points[0], from);
+    assertEquals(points.at(-1), to);
+    assert(radius > 0);
+    for (const { x, y } of points) {
+      assert(cave.grid.distanceMove(x, y) > 0, `route sample (${x}, ${y}) is blocked`);
+    }
   }
 });
 
-Deno.test("generateCave: carves are SDF primitives with type field", () => {
+Deno.test("generateCave: spawns have movement clearance", () => {
   const cave = generateCave({ seed: 42, width: 2000, height: 2000 });
-  for (const c of cave.kernel.carves) {
-    assert(['circle', 'capsule', 'rectslot', 'square'].includes(c.type),
-      `unexpected carve type: ${c.type}`);
+  for (const { x, y } of cave.spawns) {
+    const clearance = cave.grid.distanceMove(x, y);
+    assert(clearance >= 20, `spawn (${x}, ${y}) clearance=${clearance}`);
   }
 });
 
-Deno.test("generateCave: has capsule corridors connecting rooms", () => {
+Deno.test("generateCave: boundary is solid", () => {
   const cave = generateCave({ seed: 42, width: 2000, height: 2000 });
-  const capsules = cave.kernel.carves.filter(c => c.type === 'capsule');
-  assert(capsules.length > 0, "expected capsule corridors");
-});
-
-Deno.test("generateCave: spawns have real SDF clearance", () => {
-  const cave = generateCave({ seed: 42, width: 2000, height: 2000 });
-  for (const s of cave.spawns) {
-    const clearance = cave.kernel.distanceMove(s.x, s.y);
-    assert(clearance >= 20, `spawn (${s.x},${s.y}) clearance=${clearance}`);
-  }
-});
-
-Deno.test("generateCave: boundary is solid (no carves at edge)", () => {
-  const cave = generateCave({ seed: 42, width: 2000, height: 2000 });
-  assertEquals(cave.kernel.distanceMove(5, 5), 0);
-  assertEquals(cave.kernel.distanceMove(1995, 1995), 0);
-  assertEquals(cave.kernel.distanceMove(1000, 2), 0);
+  assertEquals(cave.grid.distanceMove(5, 5), 0);
+  assertEquals(cave.grid.distanceMove(1995, 1995), 0);
+  assertEquals(cave.grid.distanceMove(1000, 2), 0);
 });
