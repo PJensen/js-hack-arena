@@ -6,8 +6,9 @@ import * as SDF from '../public/src/rules/geometry/sdf.js';
 import { createKernel } from '../public/src/rules/geometry/kernel.js';
 import { sweepMaxFree, moveWithSlide } from '../public/src/rules/geometry/sweep.js';
 import { generateArenaCave, generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
+import { createChamberField } from '../public/src/rules/geometry/chamberField.js';
 import { createGridCarver } from '../public/src/rules/geometry/carve.js';
-import { isOreWall, placeArenaOre } from '../public/src/rules/geometry/oreSites.js';
+import { isOreExposed, placeArenaOre } from '../public/src/rules/geometry/oreSites.js';
 
 // ── SDF primitives ─────────────────────────────────────────────
 
@@ -161,29 +162,48 @@ Deno.test("generateCave: boundary is solid", () => {
   assertEquals(cave.grid.distanceMove(1000, 2), 0);
 });
 
-Deno.test('arena ore is seeded and spans the open-to-wall boundary', () => {
+Deno.test('arena ore is seeded and exposed deposits sit on chamber walls', () => {
   const cave = generateArenaCave(42);
-  const { grid, oreSites } = cave;
+  const { grid, chambers, oreSites } = cave;
   assertEquals(oreSites, generateArenaCave(42).oreSites);
   assertEquals([...new Set(oreSites.map(({ kind }) => kind))].sort(), ['copper', 'gold', 'tin']);
-  for (const site of oreSites) {
+  const walls = oreSites.filter((site) => !site.buried);
+  const chamberFields = chambers.map(createChamberField);
+  assert(walls.length > 0);
+  for (const site of walls) {
     const { x, y, normalX, normalY } = site;
     const step = grid.cellSize;
+    assert(chamberFields.some((field) => field(x, y) >= -8));
     assertAlmostEquals(Math.hypot(normalX, normalY), 1);
     assert(grid.distanceMove(x + step * normalX, y + step * normalY) < 18);
     assert(grid.distanceMove(x - step * normalX, y - step * normalY) > 18);
     assertAlmostEquals(grid.distanceMove(x, y), 18, 0.01);
   }
 
-  const copper = oreSites[0];
-  assert(isOreWall(grid, copper));
+  const [copper] = walls;
+  assert(isOreExposed(grid, copper));
   createGridCarver(grid)(copper.x, copper.y, 32);
-  assert(!isOreWall(grid, copper));
+  assert(!isOreExposed(grid, copper));
 });
 
-Deno.test('arena ore skips routes without a nearby wall', () => {
-  const from = { x: 200, y: 200 };
-  const to = { x: 400, y: 200 };
-  const grid = { cellSize: 8, distanceMove: () => 80 };
-  assertEquals(placeArenaOre({ grid, spawns: [from], routes: [{ from, to, points: [from, to] }] }), []);
+Deno.test('buried arena ore starts in solid rock and becomes visible when carved out', () => {
+  const { grid, oreSites } = generateArenaCave(42);
+  const buried = oreSites.filter((site) => site.buried);
+  assert(buried.length > 0);
+  for (const site of buried) {
+    assertEquals(grid.distanceMove(site.x, site.y), 0);
+    assert(!isOreExposed(grid, site));
+  }
+  const [site] = buried;
+  createGridCarver(grid)(site.x, site.y, 24);
+  assert(isOreExposed(grid, site));
+});
+
+Deno.test('arena ore skips hallway walls beyond a chamber rim', () => {
+  const chamber = { x: 200, y: 200, r: 80, aspect: 1.35, angle: 0 };
+  const grid = {
+    cellSize: 8,
+    distanceMove: (x, y) => Math.max(0, 100 - Math.abs(y - chamber.y)),
+  };
+  assertEquals(placeArenaOre({ grid, spawns: [chamber], chambers: [chamber] }), []);
 });

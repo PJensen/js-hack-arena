@@ -3,6 +3,7 @@
 // erode its chambers and passages with coherent noise before baking clearance.
 
 import { findOpen } from './landmarks.js';
+import { createChamberField } from './chamberField.js';
 import { placeArenaOre } from './oreSites.js';
 import { sweepMaxFree } from './sweep.js';
 
@@ -217,13 +218,7 @@ function bakeGrid(seed, width, height, topology, cellSize) {
       room.y - reach,
       room.x + reach,
       room.y + reach,
-      (x, y) => {
-        const cs = Math.cos(room.angle), sn = Math.sin(room.angle);
-        const dx = x - room.x, dy = y - room.y;
-        const localX = (dx * cs + dy * sn) / room.aspect;
-        const localY = (-dx * sn + dy * cs) * room.aspect;
-        return room.r - Math.hypot(localX, localY);
-      },
+      createChamberField(room),
     );
   }
   for (const segment of segments) {
@@ -312,7 +307,7 @@ export function generateCave(opts = {}) {
       i === 0 || i === route.points.length - 1 || i % 6 === 0
     ),
   }));
-  return { grid, bounds: { w: width, h: height }, spawns, routes };
+  return { grid, bounds: { w: width, h: height }, spawns, routes, chambers: topology.chambers };
 }
 
 const ARENA_ENEMY_COUNT = 9;

@@ -1,4 +1,4 @@
-import { isOreWall } from '../../rules/geometry/oreSites.js';
+import { isOreExposed } from '../../rules/geometry/oreSites.js';
 import { uniform } from './device.js';
 import { createOreMesh } from './oreMesh.js';
 import { uploadPropMesh } from './propMeshBuilder.js';
@@ -29,7 +29,7 @@ export function createOreRenderer(device, grid, sites) {
   const mesh = uploadPropMesh(device, vertices);
 
   return function drawOre(view, inView, time) {
-    const visible = sites.filter((site) => inView(site.x, site.y, 40) && isOreWall(grid, site));
+    const visible = sites.filter((site) => inView(site.x, site.y, 40) && isOreExposed(grid, site));
     if (!visible.length) return;
     gl.useProgram(shader.program);
     gl.bindVertexArray(mesh.vao);
