@@ -975,15 +975,15 @@ Deno.test('arena sim: Agony locks onto the backline and its ticks grow over time
   mana.regenPerSecond = 0;
   const slot = book.spells.push('curse_of_agony') - 1;
   const ticks = [];
-  sim.world.on('damage.dealt', ({ target, periodic, hpLost }) => {
-    if (target === back.id && periodic) ticks.push(hpLost);
+  sim.world.on('damage.dealt', ({ target, periodic, hpLost, damageType }) => {
+    if (target === back.id && periodic) ticks.push({ hpLost, damageType });
   });
   sim.setPlayerInput('caster', { spellSlot: slot, targetId: sim.getActorNetworkId(back.id), fire: true });
   sim.step();
   assertEquals(book.castTargetId, back.id);
   sim.setPlayerInput('caster', { targetId: sim.getActorNetworkId(front.id) });
   for (let i = 0; i < 145; i++) sim.step();
-  assertEquals(ticks, [2, 3, 4, 5, 6, 7]);
+  assertEquals(ticks, [2, 3, 4, 5, 6, 7].map((hpLost) => ({ hpLost, damageType: 'shadow' })));
   assertEquals(front.health.hp, 100);
   assertEquals(mana.mana, 78);
   assertEquals(sim.world.get(back.id, Conditions).active.length, 0);

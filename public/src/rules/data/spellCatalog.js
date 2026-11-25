@@ -135,8 +135,8 @@ export const spells = Object.freeze({
   }),
   curse_of_agony: spell({
     id: 'curse_of_agony',
-    name: 'Curse of Agony', glyph: '◆', element: 'curse',
-    description: 'Click or tap an enemy to curse it for 6 seconds. The damage grows with every tick.',
+    name: 'Curse of Agony', glyph: '◆', element: 'shadow',
+    description: 'Click or tap an enemy to curse it for 6 seconds. Shadow damage grows with every tick.',
     cast: { mode: SpellCastMode.CAST_TIME, castTime: 0.45, interruptOnDamage: true },
     mana: { cost: 22 },
     cooldown: 2,

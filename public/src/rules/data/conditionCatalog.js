@@ -139,7 +139,7 @@ export const conditions = Object.freeze({
     disposition: 'harmful',
     visual: 'agony',
     effects: Object.freeze([
-      Object.freeze({ kind: EffectKind.PERIODIC_DAMAGE, amount: 2, amountStep: 1, interval: 1, damageType: 'curse' }),
+      Object.freeze({ kind: EffectKind.PERIODIC_DAMAGE, amount: 2, amountStep: 1, interval: 1, damageType: 'shadow' }),
     ]),
   }),
   [ConditionId.HEALTH_POTION]: Object.freeze({
