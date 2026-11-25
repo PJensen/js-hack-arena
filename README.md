@@ -141,7 +141,7 @@ steps it locally.
 
 `createArenaDungeonSimulation()` applies the shared dungeon setup to the
 generated cave for Worker rooms and the browser. Offline previews use the
-same setup with normal encounters, chests, and starter loot disabled.
+same setup with normal encounters and chests disabled.
 
 `createArenaSimulation()` is the boundary between game rules and runtime hosts.
 It owns:

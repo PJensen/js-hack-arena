@@ -68,7 +68,6 @@ import {
   spawnMelee,
   spawnPlayer,
   spawnPotion,
-  spawnRing,
   spawnSword,
   spawnSpider,
   SPIDER_LIGHT,
@@ -137,7 +136,6 @@ export function createArenaSimulation({
   encounterSites,
   patrolRoutes = [],
   enemySpawnExclusionRadius = 0,
-  starterHasteRing = false,
 } = {}) {
   if (!grid) throw new Error('arena simulation requires a collision grid');
   if (!Object.values(SIM_MODE).includes(mode)) throw new Error(`invalid arena simulation mode: ${mode}`);
@@ -197,10 +195,6 @@ export function createArenaSimulation({
         const group = ENCOUNTER_GROUPS[Math.floor(index / groupSize) % ENCOUNTER_GROUPS.length];
         const variant = encounterSites ? encounters.choose('encounter') : null;
         placeEncounter(site, variant ?? group[(index % groupSize) % group.length]);
-      }
-      if (starterHasteRing) {
-        const ringPosition = findOpenNear(grid, spawn.x + 48, spawn.y);
-        ensureNetworkId(spawnRing(world, ringPosition.x, ringPosition.y), 'item');
       }
       if (sites.length) revision += 1;
     }

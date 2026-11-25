@@ -60,7 +60,7 @@ Deno.test('game room: every connected socket receives both players immediately',
   assertEquals(firstView.tick, beforeJoin.tick);
   assertEquals(firstView.entities.filter((entity) => entity.kind === 'player').length, 2);
   assertEquals(secondView.entities.filter((entity) => entity.kind === 'player').length, 2);
-  assertEquals(secondView.entities.filter(({ state }) => state.slot === 'ring').length, 1);
+  assertEquals(secondView.entities.filter(({ kind, state }) => kind === 'item' && state.ring).length, 0);
 
   room.leave(first);
   room.leave(second);
@@ -322,32 +322,34 @@ Deno.test('game room: a ring equips through pickup intent and swapping drops the
   try {
     const entities = latestSnapshot(socket).entities;
     const player = entities.find(({ kind }) => kind === 'player');
-    const starter = entities.find(({ state }) => state.slot === 'ring');
-    assertEquals(starter.state.rarity, 'epic');
-    assertEquals(starter.state.ring.haste, 0.05);
     assertEquals(player.state.ring, null);
+    const { x, y } = player.state;
+    spawnRing(room.ensureSim().world, x, y);
+    room.broadcastSnapshot();
+    const ring = latestSnapshot(socket).entities.find(({ kind, state }) => kind === 'item' && state.ring);
+    assertEquals(ring.state.rarity, 'epic');
+    assertEquals(ring.state.ring.haste, 0.05);
 
     room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, {
-      input: { seq: 1, pickupX: starter.state.x, pickupY: starter.state.y },
+      input: { seq: 1, pickupX: x, pickupY: y },
     }));
     room.step();
     room.broadcastSnapshot();
     const equipped = latestSnapshot(socket).entities;
-    assertEquals(equipped.find(({ id }) => id === player.id).state.ring, starter.state.ring);
-    assert(!equipped.some(({ id }) => id === starter.id));
+    assertEquals(equipped.find(({ id }) => id === player.id).state.ring, ring.state.ring);
+    assert(!equipped.some(({ id }) => id === ring.id));
 
-    const { x, y } = player.state;
     spawnRing(room.ensureSim().world, x, y, { name: 'Test Ring', haste: 0.1 });
     room.step();
     room.broadcastSnapshot();
-    assertEquals(latestSnapshot(socket).entities.find(({ id }) => id === player.id).state.ring, starter.state.ring);
+    assertEquals(latestSnapshot(socket).entities.find(({ id }) => id === player.id).state.ring, ring.state.ring);
     room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, { input: { seq: 2, pickupX: x, pickupY: y } }));
     room.step();
     room.broadcastSnapshot();
     const swapped = latestSnapshot(socket).entities;
     assertEquals(swapped.find(({ id }) => id === player.id).state.ring.name, 'Test Ring');
     const dropped = swapped.find(({ kind, state }) => kind === 'item' && state.slot === 'ring');
-    assertEquals(dropped.state.ring, starter.state.ring);
+    assertEquals(dropped.state.ring, ring.state.ring);
     assertEquals(dropped.state.pickupLock.owner, player.id);
   } finally {
     room.leave(socket);
