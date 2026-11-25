@@ -197,7 +197,6 @@ client can discard acknowledged inputs before replaying the remainder.
 - Usable potions
 - More enemy types
 - More 3D models
-- Generate social preview artwork for the Arena website and GitHub repository
 
 ## Commands
 
