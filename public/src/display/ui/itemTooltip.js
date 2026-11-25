@@ -26,13 +26,14 @@ export function weaponTooltipName(info) {
   return 'Unknown weapon';
 }
 
-function weaponIconId(info) {
+export function itemTooltipIconId(info) {
+  if (info?.slot === ItemSlot.RING) return 'ring';
   const rarity = info?.rarity?.toLowerCase();
-  if (info?.slot === 'ranged') {
+  if (info?.slot === ItemSlot.RANGED) {
     if (rarity === 'epic' || rarity === 'legendary') return `${rarity}_bow`;
     return 'bow';
   }
-  if (info?.slot !== 'melee') return null;
+  if (info?.slot !== ItemSlot.MELEE) return null;
   switch (rarity) {
     case 'legendary': return 'legendary_sword';
     case 'epic': return 'epic_sword';
@@ -115,7 +116,7 @@ export function createItemTooltip({ root, onActivate } = {}) {
     }
 
     const titleText = weaponTooltipName(model.info);
-    const iconId = weaponIconId(model.info);
+    const iconId = itemTooltipIconId(model.info);
     const nextKey = JSON.stringify([titleText, iconId, model.info?.rarity, model.rows, model.actionLabel]);
     if (nextKey !== contentKey) {
       const color = rarityColor(model.info?.rarity);

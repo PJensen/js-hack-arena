@@ -2,7 +2,8 @@ import { assert, assertAlmostEquals, assertEquals } from "https://deno.land/std@
 import { multiply, perspective } from '../public/src/display/webgl/math.js';
 import { ParticleFX, ParticlePool } from '../public/src/display/webgl/particles.js';
 import { MAX_DYNAMIC_LIGHTS } from '../public/src/display/webgl/arenaRenderer.js';
-import { weaponTooltipName } from '../public/src/display/ui/itemTooltip.js';
+import { itemTooltipIconId, weaponTooltipName } from '../public/src/display/ui/itemTooltip.js';
+import { icons } from '../public/assets/icons/manifest.js';
 import { createMeleeImpact } from '../public/src/display/passes/meleeImpact.js';
 import { createFloatTextPass } from '../public/src/display/passes/floatText.js';
 import { createGorePass, GORE_LIMITS } from '../public/src/display/passes/gore.js';
@@ -17,6 +18,25 @@ Deno.test('weapon tooltip: authored names take precedence over weapon type fallb
   assertEquals(weaponTooltipName({ name: 'Shadow Longbow', slot: 'ranged' }), 'Shadow Longbow');
   assertEquals(weaponTooltipName({ name: ' Item ', slot: 'melee' }), 'Sword');
   assertEquals(weaponTooltipName({ slot: 'ranged' }), 'Bow');
+});
+
+Deno.test('item tooltips resolve atlas icons for rings and weapon rarities', () => {
+  const cases = [
+    ['ring', 'epic', 'ring'],
+    ['melee', 'common', 'sword_tier_0'],
+    ['melee', 'uncommon', 'sword_tier_1'],
+    ['melee', 'rare', 'sword_tier_2'],
+    ['melee', 'epic', 'epic_sword'],
+    ['melee', 'legendary', 'legendary_sword'],
+    ['ranged', 'common', 'bow'],
+    ['ranged', 'epic', 'epic_bow'],
+    ['ranged', 'legendary', 'legendary_bow'],
+  ];
+  for (const [slot, rarity, expectedIconId] of cases) {
+    const iconId = itemTooltipIconId({ slot, rarity });
+    assertEquals(iconId, expectedIconId);
+    assert(Object.hasOwn(icons, iconId));
+  }
 });
 
 Deno.test('spider mesh: four legs lift at a time and the standing pose holds still', () => {
