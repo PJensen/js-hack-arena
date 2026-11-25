@@ -1,7 +1,8 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.220.0/assert/mod.ts';
 import { Position } from '../public/src/rules/components/index.js';
+import { MINING_SECONDS } from '../public/src/rules/components/Mining.js';
 import { getMiningMaterial } from '../public/src/rules/data/miningMaterials.js';
-import { SIM_MODE, createArenaSimulation } from '../public/src/rules/sim/arenaSim.js';
+import { SIM_DT, SIM_MODE, createArenaSimulation } from '../public/src/rules/sim/arenaSim.js';
 
 const wallOre = { x: 100, y: 200, normalX: 1, normalY: 0, kind: 'copper' };
 const start = { x: 60, y: 200 };
@@ -19,28 +20,51 @@ Deno.test('mining validates range, intent, and clear access, then breaks a depos
   const grid = { cellSize: 8, distanceMove: (x) => obstructed && x > 72 && x < 82 ? 0 : distanceMove(x) };
   const sim = makeSim({ seed: 1, grid });
   const miner = sim.addPlayer('miner');
-  sim.addPlayer('other');
   const mine = (peer, ore = wallOre) => sim.setPlayerInput(peer, { pickupX: ore.x, pickupY: ore.y, mine: true });
+  const order = () => sim.getPlayerSnapshot('miner').state.mining;
   const pos = sim.world.get(miner, Position);
   pos.x = start.x - 1;
   mine('miner');
   sim.step();
-  assertEquals(drops(sim), []);
+  assertEquals(order(), undefined);
   pos.x = start.x;
   obstructed = true;
   mine('miner');
   sim.step();
-  assertEquals(drops(sim), []);
+  assertEquals(order(), undefined);
   obstructed = false;
   mine('miner', { ...wallOre, y: wallOre.y + 30 });
   sim.step();
+  assertEquals(order(), undefined);
   sim.setPlayerInput('miner', { pickupX: wallOre.x, pickupY: wallOre.y });
   sim.step();
-  assertEquals(drops(sim), []);
+  assertEquals(order(), undefined);
 
   mine('miner');
+  sim.step();
+  assertEquals(order(), { siteId: 0, remaining: MINING_SECONDS });
+  sim.setPlayerInput('miner', { moveX: 0.5 });
+  sim.step();
+  assertEquals(order(), undefined);
+  assertEquals(drops(sim), []);
+
+  const other = sim.addPlayer('other');
+  Object.assign(sim.world.get(other, Position), { x: 75, y: 170 });
   mine('other');
   sim.step();
+  mine('miner');
+  sim.step();
+  assertEquals(order()?.remaining, MINING_SECONDS);
+  for (let i = 2; i < MINING_SECONDS / SIM_DT; i++) {
+    mine('miner');
+    sim.step();
+  }
+  assert(order()?.remaining > 0);
+  assertEquals(drops(sim), []);
+  assertEquals(sim.getMineableOre().length, 1);
+  sim.step();
+  assertEquals(order(), undefined);
+  assertEquals(sim.getPlayerSnapshot('other').state.mining, undefined);
   assertEquals(sim.getMineableOre(), []);
   assertEquals(drops(sim).map(({ state }) => state.effect), ['copper_ore', 'copper_ore', 'copper_ore']);
 });
@@ -51,6 +75,7 @@ Deno.test('mining yields collectible rocks and seeded gems that rebound before s
   const pos = sim.world.get(miner, Position);
   sim.setPlayerInput('miner', { pickupX: wallOre.x, pickupY: wallOre.y, mine: true });
   sim.step();
+  sim.step(MINING_SECONDS);
   const initial = drops(sim);
   const gem = initial.find(({ state }) => getMiningMaterial(state.effect).shape === 'gem');
   assert(gem);
@@ -100,6 +125,11 @@ Deno.test('replicas learn which buried deposits are exposed and mined from snaps
 
   sim.setPlayerInput('miner', { pickupX: ore.x, pickupY: ore.y, mine: true });
   sim.step();
+  replica.applySnapshot(sim.captureSnapshot());
+  assertEquals(replica.getPlayerSnapshot('miner').state.mining, { siteId: 0, remaining: MINING_SECONDS });
+  sim.step(MINING_SECONDS);
+  replica.applySnapshot(sim.captureSnapshot());
+  assertEquals(replica.getPlayerSnapshot('miner').state.mining, undefined);
   const lateReplica = makeSim({ ore, mode: SIM_MODE.REPLICA });
   lateReplica.applySnapshot(sim.captureSnapshot());
   assertEquals(lateReplica.getMineableOre(), []);

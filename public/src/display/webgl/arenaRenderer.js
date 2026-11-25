@@ -1,7 +1,7 @@
 import {
   Actor, ActorKind, BowWeapon, Conditions, AuraEmitter, Collider,
   Consumable, Facing, Gold, GroundItem, Health, Input, ItemInfo, ItemSlot, Lifetime, LootToss, Mana, MaterialStacks, MeleeWeapon,
-  PickupLock, PlayerTag, PointLight, Position, Powerups, Projectile, Ring, Spellbook,
+  Mining, PickupLock, PlayerTag, PointLight, Position, Powerups, Projectile, Ring, Spellbook,
   Velocity, WeaponPickup,
 } from '../../rules/components/index.js';
 import { AI, BAT_SHRIEK_PULSE, BAT_SHRIEK_RADIUS, BAT_SHRIEK_WINDUP, MIMIC_LEAP_SECONDS, MIMIC_WINDUP_SECONDS, WEB_WINDUP_SECONDS } from '../../rules/components/AI.js';
@@ -16,6 +16,7 @@ import { createMeleeImpact } from '../passes/meleeImpact.js';
 import { createFloatTextPass } from '../passes/floatText.js';
 import { createGorePass } from '../passes/gore.js';
 import { createHudStatus } from '../ui/hudStatus.js';
+import { spellCastProgress } from '../spellCastProgress.js';
 import { biolum, emberLight, fireFlicker, torchLight } from '../lightPatterns.js';
 import { createWebGLDevice, uniform } from './device.js';
 import { createGoreRenderer } from './goreRenderer.js';
@@ -1225,14 +1226,7 @@ export function createWebGLArenaRenderer(deps) {
     const spellId = book.spells[book.chargeSpellIndex] || 'frost_bolt';
     const spell = spellCatalog[spellId];
     if (!spell) return;
-    const duration = book.castPhase === 'channeling'
-      ? spell.cast.channelDuration
-      : book.castPhase === 'casting'
-      ? spell.cast.castTime
-      : spell.cast.maxCharge;
-    const charge = book.castPhase === 'channeling'
-      ? 1 - book.channelRemaining / Math.max(0.001, duration)
-      : Math.min(1, book.charge / Math.max(0.001, duration));
+    const charge = spellCastProgress(book, spell);
     if (spell.targeting.type === TargetingType.MELEE_ARC) {
       const { halfAngle, range } = spell.targeting;
       if (!inView(position.x, position.y, range)) return;
@@ -1369,7 +1363,7 @@ export function createWebGLArenaRenderer(deps) {
   }
 
   function updateNearbyItemTooltip(width, height, shownPlayer, oreSites) {
-    if (world.get(playerId, Health)?.dead) {
+    if (world.get(playerId, Health)?.dead || world.has(playerId, Mining)) {
       itemTooltip?.hide();
       return;
     }

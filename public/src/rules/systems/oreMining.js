@@ -1,3 +1,4 @@
+import { Health, Input, Mining, Position, Spellbook } from '../components/index.js';
 import { gemstoneIds, oreMaterialId } from '../data/miningMaterials.js';
 import { mulberry32 } from '../geometry/caveGen.js';
 import { canMineOre, isOreExposed } from '../geometry/oreSites.js';
@@ -9,15 +10,44 @@ const TARGET_RADIUS = 24;
 const GEMSTONE_CHANCE = 0.20;
 const ROCK_SPREAD = [-0.78, 0.57, 1.10];
 
+function canKeepMining(input, book) {
+  return Math.hypot(input.moveX, input.moveY) <= 0.1 && !input.fire && !input.cancelCast && !book.charging;
+}
+
 export function createOreMining({ seed, grid, sites }) {
   const deposits = sites.map((site, id) => ({ ...site, id }));
   const mined = new Set();
   const available = () => deposits.filter((site) => !mined.has(site.id) && isOreExposed(grid, site));
 
-  function mine(world, { id: playerId, pos }, x, y) {
+  function start(world, { id, pos, input }, x, y) {
+    if (world.has(id, Mining) || !canKeepMining(input, world.get(id, Spellbook))) return;
     const site = available().find((deposit) =>
       Math.hypot(deposit.x - x, deposit.y - y) <= TARGET_RADIUS && canMineOre(grid, pos, deposit));
-    if (!site) return;
+    if (site) world.add(id, Mining, { siteId: site.id });
+  }
+
+  function update(world, dt) {
+    const finished = new Set();
+    for (const [id, order, pos, health, input, book] of world.query(Mining, Position, Health, Input, Spellbook)) {
+      const site = deposits[order.siteId];
+      if (health.dead || health.hp <= 0 || mined.has(site.id) ||
+        !canKeepMining(input, book) || !isOreExposed(grid, site) || !canMineOre(grid, pos, site)) {
+        finished.add(id);
+        continue;
+      }
+      order.remaining -= dt;
+      if (order.remaining <= 1e-9) {
+        finished.add(id);
+        breakVein(world, id, pos, site);
+      }
+    }
+    if (!finished.size) return;
+    for (const [id, { siteId }] of world.query(Mining)) {
+      if (finished.has(id) || mined.has(siteId)) world.remove(id, Mining);
+    }
+  }
+
+  function breakVein(world, playerId, pos, site) {
     mined.add(site.id);
 
     // Keep the drops on the miner's side even when an excavated opening is too narrow to enter.
@@ -40,5 +70,5 @@ export function createOreMining({ seed, grid, sites }) {
     }
   }
 
-  return { deposits, available, mine };
+  return { deposits, available, start, update };
 }

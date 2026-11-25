@@ -27,7 +27,8 @@
   <style>
     * { margin:0; padding:0; box-sizing:border-box; touch-action:none;
         -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
-    :root { --cyan:#70e6ff; --blue:#438cff; --ink:rgba(5,10,18,.78); --edge:rgba(112,230,255,.24); }
+    :root { --cyan:#70e6ff; --blue:#438cff; --ink:rgba(5,10,18,.78); --edge:rgba(112,230,255,.24);
+            --spell-bar-bottom:max(22px,env(safe-area-inset-bottom)); }
     html,body { width:100%; height:100%; overflow:hidden; background:#080d14; color:#fff;
                 font-family:Inter,"Segoe UI",system-ui,-apple-system,sans-serif; touch-action:auto; }
     canvas { display:block; width:100%; height:100%; }
@@ -153,8 +154,15 @@
     #readout-right { right:24px; text-align:right; }
 
     /* ── Spell bar ── */
-    #spell-bar { position:fixed; bottom:max(22px,env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%);
+    #spell-bar { position:fixed; bottom:var(--spell-bar-bottom); left:50%; transform:translateX(-50%);
                  display:flex; gap:8px; z-index:50; pointer-events:auto; }
+    #cast-bar { position:fixed; left:50%; bottom:calc(var(--spell-bar-bottom) + 58px); transform:translateX(-50%);
+                width:min(180px,60vw); z-index:49; padding:5px 8px; border:1px solid var(--edge);
+                border-radius:6px; background:var(--ink); pointer-events:none;
+                font:700 11px/1.2 ui-monospace,monospace; text-align:center; color:#e8f1fa; }
+    #cast-bar:not([hidden]) { display:grid; gap:4px; }
+    #cast-bar progress { width:100%; height:6px; accent-color:#ecc56d; }
+    #cast-bar:not([hidden]) ~ #zoom-readout { visibility:hidden; }
     .spell-btn { position:relative; width:48px; height:48px; border-radius:10px;
                  background:var(--ink); border:1px solid rgba(255,255,255,.18);
                  text-align:center;
@@ -217,7 +225,9 @@
       #hud-materials { top:calc(max(10px, env(safe-area-inset-top)) + 62px); }
       #reset-dungeon { position:fixed; top:calc(max(10px, env(safe-area-inset-top)) + 62px); right:max(10px, env(safe-area-inset-right)); }
       .joystick { width:104px; height:104px; }
-      #spell-bar { bottom:calc(max(22px,env(safe-area-inset-bottom)) + 117px); gap:4px; }
+      :root { --spell-bar-bottom:calc(max(22px,env(safe-area-inset-bottom)) + 117px); }
+      #spell-bar { gap:4px; }
+      #cast-bar { bottom:calc(var(--spell-bar-bottom) + 50px); }
       .spell-btn { width:min(43px,calc((100vw - 48px) / 9)); height:42px; }
       #zoom-readout { display:none; }
       #dungeon-chat { bottom:calc(max(22px,env(safe-area-inset-bottom)) + 169px); }
@@ -249,6 +259,7 @@
   </div>
   <output id="hud-materials" aria-label="Collected materials" hidden></output>
   <span id="hud-hp" hidden></span><span id="hud-mana" hidden></span><span id="hud-weapon" hidden></span>
+  <label id="cast-bar" hidden><span></span><progress max="1" value="0"></progress></label>
   <div id="zoom-readout" style="position:fixed;left:50%;transform:translateX(-50%);
     font:13px ui-monospace,monospace;color:rgba(255,255,255,0.5);z-index:40;
     background:rgba(0,0,0,0.4);padding:4px 12px;border-radius:6px;
@@ -382,7 +393,9 @@ import { createAtlasIcon } from './src/display/ui/atlasIcon.js';
 import { createItemTooltip } from './src/display/ui/itemTooltip.js';
 import { createDungeonChat } from './src/display/ui/dungeonChat.js';
 import { createResourceBar } from './src/display/ui/resourceBars.js';
-import { ArrowAmmo, BowWeapon, Gold, Health, Mana, MeleeWeapon, Powerups, Spellbook, Position, Stamina } from './src/rules/components/index.js';
+import { spellCastProgress } from './src/display/spellCastProgress.js';
+import { ArrowAmmo, BowWeapon, Gold, Health, Mana, MeleeWeapon, Mining, Powerups, Spellbook, Position, Stamina } from './src/rules/components/index.js';
+import { MINING_SECONDS } from './src/rules/components/Mining.js';
 import { createNetClient } from './src/net/client.js';
 import { normalizePlayerName } from './src/shared/net/protocol.js';
 import { samplePlayerCommand } from './src/input/samplePlayerCommand.js';
@@ -511,6 +524,20 @@ const inputRouter = createInputRouter({
 // ── Spell bar (touch) ───────────────────────────────────────────
 // Spell bar — intercept touches BEFORE InputRouter claims them
 const spellBar = document.getElementById('spell-bar');
+const castBar = document.getElementById('cast-bar');
+const [castName, castMeter] = castBar.children;
+
+function syncCastBar(book) {
+  const mining = world.get(playerId, Mining);
+  const timedSpell = book?.castPhase === 'casting' || book?.castPhase === 'channeling'
+    ? spellCatalog[book.spells[book.chargeSpellIndex]] : null;
+  const name = mining ? 'Mining' : timedSpell?.name;
+  castBar.hidden = !name || Boolean(world.get(playerId, Health)?.dead);
+  if (castBar.hidden) return;
+  if (castName.textContent !== name) castName.textContent = name;
+  castMeter.value = mining ? 1 - mining.remaining / MINING_SECONDS : spellCastProgress(book, timedSpell);
+}
+
 function selectSpellSlot(e) {
   e.preventDefault();
   e.stopPropagation();
@@ -763,6 +790,7 @@ const loop = createFixedTickLoop({
     renderer.renderFrame();
     const sb = world.get(playerId, Spellbook);
     arenaAudio.updateLocalCast(sb);
+    syncCastBar(sb);
     // Sync spell bar UI with active spell
     if (sb) {
       syncSpellSlots(sb);
@@ -786,11 +814,7 @@ const loop = createFixedTickLoop({
           ammoBadge.textContent = infinite ? '∞' : String(arrowCount);
           ammoBadge.classList.toggle('empty', !infinite && arrowCount === 0);
         }
-        const castDuration = spell?.cast.maxCharge || spell?.cast.castTime || spell?.cast.channelDuration || 1;
-        const castProgress = sb.castPhase === 'channeling'
-          ? 1 - sb.channelRemaining / castDuration
-          : sb.charge / castDuration;
-        b.style.setProperty('--charge', charging ? Math.max(0, Math.min(1, castProgress)) : 0);
+        b.style.setProperty('--charge', charging ? spellCastProgress(sb, spell) : 0);
       });
     }
     if (!arenaStarted) {

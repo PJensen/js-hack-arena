@@ -1,6 +1,7 @@
 import { assert, assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { timingSafeEqual } from 'node:crypto';
 import { AI, Actor, Conditions, Health, Position, Projectile, Spellbook } from '../public/src/rules/components/index.js';
+import { MINING_SECONDS } from '../public/src/rules/components/Mining.js';
 import { SIM_DT, SIM_MODE } from '../public/src/rules/sim/arenaSim.js';
 import { createArenaDungeonSimulation } from '../public/src/rules/sim/arenaDungeon.js';
 import { GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
@@ -390,6 +391,16 @@ Deno.test('game room: a mining command drops ore and a gem and late joins see th
     assert(sim.getMineableOre().some(({ id }) => id === site.id));
     Object.assign(pos, stand);
     mine(2);
+    room.step();
+    room.broadcastSnapshot();
+    const active = latestSnapshot(miner);
+    assertEquals(active.entities.find((entity) => entity.kind === 'player').state.mining,
+      { siteId: site.id, remaining: MINING_SECONDS });
+    assert(active.oreAvailable.includes(site.id));
+    assert(!active.entities.some(({ state }) => getMiningMaterial(state.effect)));
+
+    for (let i = 1; i < MINING_SECONDS / SIM_DT; i++) room.step();
+    assert(sim.getMineableOre().some(({ id }) => id === site.id));
     room.step();
 
     room.accept(late, { userId: 'late', displayName: 'Late' });

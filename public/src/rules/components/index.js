@@ -28,6 +28,7 @@ export { GroundItem } from './GroundItem.js';
 export { LootToss } from './LootToss.js';
 export { Gold } from './Gold.js';
 export { MaterialStacks } from './MaterialStacks.js';
+export { Mining } from './Mining.js';
 export { MeleeWeapon } from './MeleeWeapon.js';
 export { WeaponPickup } from './WeaponPickup.js';
 export { BowWeapon } from './BowWeapon.js';

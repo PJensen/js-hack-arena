@@ -21,6 +21,7 @@ import {
   WeaponPickup,
   Mana,
   MaterialStacks,
+  Mining,
   PointLight,
   Powerups,
   PlayerTag,
@@ -149,7 +150,7 @@ export function createArenaSimulation({
   const getMineableOre = mode === SIM_MODE.AUTHORITY ? mining.available : () => remoteOre;
 
   if (mode === SIM_MODE.AUTHORITY) {
-    installAuthoritativeRules(world, grid, mining.mine);
+    installAuthoritativeRules(world, grid, mining);
     installEventJournal(world, eventHistory, () => ({ tick, sequence: ++eventSequence }), projectEventPayload);
     installLootRules(world);
     for (const { x, y } of campfires) spawnAuraField(world, x, y, AuraId.CAMPFIRE);
@@ -345,6 +346,7 @@ export function createArenaSimulation({
     const ring = world.get(entityId, Ring);
     const ammo = world.get(entityId, ArrowAmmo);
     const actor = world.get(entityId, Actor);
+    const miningOrder = world.get(entityId, Mining);
     return {
       id: ensureNetworkId(entityId, 'player'),
       kind: 'player',
@@ -382,6 +384,7 @@ export function createArenaSimulation({
         arrowCount: ammo.count,
         gold: world.get(entityId, Gold).count,
         materials: { ...world.get(entityId, MaterialStacks).counts },
+        ...(miningOrder && { mining: { ...miningOrder } }),
         conditions: projectConditions(world, entityId),
         auraEmitter: projectAuraEmitter(world, entityId),
       },
@@ -604,6 +607,11 @@ export function createArenaSimulation({
       world.get(entityId, ArrowAmmo).count = state.arrowCount;
       world.get(entityId, Gold).count = state.gold;
       world.get(entityId, MaterialStacks).counts = state.materials;
+      if (state.mining) {
+        const order = world.get(entityId, Mining);
+        if (order) Object.assign(order, state.mining);
+        else world.add(entityId, Mining, state.mining);
+      } else if (world.has(entityId, Mining)) world.remove(entityId, Mining);
       world.get(entityId, Conditions).active = state.conditions.map(replicaCondition);
     } else if (record.kind === 'item') {
       const toss = world.get(entityId, LootToss);
@@ -806,7 +814,7 @@ export function normalizeSnapshot(snapshot) {
   };
 }
 
-function installAuthoritativeRules(world, grid, mine) {
+function installAuthoritativeRules(world, grid, mining) {
   installManaCombatDelay(world);
   const systems = [
     effectSystem,
@@ -818,7 +826,8 @@ function installAuthoritativeRules(world, grid, mine) {
     createPlayerCombatSystem({ grid }),
     createBumpSystem(),
     lootTossSystem,
-    createPickupSystem({ grid, mine }),
+    mining.update,
+    createPickupSystem({ grid, mine: mining.start }),
     createProjectileSystem({ grid, carve: createGridCarver(grid) }),
     deathSystem,
   ];
@@ -959,6 +968,10 @@ function normalizePlayerState(id, state) {
     ring: normalizeRingState(id, state.ring),
     arrowCount: nonNegativeInteger(state.arrowCount ?? 10, `${id}.arrowCount`),
     gold: nonNegativeInteger(state.gold ?? 0, `${id}.gold`),
+    ...(state.mining && { mining: {
+      siteId: nonNegativeInteger(state.mining.siteId, `${id}.mining.siteId`),
+      remaining: finiteNumber(state.mining.remaining, `${id}.mining.remaining`),
+    } }),
     materials: Object.fromEntries(miningMaterialIds.flatMap((type) =>
       Object.hasOwn(state.materials ?? {}, type)
         ? [[type, nonNegativeInteger(state.materials[type], `${id}.materials.${type}`)]]
