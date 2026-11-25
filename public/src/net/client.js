@@ -15,6 +15,7 @@ const JOIN_TIMEOUT_MS = 15000;
 const JOIN_FAILED = 'Could not join the shared dungeon. Check your connection and try again.';
 
 export function createNetClient({
+  roomId = DEFAULT_ROOM_ID,
   sendHz = 20,
   onDisconnect = () => {},
   onSay = () => {},
@@ -28,7 +29,7 @@ export function createNetClient({
   let statusDetail = '';
   let seq = 0;
   let lastSendAt = 0;
-  let room = DEFAULT_ROOM_ID;
+  let room = normalizeRoomId(roomId);
   let welcome = null;
   let connectPromise = null;
   let joinController = null;
@@ -90,7 +91,7 @@ export function createNetClient({
         const message = wasConnected
           ? 'Lost connection to the shared dungeon.'
           : event.code === ACCOUNT_ALREADY_PLAYING
-          ? 'Your account is already playing. Close Arena on your other device or tab, then try again.'
+          ? 'Your character is already in this dungeon. Close the other connection and try again.'
           : JOIN_FAILED;
         setStatus('offline', message);
         clearConnection();

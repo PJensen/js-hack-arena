@@ -430,6 +430,7 @@ const authState = forceOffline ? null : await fetch('/auth/me', { credentials: '
 
 let dungeonChat = null;
 const netClient = createNetClient({
+  roomId: pageParams.get('room') ?? undefined,
   onSay(message) { dungeonChat?.receive(message); },
   onSayError(message) { dungeonChat?.reject(message); },
   onDisconnect(message) {
@@ -462,7 +463,7 @@ const { playerName, netWelcome } = await new Promise((resolve) => {
     event.preventDefault();
     if (entryButton.disabled) return;
     if (!forceOffline && !authState.authenticated) {
-      window.location.assign('/auth/login?return=/');
+      window.location.assign(`/auth/login?return=${encodeURIComponent(location.pathname + location.search)}`);
       return;
     }
     // Unlock Web Audio while this is still a browser user gesture.

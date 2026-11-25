@@ -1,5 +1,5 @@
 name = "js-hack-arena"
-main = "worker/index.js"
+main = "worker/entry.js"
 compatibility_date = "2026-07-07"
 
 # Production custom hostname. The DNS zone must be present in the target
@@ -30,6 +30,14 @@ not_found_handling = "404-page"
 name = "GAME_ROOM"
 class_name = "GameRoom"
 
+[[durable_objects.bindings]]
+name = "CHARACTER"
+class_name = "Character"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["GameRoom"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Character"]

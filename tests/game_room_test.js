@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
+import { assert, assertEquals, assertRejects } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { timingSafeEqual } from 'node:crypto';
 import { AI, Actor, Conditions, Health, Position, Projectile, Spellbook } from '../public/src/rules/components/index.js';
 import { MINING_SECONDS } from '../public/src/rules/components/Mining.js';
@@ -13,6 +13,7 @@ import { applyDamage } from '../public/src/rules/effects.js';
 import { spawnGold, spawnRing } from '../public/src/rules/spawner.js';
 import { MESSAGE, decodeMessage, encodeMessage, makeRoomSeed } from '../public/src/shared/net/protocol.js';
 import { createRoomHandoff, verifyRoomHandoff } from '../worker/auth.js';
+import { CharacterProgress } from '../worker/characterProgress.js';
 import { GameRoom } from '../worker/index.js';
 
 async function verifyTestHandoff(handoff, roomId, env) {
@@ -36,26 +37,54 @@ class FakeSocket {
   addEventListener(type, listener) { this.listeners.set(type, listener); }
 }
 
-function makeRoomState(kv = new Map()) {
+function makeStorage(records = new Map()) {
   return {
-    id: { toString: () => 'test-room' },
-    storage: {
-      kv: {
-        get: (key) => structuredClone(kv.get(key)),
-        put: (key, value) => kv.set(key, structuredClone(value)),
-      },
+    transactionSync: (action) => action(),
+    setAlarm: async () => {},
+    kv: {
+      get: (key) => structuredClone(records.get(key)),
+      put: (key, value) => records.set(key, structuredClone(value)),
+      delete: (key) => records.delete(key),
+      list: ({ prefix }) => [...records].filter(([key]) => key.startsWith(prefix)).values(),
     },
   };
 }
 
-Deno.test('game room: every connected socket receives both players immediately', () => {
-  const room = new GameRoom(makeRoomState(), {});
+function makeRoomState(records, name = 'lobby') {
+  return {
+    id: { name, toString: () => name },
+    storage: makeStorage(records),
+    waitUntil() {},
+  };
+}
+
+function makeEnv(lobbyState = makeRoomState()) {
+  const characters = new Map();
+  const env = {
+    CHARACTER: {
+      getByName(userId) {
+        if (!characters.has(userId)) characters.set(userId, new CharacterProgress(makeStorage()));
+        return characters.get(userId);
+      },
+    },
+    GAME_ROOM: {
+      getByName(name) {
+        assertEquals(name, 'lobby');
+        return new GameRoom(lobbyState, env);
+      },
+    },
+  };
+  return env;
+}
+
+Deno.test('game room: every connected socket receives both players immediately', async () => {
+  const room = new GameRoom(makeRoomState(), makeEnv());
   const first = new FakeSocket();
   const second = new FakeSocket();
 
-  room.accept(first, { userId: 'user-1', displayName: 'First' });
+  await room.accept(first, { userId: 'user-1', displayName: 'First' });
   const beforeJoin = latestSnapshot(first);
-  room.accept(second, { userId: 'user-2', displayName: 'Second' });
+  await room.accept(second, { userId: 'user-2', displayName: 'Second' });
   const firstView = latestSnapshot(first);
   const secondView = latestSnapshot(second);
 
@@ -70,9 +99,9 @@ Deno.test('game room: every connected socket receives both players immediately',
 });
 
 Deno.test('game room: /say reaches distant peers and uses the signed character name', async () => {
-  const env = { ARENA_SESSION_SECRET: 'test-room-handoff-secret' };
+  const env = { ...makeEnv(), ARENA_SESSION_SECRET: 'test-room-handoff-secret' };
   const room = new GameRoom(makeRoomState(), env);
-  const otherRoom = new GameRoom({ ...makeRoomState(), id: { toString: () => 'other-room' } }, {});
+  const otherRoom = new GameRoom(makeRoomState(undefined, 'other-room'), env);
   const speaker = new FakeSocket();
   const listener = new FakeSocket();
   const outsider = new FakeSocket();
@@ -83,9 +112,9 @@ Deno.test('game room: /say reaches distant peers and uses the signed character n
   assertEquals(await verifyTestHandoff(defaultHandoff, room.roomId, env), {
     userId: 'user-1', displayName: 'Adventurer',
   });
-  room.accept(speaker, identity);
-  room.accept(listener, { userId: 'user-2', displayName: 'Second' });
-  otherRoom.accept(outsider, { userId: 'user-3', displayName: 'Outsider' });
+  await room.accept(speaker, identity);
+  await room.accept(listener, { userId: 'user-2', displayName: 'Second' });
+  await otherRoom.accept(outsider, { userId: 'user-3', displayName: 'Outsider' });
   try {
     const { peerId, peers, snapshot } = speaker.sent.find(({ type }) => type === MESSAGE.WELCOME);
     assertEquals(peers.find(({ id }) => id === peerId).name, 'First');
@@ -121,10 +150,10 @@ Deno.test('game room: /say reaches distant peers and uses the signed character n
   }
 });
 
-Deno.test('game room: opening chat interrupts an in-progress cast before release', () => {
-  const room = new GameRoom(makeRoomState(), {});
+Deno.test('game room: opening chat interrupts an in-progress cast before release', async () => {
+  const room = new GameRoom(makeRoomState(), makeEnv());
   const socket = new FakeSocket();
-  room.accept(socket, { userId: 'caster', displayName: 'Caster' });
+  await room.accept(socket, { userId: 'caster', displayName: 'Caster' });
   try {
     const { peerId } = socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
     const sim = room.ensureSim();
@@ -148,11 +177,11 @@ Deno.test('game room: opening chat interrupts an in-progress cast before release
   }
 });
 
-Deno.test('game room: initial dungeon setup matches offline play and dead-end chests open once', () => {
-  const room = new GameRoom(makeRoomState(), {});
+Deno.test('game room: initial dungeon setup matches offline play and dead-end chests open once', async () => {
+  const room = new GameRoom(makeRoomState(), makeEnv());
   const first = new FakeSocket();
   const second = new FakeSocket();
-  room.accept(first, { userId: 'user-1', displayName: 'First' });
+  await room.accept(first, { userId: 'user-1', displayName: 'First' });
   try {
     const cave = generateArenaCave(room.seed);
     const offline = createArenaDungeonSimulation({ seed: room.seed, cave });
@@ -179,7 +208,7 @@ Deno.test('game room: initial dungeon setup matches offline play and dead-end ch
     assertEquals(snapshot.events.filter(({ type }) => type === 'chest.opened').length, 1);
     assert(snapshot.entities.some(({ kind, state }) => kind === 'item' && state.tossHeight > 0));
 
-    room.accept(second, { userId: 'user-2', displayName: 'Second' });
+    await room.accept(second, { userId: 'user-2', displayName: 'Second' });
     assertEquals(chests(latestSnapshot(second)), chests(snapshot));
   } finally {
     room.leave(first);
@@ -187,13 +216,13 @@ Deno.test('game room: initial dungeon setup matches offline play and dead-end ch
   }
 });
 
-Deno.test('game room: Mimics use both encounter site types and share a dungeon cap', () => {
+Deno.test('game room: Mimics use both encounter site types and share a dungeon cap', async () => {
   // mimic-50 rolls a leaf Mimic and would also roll a regular Mimic without the cap.
   for (const [roomId, leaf] of [['mimic-50', true], ['lobby', false]]) {
-    const room = new GameRoom(makeRoomState(), {});
+    const room = new GameRoom(makeRoomState(), makeEnv());
     room.seed = makeRoomSeed(roomId);
     const socket = new FakeSocket();
-    room.accept(socket, { userId: 'user-1', displayName: 'First' });
+    await room.accept(socket, { userId: 'user-1', displayName: 'First' });
     try {
       const cave = room.ensureCave();
       const mimics = (snapshot) => snapshot.entities.filter(({ state }) => state.theme === 'mimic');
@@ -222,10 +251,10 @@ Deno.test('game room: Mimics use both encounter site types and share a dungeon c
   }
 });
 
-Deno.test('game room: encounters stay spread out while some mobs patrol', () => {
-  const room = new GameRoom(makeRoomState(), {});
+Deno.test('game room: encounters stay spread out while some mobs patrol', async () => {
+  const room = new GameRoom(makeRoomState(), makeEnv());
   const socket = new FakeSocket();
-  room.accept(socket, { userId: 'user-1', displayName: 'First' });
+  await room.accept(socket, { userId: 'user-1', displayName: 'First' });
   try {
     const cave = room.ensureCave();
     const [entrance] = cave.spawns;
@@ -318,10 +347,10 @@ Deno.test('game room: encounters stay spread out while some mobs patrol', () => 
   }
 });
 
-Deno.test('game room: a ring equips through pickup intent and swapping drops the previous ring', () => {
-  const room = new GameRoom(makeRoomState(), {});
+Deno.test('game room: a ring equips through pickup intent and swapping drops the previous ring', async () => {
+  const room = new GameRoom(makeRoomState(), makeEnv());
   const socket = new FakeSocket();
-  room.accept(socket, { userId: 'user-1', displayName: 'First' });
+  await room.accept(socket, { userId: 'user-1', displayName: 'First' });
   try {
     const entities = latestSnapshot(socket).entities;
     const player = entities.find(({ kind }) => kind === 'player');
@@ -365,12 +394,12 @@ function latestSnapshot(socket) {
   return message.snapshot;
 }
 
-Deno.test('game room: a mining command drops ore and a gem and late joins see the spent vein', () => {
-  const room = new GameRoom(makeRoomState(), {});
+Deno.test('game room: a mining command drops ore and a gem and late joins see the spent vein', async () => {
+  const room = new GameRoom(makeRoomState(), makeEnv());
   room.seed = 42;
   const miner = new FakeSocket();
   const late = new FakeSocket();
-  room.accept(miner, { userId: 'miner', displayName: 'Miner' });
+  await room.accept(miner, { userId: 'miner', displayName: 'Miner' });
   try {
     const sim = room.ensureSim();
     const site = sim.getMineableOre()[0];
@@ -403,7 +432,7 @@ Deno.test('game room: a mining command drops ore and a gem and late joins see th
     assert(sim.getMineableOre().some(({ id }) => id === site.id));
     room.step();
 
-    room.accept(late, { userId: 'late', displayName: 'Late' });
+    await room.accept(late, { userId: 'late', displayName: 'Late' });
     const joined = latestSnapshot(late);
     const drops = joined.entities.filter(({ state }) => getMiningMaterial(state.effect));
     assertEquals(drops.filter(({ state }) => state.effect === 'copper_ore').length, 3);
@@ -416,10 +445,10 @@ Deno.test('game room: a mining command drops ore and a gem and late joins see th
   }
 });
 
-Deno.test('game room: walking through the campfire applies and replicates timed burning', () => {
-  const room = new GameRoom(makeRoomState(), {});
+Deno.test('game room: walking through the campfire applies and replicates timed burning', async () => {
+  const room = new GameRoom(makeRoomState(), makeEnv());
   const socket = new FakeSocket();
-  room.accept(socket, { userId: 'user-1', displayName: 'First' });
+  await room.accept(socket, { userId: 'user-1', displayName: 'First' });
   try {
     const { peerId } = socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
     const { campfires: [campfire] } = room.ensureCave();
@@ -483,10 +512,10 @@ Deno.test('game room: walking through the campfire applies and replicates timed 
   }
 });
 
-Deno.test('game room: a starter Cleave consumes stamina and broadcasts the swing', () => {
-  const room = new GameRoom(makeRoomState(), {});
+Deno.test('game room: a starter Cleave consumes stamina and broadcasts the swing', async () => {
+  const room = new GameRoom(makeRoomState(), makeEnv());
   const socket = new FakeSocket();
-  room.accept(socket, { userId: 'user-1', displayName: 'First' });
+  await room.accept(socket, { userId: 'user-1', displayName: 'First' });
   try {
     const initial = latestSnapshot(socket).entities.find((entity) => entity.kind === 'player').state;
     assertEquals(initial.spells.slice(2), ['cleave', 'rend']);
@@ -518,47 +547,92 @@ Deno.test('game room: a starter Cleave consumes stamina and broadcasts the swing
   }
 });
 
-Deno.test('game room: earned gold follows the account into a fresh run', () => {
+Deno.test('game room: a character carries legacy and earned gold across independent rooms', async () => {
   const key = 'player-progress:user-1';
-  const saved = new Map([[key, { unlocks: ['example'] }]]);
-  const room = new GameRoom(makeRoomState(saved), {});
+  const saved = new Map([[key, { gold: 7 }]]);
+  const lobby = makeRoomState(saved);
+  const env = makeEnv(lobby);
+  const quarry = new GameRoom(makeRoomState(undefined, 'quarry'), env);
   const first = new FakeSocket();
-  room.accept(first, { userId: 'user-1', displayName: 'First' });
-  try {
-    const welcome = first.sent.find(({ type }) => type === MESSAGE.WELCOME);
-    const { peerId } = welcome;
-    assertEquals(welcome.snapshot.entities.find(({ owner }) => owner === peerId).state.gold, 0);
-    const sim = room.ensureSim();
-    const player = sim.getPlayerEntity(peerId);
-    const { x, y } = sim.world.get(player, Position);
-    spawnGold(sim.world, x, y, 3);
-    room.step();
-    assertEquals(saved.get(key), { unlocks: ['example'], gold: 3 });
-
-    sim.world.get(player, Health).hp = 0;
-    room.step();
-    room.broadcastSnapshot();
-    const { state } = latestSnapshot(first).entities.find(({ owner }) => owner === peerId);
-    assertEquals(state.hp, 0);
-    assertEquals(state.gold, 3);
-  } finally {
-    room.leave(first);
-  }
-
-  const nextRoom = new GameRoom(makeRoomState(saved), {});
   const returning = new FakeSocket();
   const otherAccount = new FakeSocket();
+  const identity = { userId: 'user-1', displayName: 'First' };
+  const welcome = (socket) => socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
+  const playerState = (socket) => latestSnapshot(socket).entities.find(({ owner }) => owner === welcome(socket).peerId).state;
+  const lobbyRoom = new GameRoom(lobby, env);
   try {
-    nextRoom.accept(returning, { userId: 'user-1', displayName: 'Renamed' });
-    const restored = returning.sent.find(({ type }) => type === MESSAGE.WELCOME);
-    const player = restored.snapshot.entities.find(({ owner }) => owner === restored.peerId).state;
-    assertEquals(player.gold, 3);
-    assertEquals(player.hp, player.maxHp);
-    nextRoom.accept(otherAccount, { userId: 'user-2', displayName: 'Renamed' });
-    const other = otherAccount.sent.find(({ type }) => type === MESSAGE.WELCOME);
-    assertEquals(other.snapshot.entities.find(({ owner }) => owner === other.peerId).state.gold, 0);
+    // The first visit can be to a different room than the one holding legacy gold.
+    await quarry.accept(first, identity);
+    assertEquals(welcome(first).roomId, 'quarry');
+    assertEquals(playerState(first).gold, 7);
+    const sim = quarry.ensureSim();
+    const player = sim.getPlayerEntity(welcome(first).peerId);
+    const { x, y } = sim.world.get(player, Position);
+    spawnGold(sim.world, x, y, 3);
+    quarry.step();
+    quarry.broadcastSnapshot();
+    assertEquals(playerState(first).gold, 7);
+    await quarry.flushGold(identity.userId);
+    sim.world.get(player, Health).hp = 0;
+    quarry.step();
+    quarry.broadcastSnapshot();
+    assertEquals(playerState(first).hp, 0);
+    assertEquals(playerState(first).gold, 10);
+    quarry.leave(first);
+
+    await lobbyRoom.accept(returning, { ...identity, displayName: 'Renamed' });
+    assertEquals(playerState(returning).gold, 10);
+    assertEquals(playerState(returning).hp, playerState(returning).maxHp);
+    await lobbyRoom.accept(otherAccount, { userId: 'user-2', displayName: 'Renamed' });
+    assertEquals(playerState(otherAccount).gold, 0);
+    assertEquals(saved.get(key), { gold: 7 });
   } finally {
-    nextRoom.leave(returning);
-    nextRoom.leave(otherAccount);
+    quarry.leave(first);
+    lobbyRoom.leave(returning);
+    lobbyRoom.leave(otherAccount);
   }
+});
+
+Deno.test('game room: pending gold survives a restart after an ambiguous credit response', async () => {
+  const state = makeRoomState();
+  const env = makeEnv(state);
+  const character = env.CHARACTER.getByName('miner');
+  const credit = character.creditGold.bind(character);
+  let loseResponse = true;
+  character.creditGold = (roomId, earned) => {
+    const gold = credit(roomId, earned);
+    if (loseResponse) throw new Error('response lost after commit');
+    return gold;
+  };
+  const room = new GameRoom(state, env);
+  const socket = new FakeSocket();
+  await room.accept(socket, { userId: 'miner', displayName: 'Miner' });
+  try {
+    const sim = room.ensureSim();
+    const { peerId } = socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    const { x, y } = sim.world.get(sim.getPlayerEntity(peerId), Position);
+    spawnGold(sim.world, x, y, 3);
+    room.step();
+    await assertRejects(() => room.flushGold('miner'), Error, 'response lost');
+  } finally {
+    room.leave(socket);
+  }
+  loseResponse = false;
+  const restarted = new GameRoom(state, env);
+  await restarted.alarm();
+  assertEquals(character.read(), { gold: 3 });
+  assertEquals([...state.storage.kv.list({ prefix: 'pending-character-gold:' })], []);
+});
+
+Deno.test('character: initialization and cumulative credits merge once per room', async () => {
+  const storage = makeStorage();
+  const first = new CharacterProgress(storage);
+  const second = new CharacterProgress(storage);
+  assertEquals(await Promise.all([first.initialize(12), second.initialize(12)]), [{ gold: 12 }, { gold: 12 }]);
+  assertEquals(first.creditGold('lobby', 5), 17);
+  assertEquals(second.creditGold('quarry', 3), 20);
+  assertEquals(first.creditGold('lobby', 5), 20);
+  assertEquals(second.creditGold('lobby', 2), 20);
+  assertEquals(second.creditGold('lobby', 7), 22);
+  assertEquals(first.initialize(12), { gold: 22 });
 });

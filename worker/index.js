@@ -8,6 +8,7 @@ import {
   makeInputFrame,
   makeRoomSeed,
   normalizePlayerName,
+  normalizeRoomId,
   normalizeSayText,
 } from '../public/src/shared/net/protocol.js';
 import { generateArenaCave } from '../public/src/rules/geometry/caveGen.js';
@@ -34,6 +35,8 @@ const SNAPSHOT_HZ = 10;
 const SERVER_TICK_MS = 1000 / SIM_TICK_HZ;
 const SNAPSHOT_EVERY_TICKS = Math.max(1, Math.round(SIM_TICK_HZ / SNAPSHOT_HZ));
 const SAY_COOLDOWN_MS = 900;
+const PENDING_GOLD_PREFIX = 'pending-character-gold:';
+const GOLD_RETRY_MS = 2000;
 
 export default {
   async fetch(request, env) {
@@ -62,7 +65,7 @@ export default {
     if (url.pathname === '/api/rooms/default') {
       const session = await readSession(request, env);
       if (!session) return json({ ok: false, error: 'login required' }, { status: 401 });
-      const roomId = DEFAULT_ROOM_ID;
+      const roomId = normalizeRoomId(url.searchParams.get('room') ?? DEFAULT_ROOM_ID);
       return json({
         roomId,
         seed: makeRoomSeed(roomId),
@@ -70,15 +73,15 @@ export default {
       });
     }
 
-    if (url.pathname.startsWith('/ws/')) {
-      const roomId = DEFAULT_ROOM_ID;
+    const roomPath = /^\/ws\/([a-z0-9_-]{1,48})$/.exec(url.pathname);
+    if (roomPath) {
+      const roomId = normalizeRoomId(roomPath[1]);
       const session = await readSession(request, env);
       if (!session) return json({ ok: false, error: 'login required' }, { status: 401 });
-      const id = env.GAME_ROOM.idFromName(roomId);
       const handoff = await createRoomHandoff(session, roomId, url.searchParams.get('characterName'), env);
       const headers = new Headers(request.headers);
       headers.set('x-arena-room-auth', handoff);
-      return env.GAME_ROOM.get(id).fetch(new Request(request, { headers }));
+      return env.GAME_ROOM.getByName(roomId).fetch(new Request(request, { headers }));
     }
 
     return env.ASSETS.fetch(request);
@@ -90,8 +93,9 @@ export class GameRoom {
     this.state = state;
     this.env = env;
     this.sessions = new Map();
+    this.goldFlushes = new Map();
     this.createdAt = Date.now();
-    this.roomId = DEFAULT_ROOM_ID;
+    this.roomId = state.id.name ?? DEFAULT_ROOM_ID;
     this.seed = makeRoomSeed(this.roomId);
     this.caveData = null;
     this.sim = null;
@@ -99,8 +103,6 @@ export class GameRoom {
   }
 
   async fetch(request) {
-    this.roomId = DEFAULT_ROOM_ID;
-
     if (request.headers.get('upgrade') !== 'websocket') {
       return json({
         ok: true,
@@ -119,7 +121,7 @@ export class GameRoom {
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-    if (!this.accept(server, identity)) {
+    if (!await this.accept(server, identity)) {
       // Browsers cannot read the HTTP response body of a rejected WebSocket upgrade.
       server.accept();
       server.close(ACCOUNT_ALREADY_PLAYING, 'Account already playing');
@@ -131,12 +133,12 @@ export class GameRoom {
     });
   }
 
-  accept(socket, identity) {
-    if ([...this.sessions.values()].some((session) => session.userId === identity.userId)) {
-      return false;
-    }
-    const progressKey = `player-progress:${identity.userId}`;
-    const progress = this.state.storage.kv.get(progressKey) ?? { gold: 0 };
+  async accept(socket, identity) {
+    const { userId } = identity;
+    const alreadyPlaying = () => [...this.sessions.values()].some((session) => session.userId === userId);
+    if (alreadyPlaying()) return false;
+    const gold = await this.loadCharacterGold(userId);
+    if (alreadyPlaying()) return false;
     socket.accept();
 
     const peerId = crypto.randomUUID();
@@ -148,14 +150,13 @@ export class GameRoom {
       nextSayAt: 0,
       input: makeInputFrame(),
       name: normalizePlayerName(identity.displayName),
-      userId: identity.userId,
-      progressKey,
-      progress,
+      userId,
+      gold,
     };
 
     const sim = this.ensureSim();
     const player = sim.addPlayer(peerId, this.sessions.size, null, session.name);
-    sim.world.get(player, Gold).count = progress.gold ?? 0;
+    sim.world.get(player, Gold).count = gold;
     this.sessions.set(socket, session);
     this.startTicking();
     this.send(socket, MESSAGE.WELCOME, {
@@ -241,17 +242,83 @@ export class GameRoom {
     const tick = sim.step(SIM_DT);
 
     for (const session of this.sessions.values()) {
-      const gold = sim.world.get(sim.getPlayerEntity(session.id), Gold).count;
-      if (gold === (session.progress.gold ?? 0)) continue;
-      const progress = { ...session.progress, gold };
-      this.state.storage.kv.put(session.progressKey, progress);
-      session.progress = progress;
+      const gold = sim.world.get(sim.getPlayerEntity(session.id), Gold);
+      const earned = gold.count - session.gold;
+      if (earned <= 0) continue;
+      this.queueGold(session.userId, earned);
+      // Publish only balances confirmed by the character store.
+      gold.count = session.gold;
     }
 
     if (tick % SNAPSHOT_EVERY_TICKS !== 0) return;
     this.broadcast(MESSAGE.SNAPSHOT, {
       snapshot: sim.captureSnapshot(),
     });
+  }
+
+  legacyGold(userId) {
+    if (this.roomId !== DEFAULT_ROOM_ID) throw new Error('Legacy progress belongs to the lobby');
+    return this.state.storage.kv.get(`player-progress:${userId}`)?.gold ?? 0;
+  }
+
+  async loadCharacterGold(userId) {
+    await this.flushGold(userId);
+    const character = this.env.CHARACTER.getByName(userId);
+    const existing = await character.read();
+    if (existing) return existing.gold;
+    const legacyGold = this.roomId === DEFAULT_ROOM_ID ? this.legacyGold(userId)
+      : await this.env.GAME_ROOM.getByName(DEFAULT_ROOM_ID).legacyGold(userId);
+    return (await character.initialize(legacyGold)).gold;
+  }
+
+  queueGold(userId, amount) {
+    const { storage } = this.state;
+    const earnedKey = `character-gold-earned:${userId}`;
+    const pendingKey = PENDING_GOLD_PREFIX + userId;
+    // Schedule recovery before publishing the durable credit. The alarm also
+    // runs if the room loses its sockets while an RPC is in flight.
+    if (storage.kv.get(pendingKey) === undefined) {
+      this.state.waitUntil(storage.setAlarm(Date.now() + GOLD_RETRY_MS));
+    }
+    storage.transactionSync(() => {
+      const earned = (storage.kv.get(earnedKey) ?? 0) + amount;
+      if (!Number.isSafeInteger(earned)) throw new Error('Room gold credit exceeds the safe integer limit');
+      storage.kv.put(earnedKey, earned);
+      storage.kv.put(pendingKey, earned);
+    });
+    this.state.waitUntil(this.flushGold(userId).catch((error) => console.error('Character gold credit deferred', error)));
+  }
+
+  flushGold(userId) {
+    const inFlight = this.goldFlushes.get(userId);
+    if (inFlight) return inFlight;
+    const key = PENDING_GOLD_PREFIX + userId;
+    const sync = async () => {
+      const { kv } = this.state.storage;
+      let earned;
+      while ((earned = kv.get(key)) !== undefined) {
+        const gold = await this.env.CHARACTER.getByName(userId).creditGold(this.state.id.toString(), earned);
+        if (kv.get(key) === earned) kv.delete(key);
+        const session = [...this.sessions.values()].find((player) => player.userId === userId);
+        if (session) {
+          session.gold = gold;
+          const sim = this.ensureSim();
+          sim.world.get(sim.getPlayerEntity(session.id), Gold).count = gold;
+        }
+      }
+    };
+    const flush = sync().finally(() => this.goldFlushes.delete(userId));
+    this.goldFlushes.set(userId, flush);
+    return flush;
+  }
+
+  async alarm() {
+    const { storage } = this.state;
+    const pending = [...storage.kv.list({ prefix: PENDING_GOLD_PREFIX })];
+    // Keep a retry scheduled until every pending credit is acknowledged.
+    if (pending.length === 0) return;
+    await storage.setAlarm(Date.now() + GOLD_RETRY_MS);
+    await Promise.all(pending.map(([key]) => this.flushGold(key.slice(PENDING_GOLD_PREFIX.length))));
   }
 
   leave(socket) {

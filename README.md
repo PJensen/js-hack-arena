@@ -62,7 +62,7 @@ the application entry point no longer imports them.
 
 - Static client: `public/index.html`, `public/sw.js`, and browser modules under `public/src/`.
 - Cloudflare asset root: `public/`.
-- Server runtime: Cloudflare Worker in `worker/index.js`.
+- Server runtime: Cloudflare Worker in `worker/entry.js`, with routing and room rules in `worker/index.js`.
 - Realtime rooms: Cloudflare Durable Object `GameRoom`, routed through `/ws/:roomId`.
 - Shared net contract: `public/src/shared/net/protocol.js`.
 - Canonical simulation contract: `public/src/rules/sim/arenaSim.js`.
@@ -109,6 +109,7 @@ entry screen when offered. You can also use your browser's install menu.
 - `[assets]` serves the static client from `public/`.
 - `.assetsignore` keeps Worker/config/test files out of the static upload.
 - `GAME_ROOM` binds a Durable Object class for socket-backed game rooms.
+- `CHARACTER` binds a Durable Object class for persistent character progress.
 
 Useful routes once running under Wrangler:
 
@@ -119,6 +120,8 @@ Useful routes once running under Wrangler:
 ## Basement authentication
 
 Server-backed rooms require an Arena session issued after Basement OIDC login.
+Open `/?room=quarry` to join a named dungeon. Signed-in players use one character
+record across rooms. Gold is persistent, including existing lobby balances.
 The Worker exposes `/auth/login`, `/auth/callback`, `/auth/me`, and `/auth/logout`.
 Basement access and ID tokens stay server-side; the browser receives only an
 Arena-owned `HttpOnly` session cookie. The Worker turns that session into a
