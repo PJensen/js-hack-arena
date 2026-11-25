@@ -131,7 +131,7 @@ export const spawnCaster = defineMob({
 
 export const spawnMelee = defineMob({
   name: 'Goblin Raider', glyph: 'g', theme: 'fire', radius: 11,
-  speed: 125, hp: 45, mana: 0, manaRegen: 0,
+  speed: 90, hp: 45, mana: 0, manaRegen: 0,
   light: { radius: 70, r: 255, g: 105, b: 35 },
   behavior: AIBehavior.MELEE, preferredDist: 10, castRate: 99,
   projSpeed: 0, meleeDamage: 14, weapon: 'Jagged Blade', aggroRange: 340,

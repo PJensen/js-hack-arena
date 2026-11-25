@@ -1481,7 +1481,7 @@ export function createWebGLArenaRenderer(deps) {
         const heading = swing ? Math.atan2(swing.y - swing.fromY, swing.x - swing.fromX) : facing;
         const stride = still ? 0 : Math.min(1, speed / 125) * (swing ? 0.35 : 1);
         drawDisc(shown.x, shown.y + 2, radius * 0.95, [0.03, 0.02, 0.012, 0.43], [0, 0, 0, 0]);
-        drawGoblin(view, shown.x, shown.y, radius, heading, combatTime * 15 + id * 1.47, stride, attack);
+        drawGoblin(view, shown.x, shown.y, radius, heading, combatTime * 11 + id * 1.47, stride, attack);
         if (actor.rare) drawGlyph('★', shown.x + radius * 0.75, shown.y - radius * 2.15, 10, [1, 0.78, 0.18, 1]);
         continue;
       }

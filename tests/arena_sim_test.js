@@ -1189,7 +1189,7 @@ Deno.test('arena sim: floating eye gaze needs sustained sight and replicates tim
   assertEquals([...sim.world.query(AI)].length, 0);
 });
 
-Deno.test('arena sim: replicated goblin melee identifies the attacking replica entity', () => {
+Deno.test('arena sim: goblin closes at 90 units per second and replicated melee identifies the attacker', () => {
   const sim = makeOpenSim(921, { enemyCount: 0 });
   sim.addPlayer('peer-a');
   const goblin = spawnMelee(sim.world, { distanceMove: () => 100 }, 137, 100, null);
@@ -1206,7 +1206,11 @@ Deno.test('arena sim: replicated goblin melee identifies the attacking replica e
     .find(([, actor]) => actor.name === 'Goblin Raider');
   assert(replicaGoblin !== goblin);
 
-  for (let i = 0; i < 5; i++) sim.step();
+  const position = sim.world.get(goblin, Position);
+  const startX = position.x;
+  sim.step();
+  assertAlmostEquals(startX - position.x, 90 * SIM_DT);
+  for (let i = 0; i < 4; i++) sim.step();
   const snapshot = sim.captureSnapshot();
   replica.applySnapshot(snapshot);
   replica.applySnapshot(snapshot);
