@@ -86,7 +86,6 @@ function lootGlowColor(info, effect) {
   if (effect === 'heal_over_time') return [1, 0.12, 0.28];
   if (effect === 'heal') return [1, 0.38, 0.14];
   if (effect === 'mana') return [0.18, 0.58, 1];
-  if (effect === 'epic_chest') return [0.78, 0.24, 1];
   const rarity = String(info?.rarity || 'common').toLowerCase();
   if (rarity === 'legendary') return [1, 0.72, 0.12];
   if (rarity === 'epic') return [0.78, 0.24, 1];
@@ -97,7 +96,7 @@ function lootGlowColor(info, effect) {
 
 function lootShaftHeight(info, effect) {
   if (effect === 'heal' || effect === 'heal_over_time' || effect === 'mana') return 38;
-  if (effect === 'epic_chest') return 82;
+  if (effect === 'epic_chest') return 0;
   return { common: 32, uncommon: 44, rare: 60, epic: 82, legendary: 108 }[String(info?.rarity).toLowerCase()] || 32;
 }
 
@@ -1594,7 +1593,7 @@ export function createWebGLArenaRenderer(deps) {
       const weapon = world.get(id, WeaponPickup);
       const effect = consumable?.effect;
       const shaft = lootShaftHeight(info, effect);
-      if (!inView(shown.x, shown.y, shaft + 16)) continue;
+      if (!inView(shown.x, shown.y, Math.max(32, shaft + 16))) continue;
       if (effect === 'gold') {
         const bob = Math.sin(now * 3 + id) * 1.5;
         drawGlyph('$', shown.x, shown.y - 2 + bob, 19, [1, 0.78, 0.25, 0.95]);
@@ -1605,9 +1604,11 @@ export function createWebGLArenaRenderer(deps) {
       const model = weapon ? (weapon.slot === 'ranged' ? 'bow' : 'sword')
         : effect === 'epic_chest' ? 'chest' : potion ? 'potion' : null;
       if (model) models.push({ model, id, shown, info, effect });
-      const glow = lootGlowColor(info, consumable?.effect);
       const pulse = 0.5 + 0.5 * Math.sin(now * 2.4 + id * 0.73);
-      drawLootShaft(shown.x, shown.y + 5, shaft, glow, (motionPreference.matches ? 0 : now) + id * 0.29);
+      if (shaft > 0) {
+        const glow = lootGlowColor(info, effect);
+        drawLootShaft(shown.x, shown.y + 5, shaft, glow, (motionPreference.matches ? 0 : now) + id * 0.29);
+      }
       if (consumable && effect !== 'epic_chest') {
         const potionTheme = consumable.effect === 'mana' ? 'electric' : 'fire';
         const swirl = healthPotion ? 0 : 1;
