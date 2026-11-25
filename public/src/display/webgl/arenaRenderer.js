@@ -398,6 +398,7 @@ export function createWebGLArenaRenderer(deps) {
   let combatTime = lastFrameTime;
   const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
   const gore = createGorePass({ grid, seed: SEED, reducedMotion: () => motionPreference.matches });
+  const nextBleedDrip = new Map();
   const combatNumbers = createFloatTextPass();
   const meleeImpact = createMeleeImpact({
     playerId,
@@ -936,6 +937,7 @@ export function createWebGLArenaRenderer(deps) {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     for (let conditionIndex = 0; conditionIndex < conditionState.active.length; conditionIndex++) {
       const condition = conditionState.active[conditionIndex];
+      if (condition.id === ConditionId.BLEEDING) continue;
       const pulse = 0.5 + 0.5 * Math.sin(now * 6 + entityId * 0.73 + conditionIndex);
       if (condition.visual === 'frozen') {
         drawDisc(position.x, position.y, collider.radius + 3 + pulse * 2, [0.18, 0.58, 1, 0.18], [0.58, 0.92, 1, 0.72]);
@@ -982,13 +984,6 @@ export function createWebGLArenaRenderer(deps) {
           const size = 1.9 + (drop % 3) * 0.56;
           drawLines(new Float32Array([x - side * 1.8, y - 3.4, x, y]), color);
           drawDisc(x, y, size, color, color);
-        }
-      } else if (condition.id === 'bleeding') {
-        for (let drop = 0; drop < 3; drop++) {
-          const fall = (now * 1.7 + drop / 3 + entityId * 0.17) % 1;
-          const x = position.x + (drop - 1) * collider.radius * 0.65;
-          const y = position.y - collider.radius * 0.2 + fall * collider.radius * 1.3;
-          drawGlyph('♦', x, y, 6 - fall * 2, [1, 0.06, 0.18, (1 - fall) * 0.9]);
         }
       } else if (condition.visual === 'ice_armor') {
         drawDisc(position.x, position.y, collider.radius + 5 + pulse * 1.5, [0.18, 0.52, 0.9, 0.14], [0.58, 0.9, 1, 0.78]);
@@ -1139,6 +1134,20 @@ export function createWebGLArenaRenderer(deps) {
       });
     }
     return lights;
+  }
+
+  function presentBleeding() {
+    for (const [id, due] of nextBleedDrip) {
+      if (due <= combatTime) nextBleedDrip.delete(id);
+    }
+    for (const [id, position, collider, state] of world.query(Position, Collider, Conditions)) {
+      if (nextBleedDrip.has(id) || world.get(id, Health)?.dead) continue;
+      if (!state.active.some(({ id, remaining }) => id === ConditionId.BLEEDING && remaining > 0)) continue;
+      const { x, y } = displayPosition(id, position);
+      if (!inView(x, y, collider.radius * 2)) continue;
+      gore.drip(x, y, collider.radius);
+      nextBleedDrip.set(id, combatTime + 0.24);
+    }
   }
 
   function drawDungeonDecorations(now, renderDt, campfires) {
@@ -1484,6 +1493,7 @@ export function createWebGLArenaRenderer(deps) {
     drawOre(view, inView, oreSites, motionPreference.matches ? null : now);
     drawDungeonDecorations(now, renderDt, campfires);
 
+    presentBleeding();
     goreRenderer.drawFloor(gore, view, inView);
 
     for (const [id, _playerTag, position, collider] of world.query(PlayerTag, Position, Collider)) {

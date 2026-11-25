@@ -61,6 +61,25 @@ export function createGorePass({ grid, seed, reducedMotion = () => false }) {
     }
   }
 
+  function drip(x, y, radius) {
+    const side = rng.float(0, 1) < 0.5 ? -1 : 1;
+    const drop = launch(
+      x + side * radius * rng.float(0.52, 0.82),
+      y + radius * rng.float(0.7, 0.94),
+      side < 0 ? Math.PI : 0,
+      rng.float(5, 11), -12, flesh,
+    );
+    drop.height = radius * rng.float(1.05, 1.35);
+    drop.size = rng.float(2.7, 3.9);
+    drop.leavesStain = true;
+    if (reducedMotion()) {
+      move(drop, drop.vx * 0.2, drop.vy * 0.2);
+      addStain(drop, 0.88);
+    } else {
+      append(drops, drop, GORE_LIMITS.drops);
+    }
+  }
+
   function launch(x, y, angle, speed, lift, material) {
     return {
       x, y, angle, height: 4, lift, material, age: 0,
@@ -135,7 +154,7 @@ export function createGorePass({ grid, seed, reducedMotion = () => false }) {
     }
   }
 
-  return { add, step, stains, drops, fragments };
+  return { add, drip, step, stains, drops, fragments };
 }
 
 function append(array, value, limit) {
