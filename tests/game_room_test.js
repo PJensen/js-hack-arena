@@ -191,19 +191,25 @@ Deno.test('game room: encounters stay spread out while some mobs patrol', () => 
     assertEquals(mobStates(latestSnapshot(socket)), mobStates(offline.captureSnapshot()));
     assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'floating_eye').length, 1);
     assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'gas_spore').length, 1);
-    assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'bat').length, 1);
+    assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'bat').length, 3);
     assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'flaming_bat').length, 1);
 
     const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-    const mobs = [...sim.world.query(AI, Position)].map(([id, ai, pos]) => ({ id, ai, pos, home: { ...pos } }));
-    assertEquals(mobs.length, 9);
+    const mobs = [...sim.world.query(AI, Position, Actor)].map(([id, ai, pos, actor]) => ({ id, ai, pos, home: { ...pos }, theme: actor.theme }));
+    assertEquals(mobs.length, 11);
     assertEquals(mobs.filter(({ ai }) => ai.patrolPoints.length > 1).length, 3);
+    const bats = mobs.filter(({ theme }) => theme === 'bat');
+    for (const [index, bat] of bats.entries()) {
+      assert(bats.slice(index + 1).every((other) => distance(bat.home, other.home) >= 24 && distance(bat.home, other.home) <= 64));
+    }
     const assertSpread = () => {
-      for (const [index, { ai, pos }] of mobs.entries()) {
+      for (const [index, { ai, pos, theme }] of mobs.entries()) {
         assertEquals(ai.target, null);
         assert(distance(pos, entrance) > 320);
         assert(cave.grid.distanceMove(pos.x, pos.y) >= 20);
-        assert(mobs.slice(index + 1).every((other) => distance(pos, other.pos) > 500));
+        assert(mobs.slice(index + 1).every((other) =>
+          theme === 'bat' && other.theme === 'bat' ? distance(pos, other.pos) <= 96 : distance(pos, other.pos) > 500
+        ));
       }
     };
     assertSpread();
@@ -233,7 +239,7 @@ Deno.test('game room: encounters stay spread out while some mobs patrol', () => 
 
     sim.world.get(nearby.id, Health).hp = 0;
     for (let tick = 0; tick < 20; tick++) room.step();
-    assertEquals([...sim.world.query(AI)].length, 8);
+    assertEquals([...sim.world.query(AI)].length, 10);
 
     const eye = mobStates(latestSnapshot(socket)).find(({ theme }) => theme === 'floating_eye');
     const eyeApproach = [[65, 0], [-65, 0], [0, 65], [0, -65]]

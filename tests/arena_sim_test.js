@@ -917,11 +917,12 @@ Deno.test("arena sim: zero-health players die once and cannot act", () => {
   assertEquals(sim.captureSnapshot().entities.find((entity) => entity.kind === 'player').state.dead, true);
 });
 
-Deno.test("arena sim: authored packs include a spider without increasing the enemy population", () => {
+Deno.test("arena sim: authored encounters include a spider and a bat flock", () => {
   const sim = makeOpenSim(905, { enemyCount: 3, enemyGroupSize: 3, enemySpawnExclusionRadius: 320 });
   sim.addPlayer('peer-a');
   const mobs = [...sim.world.query(AI, Actor, Health, Position)].map(([, ai, actor, health, position]) => ({ ai, actor, health, position }));
-  assertEquals(mobs.length, 9);
+  assertEquals(mobs.length, 11);
+  assertEquals(mobs.filter(({ actor }) => actor.theme === 'bat').length, 3);
   assertEquals([...new Set(mobs.map((mob) => mob.actor.name))].sort(), ['Bat', 'Cave Spider', 'Flaming Bat', 'Floating Eye', 'Gas Spore', 'Gelatinous Cube', 'Goblin Raider', 'Wraith']);
   assert(mobs.find((mob) => mob.actor.name === 'Gelatinous Cube').health.maxHp >= 180);
   assertEquals(mobs.find((mob) => mob.actor.name === 'Gelatinous Cube').actor.glyph, '■');
