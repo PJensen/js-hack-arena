@@ -7,6 +7,7 @@ uniform vec2 u_position;
 uniform float u_angle;
 uniform float u_lean;
 out vec3 v_normal;
+out vec3 v_localPosition;
 flat out int v_material;
 vec3 orient(vec3 p) {
   float l = cos(u_lean), m = sin(u_lean);
@@ -22,5 +23,6 @@ void main() {
   float depth = -dot(p, vec3(-0.45, 0.45, 1.0)) * 0.02;
   gl_Position = vec4(clip.x, -clip.y, depth, 1.0);
   v_normal = orient(a_normal);
+  v_localPosition = a_position;
   v_material = int(a_material);
 }`;

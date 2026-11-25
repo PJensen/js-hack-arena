@@ -45,5 +45,13 @@ export function createLootMeshes() {
   box(6, 12, 0, 2.3, 4, 2.1, 2);
   const bow = finish();
 
-  return { chest, potion, sword, bow };
+  // A recessed page block, two overhanging covers, and a raised spine.
+  box(0, 3.5, 0, 19, 5, 27, 1);
+  box(-0.4, 0.8, 0, 22, 1.6, 30, 0);
+  box(-0.4, 6.5, 0, 22, 1.8, 30, 0);
+  box(-11, 3.7, 0, 2.8, 7.4, 30, 0);
+  for (const z of [-9, 9]) box(-10.8, 3.7, z, 3.3, 7.8, 2.1, 2);
+  const book = finish();
+
+  return { chest, potion, sword, bow, book };
 }

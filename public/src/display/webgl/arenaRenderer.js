@@ -30,6 +30,7 @@ import { createGhostPipeMesh } from './ghostPipeMesh.js';
 import { createLootMeshes } from './lootMesh.js';
 import { LOOT_VERTEX } from './shaders/loot.vert.js';
 import { LOOT_FRAGMENT } from './shaders/loot.frag.js';
+import { SPELLBOOK_FRAGMENT } from './shaders/spellbook.frag.js';
 import { LOOT_SHAFT_VERTEX } from './shaders/lootShaft.vert.js';
 import { LOOT_SHAFT_FRAGMENT } from './shaders/lootShaft.frag.js';
 import { WORLD_VERTEX } from './shaders/world.vert.js';
@@ -247,6 +248,14 @@ export function createWebGLArenaRenderer(deps) {
   };
   const lootMeshes = Object.fromEntries(Object.entries(createLootMeshes())
     .map(([name, vertices]) => [name, uploadPropMesh(device, vertices)]));
+  const spellbookProgram = device.program(LOOT_VERTEX, SPELLBOOK_FRAGMENT);
+  const spellbook = {
+    program: spellbookProgram,
+    view: uniform(gl, spellbookProgram, 'u_view'),
+    position: uniform(gl, spellbookProgram, 'u_position'),
+    angle: uniform(gl, spellbookProgram, 'u_angle'),
+    lean: uniform(gl, spellbookProgram, 'u_lean'),
+  };
   const lootShaft = worldProgram(device, LOOT_SHAFT_FRAGMENT, LOOT_SHAFT_VERTEX);
   lootShaft.color = uniform(gl, lootShaft.program, 'u_color');
   lootShaft.time = uniform(gl, lootShaft.program, 'u_time');
@@ -1475,6 +1484,7 @@ export function createWebGLArenaRenderer(deps) {
     const batShrieks = [];
     const batFlames = [];
     const models = [];
+    const books = [];
     const wraithCasts = new Map();
     const castTail = SHADOW_BOLT_LIFETIME - 0.32;
     for (const [, projectile, lifetime] of world.query(Projectile, Lifetime)) {
@@ -1693,15 +1703,17 @@ export function createWebGLArenaRenderer(deps) {
       }
       const healthPotion = effect === 'heal' || effect === 'heal_over_time';
       const potion = healthPotion || effect === 'mana';
+      const book = effect === 'add_spell';
       const model = weapon ? (weapon.slot === 'ranged' ? 'bow' : 'sword')
         : effect === 'epic_chest' ? 'chest' : potion ? 'potion' : null;
       if (model) models.push({ model, id, shown, info, effect, airborne });
+      if (book) books.push({ id, shown, airborne });
       const pulse = 0.5 + 0.5 * Math.sin(now * 2.4 + id * 0.73);
       if (shaft > 0 && !airborne) {
         const glow = lootGlowColor(info, effect);
         drawLootShaft(shown.x, shown.y + 5, shaft, glow, (motionPreference.matches ? 0 : now) + id * 0.29);
       }
-      if (consumable && effect !== 'epic_chest') {
+      if (consumable && effect !== 'epic_chest' && !book) {
         const potionTheme = consumable.effect === 'mana' ? 'electric' : 'fire';
         const swirl = healthPotion ? 0 : 1;
         drawPotionGlow(potionTheme, shown.x, shown.y, 16 + pulse * 2, now + id * 0.13, 0.9, swirl);
@@ -1710,16 +1722,31 @@ export function createWebGLArenaRenderer(deps) {
         ? rarityColor(info.rarity)
         : consumable?.effect === 'add_arrows' ? [1, 0.78, 0.40, 1]
           : consumable?.effect === 'mana' ? [0.34, 0.72, 1, 1] : [1, 0.32, 0.5, 1];
-      if (!model) drawGlyph(info.glyph, shown.x, shown.y, 20, itemColor);
+      if (!model && !book) drawGlyph(info.glyph, shown.x, shown.y, 20, itemColor);
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    if (models.length) {
+    if (models.length || books.length) {
       gl.clear(gl.DEPTH_BUFFER_BIT);
       gl.enable(gl.DEPTH_TEST);
-      gl.useProgram(lootProgram);
-      gl.uniform4fv(loot.view, view);
-      for (const { model, id, shown, info, effect, airborne } of models) {
-        drawLootModel(model, id, shown, info, effect, airborne, now);
+      if (models.length) {
+        gl.useProgram(lootProgram);
+        gl.uniform4fv(loot.view, view);
+        for (const { model, id, shown, info, effect, airborne } of models) {
+          drawLootModel(model, id, shown, info, effect, airborne, now);
+        }
+      }
+      if (books.length) {
+        const mesh = lootMeshes.book;
+        const animate = !motionPreference.matches;
+        gl.useProgram(spellbook.program);
+        gl.bindVertexArray(mesh.vao);
+        gl.uniform4fv(spellbook.view, view);
+        for (const { id, shown, airborne } of books) {
+          gl.uniform2f(spellbook.position, shown.x, shown.y + 4);
+          gl.uniform1f(spellbook.angle, -0.28);
+          gl.uniform1f(spellbook.lean, animate && airborne ? Math.sin(now * 9 + id) * 0.3 : 0);
+          gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
+        }
       }
       gl.disable(gl.DEPTH_TEST);
     }
