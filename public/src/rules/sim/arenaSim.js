@@ -112,10 +112,10 @@ const PRESENTATION_EVENTS = Object.freeze([
 ]);
 const EVENT_HISTORY_LIMIT = 96;
 const ENCOUNTER_GROUPS = [
-  [[spawnCaster], [spawnBat, spawnBat, spawnBat], [spawnCaster]],
-  [[spawnMelee], [spawnSpider], [spawnFlamingBat]],
-  [[spawnTank], [spawnFloatingEye], [spawnGasSpore]],
-  [[spawnSpider]],
+  [spawnCaster, spawnBat, spawnCaster],
+  [spawnMelee, spawnSpider, spawnFlamingBat],
+  [spawnTank, spawnFloatingEye, spawnGasSpore],
+  [spawnSpider],
 ];
 
 /**
@@ -179,8 +179,8 @@ export function createArenaSimulation({
       const sites = encounterSites ?? buildDefaultEnemySites(spawn, enemyCount, groupSize, patrolRoutes, enemySpawnExclusionRadius);
       for (const [index, site] of sites.entries()) {
         const group = ENCOUNTER_GROUPS[Math.floor(index / groupSize) % ENCOUNTER_GROUPS.length];
-        const members = group[(index % groupSize) % group.length];
-        const mobs = spawnEncounter(world, grid, site, members);
+        const spawn = group[(index % groupSize) % group.length];
+        const mobs = spawnEncounter(world, grid, site, spawn);
         for (const mobId of mobs) ensureNetworkId(mobId, 'mob');
       }
       if (starterHasteRing) {
@@ -861,10 +861,9 @@ function buildDefaultEnemySites(spawn, count, groupSize, routes, exclusionRadius
   return sites;
 }
 
-function spawnEncounter(world, grid, { x, y, patrolPoints }, members) {
-  const [spawnFirst] = members;
-  const mobs = [spawnFirst(world, grid, x, y, null, patrolPoints)];
-  if (members.length === 1) return mobs;
+function spawnEncounter(world, grid, { x, y, patrolPoints }, spawn) {
+  const mobs = [spawn(world, grid, x, y, null, patrolPoints)];
+  if (spawn.packSize === 1) return mobs;
 
   const home = world.get(mobs[0], Position);
   const positions = [home];
@@ -872,12 +871,11 @@ function spawnEncounter(world, grid, { x, y, patrolPoints }, members) {
   // Place the other members to either side of the site's patrol first.
   const flank = patrolEnd ? Math.atan2(patrolEnd.y - home.y, patrolEnd.x - home.x) + Math.PI / 2 : 0;
   for (const degrees of [0, 180, 45, 225, 135, 315, 90, 270]) {
-    if (mobs.length === members.length) break;
+    if (mobs.length === spawn.packSize) break;
     const angle = flank + degrees * Math.PI / 180;
     const point = { x: home.x + Math.cos(angle) * 32, y: home.y + Math.sin(angle) * 32 };
     if (positions.some(({ x, y }) => Math.hypot(x - point.x, y - point.y) < 24)) continue;
     if (sweepMaxFree(grid, home.x, home.y, point.x, point.y, 20) < 1) continue;
-    const spawn = members[mobs.length];
     mobs.push(spawn(world, grid, point.x, point.y, null));
     positions.push(point);
   }

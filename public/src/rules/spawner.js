@@ -120,90 +120,81 @@ export function spawnPlayer(world, x, y, name = 'Player') {
 /**
  * Spawn a caster mob targeting the given entity.
  */
-export function spawnCaster(world, grid, nearX, nearY, targetId, patrolPoints = []) {
-  return spawnMob(world, grid, nearX, nearY, targetId, {
-    name: 'Wraith', glyph: 'W', theme: 'shadow', radius: 12,
-    speed: 80, hp: 60, mana: 50, manaRegen: 6,
-    light: { radius: 105, r: 145, g: 70, b: 220 },
-    behavior: AIBehavior.CASTER, preferredDist: 140, castRate: 1.5,
-    projSpeed: 220, meleeDamage: 10, weapon: 'Claws', aggroRange: 300,
-    patrolPoints, searchRadius: 64,
-  });
+export const spawnCaster = defineMob({
+  name: 'Wraith', glyph: 'W', theme: 'shadow', radius: 12,
+  speed: 80, hp: 60, mana: 50, manaRegen: 6,
+  light: { radius: 105, r: 145, g: 70, b: 220 },
+  behavior: AIBehavior.CASTER, preferredDist: 140, castRate: 1.5,
+  projSpeed: 220, meleeDamage: 10, weapon: 'Claws', aggroRange: 300,
+  searchRadius: 64,
+});
+
+export const spawnMelee = defineMob({
+  name: 'Goblin Raider', glyph: 'g', theme: 'fire', radius: 11,
+  speed: 125, hp: 45, mana: 0, manaRegen: 0,
+  light: { radius: 70, r: 255, g: 105, b: 35 },
+  behavior: AIBehavior.MELEE, preferredDist: 10, castRate: 99,
+  projSpeed: 0, meleeDamage: 14, weapon: 'Jagged Blade', aggroRange: 340,
+  searchRadius: 64,
+});
+
+export const spawnTank = defineMob({
+  name: 'Gelatinous Cube', glyph: '■', theme: 'frost', radius: 18,
+  speed: 48, hp: 180, mana: 0, manaRegen: 0,
+  light: { radius: 125, r: 40, g: 225, b: 190 },
+  behavior: AIBehavior.MELEE, preferredDist: 14, castRate: 99,
+  projSpeed: 0, meleeDamage: 18, weapon: 'Engulf', aggroRange: 260,
+  searchRadius: 64,
+});
+
+export const spawnSpider = defineMob({
+  name: 'Cave Spider', glyph: '🕷', theme: 'spider', radius: 11,
+  speed: 90, hp: 38, mana: 0, manaRegen: 0,
+  light: SPIDER_LIGHT,
+  behavior: AIBehavior.MELEE, preferredDist: 10, castRate: 4.5,
+  projSpeed: 230, webSpit: true, plantAtContact: true,
+  meleeDamage: 8, weapon: 'Venom Bite', conditionId: ConditionId.POISONED, aggroRange: 285,
+  searchRadius: 64,
+});
+
+export const spawnFloatingEye = defineMob({
+  name: 'Floating Eye', glyph: 'e', theme: 'floating_eye', radius: 13,
+  speed: 44, hp: 28, mana: 0, manaRegen: 0,
+  light: FLOATING_EYE_LIGHT, behavior: AIBehavior.GAZE, castRate: 5,
+  meleeDamage: 3, weapon: 'Eye Bash', aggroRange: 205,
+  searchRadius: 64,
+});
+
+export const spawnGasSpore = defineMob({
+  name: 'Gas Spore', glyph: 'e', theme: 'gas_spore', radius: 13,
+  speed: 38, hp: 8, mana: 0, manaRegen: 0,
+  light: GAS_SPORE_LIGHT, behavior: AIBehavior.PASSIVE, castRate: 0,
+  meleeDamage: 0, weapon: '', searchRadius: 64,
+});
+
+export const spawnBat = defineMob({
+  name: 'Bat', glyph: 'b', theme: 'bat', radius: 10,
+  packSize: 3,
+  speed: 102, hp: 12, mana: 0, manaRegen: 0,
+  light: BAT_LIGHT, behavior: AIBehavior.BAT, castRate: 5.5,
+  meleeDamage: 0, weapon: '', aggroRange: 185, searchRadius: 64,
+});
+
+export const spawnFlamingBat = defineMob({
+  name: 'Flaming Bat', glyph: 'b', theme: 'flaming_bat', radius: 10,
+  speed: 115, hp: 18, mana: 0, manaRegen: 0,
+  light: FLAMING_BAT_LIGHT, behavior: AIBehavior.MELEE, preferredDist: 10,
+  plantAtContact: true, meleeDamage: 4, weapon: 'Ember Bite',
+  conditionId: ConditionId.BURNING, aggroRange: 185, searchRadius: 64,
+});
+
+function defineMob(config) {
+  const spawn = (world, grid, nearX, nearY, targetId, patrolPoints = []) =>
+    spawnMob(world, grid, nearX, nearY, targetId, config, patrolPoints);
+  return Object.assign(spawn, { packSize: config.packSize ?? 1 });
 }
 
-export function spawnMelee(world, grid, nearX, nearY, targetId, patrolPoints = []) {
-  return spawnMob(world, grid, nearX, nearY, targetId, {
-    name: 'Goblin Raider', glyph: 'g', theme: 'fire', radius: 11,
-    speed: 125, hp: 45, mana: 0, manaRegen: 0,
-    light: { radius: 70, r: 255, g: 105, b: 35 },
-    behavior: AIBehavior.MELEE, preferredDist: 10, castRate: 99,
-    projSpeed: 0, meleeDamage: 14, weapon: 'Jagged Blade', aggroRange: 340,
-    patrolPoints, searchRadius: 64,
-  });
-}
-
-export function spawnTank(world, grid, nearX, nearY, targetId, patrolPoints = []) {
-  return spawnMob(world, grid, nearX, nearY, targetId, {
-    name: 'Gelatinous Cube', glyph: '■', theme: 'frost', radius: 18,
-    speed: 48, hp: 180, mana: 0, manaRegen: 0,
-    light: { radius: 125, r: 40, g: 225, b: 190 },
-    behavior: AIBehavior.MELEE, preferredDist: 14, castRate: 99,
-    projSpeed: 0, meleeDamage: 18, weapon: 'Engulf', aggroRange: 260,
-    patrolPoints, searchRadius: 64,
-  });
-}
-
-export function spawnSpider(world, grid, nearX, nearY, targetId, patrolPoints = []) {
-  return spawnMob(world, grid, nearX, nearY, targetId, {
-    name: 'Cave Spider', glyph: '🕷', theme: 'spider', radius: 11,
-    speed: 90, hp: 38, mana: 0, manaRegen: 0,
-    light: SPIDER_LIGHT,
-    behavior: AIBehavior.MELEE, preferredDist: 10, castRate: 4.5,
-    projSpeed: 230, webSpit: true, plantAtContact: true,
-    meleeDamage: 8, weapon: 'Venom Bite', conditionId: ConditionId.POISONED, aggroRange: 285,
-    patrolPoints, searchRadius: 64,
-  });
-}
-
-export function spawnFloatingEye(world, grid, nearX, nearY, targetId, patrolPoints = []) {
-  return spawnMob(world, grid, nearX, nearY, targetId, {
-    name: 'Floating Eye', glyph: 'e', theme: 'floating_eye', radius: 13,
-    speed: 44, hp: 28, mana: 0, manaRegen: 0,
-    light: FLOATING_EYE_LIGHT, behavior: AIBehavior.GAZE, castRate: 5,
-    meleeDamage: 3, weapon: 'Eye Bash', aggroRange: 205,
-    patrolPoints, searchRadius: 64,
-  });
-}
-
-export function spawnGasSpore(world, grid, nearX, nearY, targetId, patrolPoints = []) {
-  return spawnMob(world, grid, nearX, nearY, targetId, {
-    name: 'Gas Spore', glyph: 'e', theme: 'gas_spore', radius: 13,
-    speed: 38, hp: 8, mana: 0, manaRegen: 0,
-    light: GAS_SPORE_LIGHT, behavior: AIBehavior.PASSIVE, castRate: 0,
-    meleeDamage: 0, weapon: '', patrolPoints, searchRadius: 64,
-  });
-}
-
-export function spawnBat(world, grid, nearX, nearY, targetId, patrolPoints = []) {
-  return spawnMob(world, grid, nearX, nearY, targetId, {
-    name: 'Bat', glyph: 'b', theme: 'bat', radius: 10,
-    speed: 102, hp: 12, mana: 0, manaRegen: 0,
-    light: BAT_LIGHT, behavior: AIBehavior.BAT, castRate: 5.5,
-    meleeDamage: 0, weapon: '', aggroRange: 185, patrolPoints, searchRadius: 64,
-  });
-}
-
-export function spawnFlamingBat(world, grid, nearX, nearY, targetId, patrolPoints = []) {
-  return spawnMob(world, grid, nearX, nearY, targetId, {
-    name: 'Flaming Bat', glyph: 'b', theme: 'flaming_bat', radius: 10,
-    speed: 115, hp: 18, mana: 0, manaRegen: 0,
-    light: FLAMING_BAT_LIGHT, behavior: AIBehavior.MELEE, preferredDist: 10,
-    plantAtContact: true, meleeDamage: 4, weapon: 'Ember Bite',
-    conditionId: ConditionId.BURNING, aggroRange: 185, patrolPoints, searchRadius: 64,
-  });
-}
-
-function spawnMob(world, grid, nearX, nearY, targetId, config) {
+function spawnMob(world, grid, nearX, nearY, targetId, config, patrolPoints) {
   const pos = findOpenNear(grid, nearX, nearY, config.searchRadius ?? 400);
   const rare = world.rand() < 0.09;
   const healthScale = rare ? 1.65 : 1;
@@ -228,7 +219,7 @@ function spawnMob(world, grid, nearX, nearY, targetId, config) {
     webSpit: config.webSpit ?? false,
     plantAtContact: config.plantAtContact ?? false,
     aggroRange: config.aggroRange ?? 300,
-    patrolPoints: config.patrolPoints || [],
+    patrolPoints: patrolPoints || [],
     patrolIndex: 0,
   });
   world.add(id, MeleeWeapon, {
