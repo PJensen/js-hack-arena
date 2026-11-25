@@ -3,6 +3,7 @@
 // erode its chambers and passages with coherent noise before baking clearance.
 
 import { findOpen } from './landmarks.js';
+import { placeArenaOre } from './oreSites.js';
 import { sweepMaxFree } from './sweep.js';
 
 export function mulberry32(seed) {
@@ -397,10 +398,13 @@ export function generateArenaCave(seed) {
   const start = cave.spawns[0];
   const hearth = findOpen(cave.grid, start.x, start.y - 76, 24, 38) ??
     findOpen(cave.grid, start.x, start.y + 76, 24, 38);
+  const campfires = hearth ? [hearth] : [];
+  const chestSites = placeArenaChests(cave, seed);
   return {
     ...cave,
-    campfires: hearth ? [hearth] : [],
+    campfires,
     encounterSites: placeArenaEncounters(cave),
-    chestSites: placeArenaChests(cave, seed),
+    chestSites,
+    oreSites: placeArenaOre(cave, [...campfires, ...chestSites]),
   };
 }

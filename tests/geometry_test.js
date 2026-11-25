@@ -5,7 +5,9 @@ import { assertEquals, assert, assertAlmostEquals } from "https://deno.land/std@
 import * as SDF from '../public/src/rules/geometry/sdf.js';
 import { createKernel } from '../public/src/rules/geometry/kernel.js';
 import { sweepMaxFree, moveWithSlide } from '../public/src/rules/geometry/sweep.js';
-import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
+import { generateArenaCave, generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
+import { createGridCarver } from '../public/src/rules/geometry/carve.js';
+import { isOreWall, placeArenaOre } from '../public/src/rules/geometry/oreSites.js';
 
 // ── SDF primitives ─────────────────────────────────────────────
 
@@ -157,4 +159,31 @@ Deno.test("generateCave: boundary is solid", () => {
   assertEquals(cave.grid.distanceMove(5, 5), 0);
   assertEquals(cave.grid.distanceMove(1995, 1995), 0);
   assertEquals(cave.grid.distanceMove(1000, 2), 0);
+});
+
+Deno.test('arena ore is seeded and spans the open-to-wall boundary', () => {
+  const cave = generateArenaCave(42);
+  const { grid, oreSites } = cave;
+  assertEquals(oreSites, generateArenaCave(42).oreSites);
+  assertEquals([...new Set(oreSites.map(({ kind }) => kind))].sort(), ['copper', 'gold', 'tin']);
+  for (const site of oreSites) {
+    const { x, y, normalX, normalY } = site;
+    const step = grid.cellSize;
+    assertAlmostEquals(Math.hypot(normalX, normalY), 1);
+    assert(grid.distanceMove(x + step * normalX, y + step * normalY) < 18);
+    assert(grid.distanceMove(x - step * normalX, y - step * normalY) > 18);
+    assertAlmostEquals(grid.distanceMove(x, y), 18, 0.01);
+  }
+
+  const copper = oreSites[0];
+  assert(isOreWall(grid, copper));
+  createGridCarver(grid)(copper.x, copper.y, 32);
+  assert(!isOreWall(grid, copper));
+});
+
+Deno.test('arena ore skips routes without a nearby wall', () => {
+  const from = { x: 200, y: 200 };
+  const to = { x: 400, y: 200 };
+  const grid = { cellSize: 8, distanceMove: () => 80 };
+  assertEquals(placeArenaOre({ grid, spawns: [from], routes: [{ from, to, points: [from, to] }] }), []);
 });

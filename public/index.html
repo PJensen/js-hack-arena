@@ -467,7 +467,7 @@ const tracksOfflineProgress = !isNetworked && !isPreview && !itemPreview;
 // ── Seed + cave ─────────────────────────────────────────────────
 const SEED = netWelcome?.seed ?? (chestPreview && !pageParams.get('seed') ? 7 : resolveSeed().seed);
 const caveData = generateArenaCave(SEED);
-const { grid, bounds, spawns, routes, campfires } = caveData;
+const { grid, bounds, spawns, routes, campfires, oreSites } = caveData;
 const spawn = spawns[0];
 const previewChestSite = chestPreview ? findReachableNear(grid, spawn, [72, 56, 40]) : null;
 const decorations = createDungeonDecorations({ grid, routes, spawns, campfires, seed: SEED });
@@ -660,7 +660,7 @@ function syncHudResources() {
 }
 syncHudResources();
 renderer = createWebGLArenaRenderer({
-  canvas, overlayCanvas, cam, grid, bounds, decorations, fx, world, SEED, runtimeEvents,
+  canvas, overlayCanvas, cam, grid, bounds, decorations, oreSites, fx, world, SEED, runtimeEvents,
   net: isNetworked ? netClient : null, playerId,
   presentation,
   speechBubbles: () => dungeonChat?.getBubbles(),

@@ -28,6 +28,7 @@ import { createGlyphAtlas } from './glyphAtlas.js';
 import { createCampfireMesh } from './campfireMesh.js';
 import { createGhostPipeMesh } from './ghostPipeMesh.js';
 import { createLootMeshes } from './lootMesh.js';
+import { createOreRenderer } from './oreRenderer.js';
 import { LOOT_VERTEX } from './shaders/loot.vert.js';
 import { LOOT_FRAGMENT } from './shaders/loot.frag.js';
 import { SPELLBOOK_FRAGMENT } from './shaders/spellbook.frag.js';
@@ -174,7 +175,7 @@ function uploadCubeMesh(device, vertices) {
 }
 
 export function createWebGLArenaRenderer(deps) {
-  const { canvas, overlayCanvas, cam, grid, bounds, decorations, world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars, stepParticles, speechBubbles } = deps;
+  const { canvas, overlayCanvas, cam, grid, bounds, decorations, oreSites = [], world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars, stepParticles, speechBubbles } = deps;
   const syncHudStatus = createHudStatus(hud.meta);
   const device = createWebGLDevice(canvas);
   const { gl } = device;
@@ -236,6 +237,7 @@ export function createWebGLArenaRenderer(deps) {
   cube.time = uniform(gl, cube.program, 'u_time');
   cube.alpha = uniform(gl, cube.program, 'u_alpha');
   const cubeMesh = uploadCubeMesh(device, createCubeMesh());
+  const drawOre = createOreRenderer(device, grid, oreSites);
   const lootProgram = device.program(LOOT_VERTEX, LOOT_FRAGMENT);
   const loot = {
     view: uniform(gl, lootProgram, 'u_view'),
@@ -1467,6 +1469,7 @@ export function createWebGLArenaRenderer(deps) {
         batFlamePuffs.push({ x, y, emitter, flicker });
       }
     }
+    drawOre(view, inView);
     drawDungeonDecorations(now, renderDt, campfires);
 
     goreRenderer.drawFloor(gore, view, inView);
