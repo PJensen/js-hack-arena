@@ -181,6 +181,20 @@ client can discard acknowledged inputs before replaying the remainder.
 - Try `status_electrocuted.mp3` for a shorter Lightning cast cue.
 - Use the imported `spider_attack_web_1.mp3` and `spider_attack_web_2.mp3` if Cave Spiders gain a web attack.
 
+## Gameplay ideas for November 25, 2026
+
+- Traps
+- Vendor
+- Persistent XP
+- Leveling
+- Bigger dungeon
+- Ortho walls
+- Our doors
+- Rested XP buff by fire
+- Usable potions
+- More enemy types
+- More 3D models
+
 ## Commands
 
 ```bash
