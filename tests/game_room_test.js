@@ -1,8 +1,10 @@
 import { assert, assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { timingSafeEqual } from 'node:crypto';
 import { AI, Actor, Conditions, Health, Position, Projectile, Spellbook } from '../public/src/rules/components/index.js';
-import { SIM_DT, SIM_MODE, createArenaSimulation } from '../public/src/rules/sim/arenaSim.js';
+import { SIM_DT, SIM_MODE } from '../public/src/rules/sim/arenaSim.js';
+import { createArenaDungeonSimulation } from '../public/src/rules/sim/arenaDungeon.js';
 import { GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
+import { generateArenaCave } from '../public/src/rules/geometry/caveGen.js';
 import { sweepMaxFree } from '../public/src/rules/geometry/sweep.js';
 import { applyDamage } from '../public/src/rules/effects.js';
 import { spawnGold, spawnRing } from '../public/src/rules/spawner.js';
@@ -143,19 +145,24 @@ Deno.test('game room: opening chat interrupts an in-progress cast before release
   }
 });
 
-Deno.test('game room: dead-end chests match offline placement and open once', () => {
+Deno.test('game room: initial dungeon setup matches offline play and dead-end chests open once', () => {
   const room = new GameRoom(makeRoomState(), {});
   const first = new FakeSocket();
   const second = new FakeSocket();
   room.accept(first, { userId: 'user-1', displayName: 'First' });
   try {
-    const cave = room.ensureCave();
-    const offline = createArenaSimulation({ ...cave, seed: room.seed, enemyGroupSize: 3 });
-    offline.addPlayer('offline');
+    const cave = generateArenaCave(room.seed);
+    const offline = createArenaDungeonSimulation({ seed: room.seed, cave });
+    offline.addPlayer('offline', 0, null, 'First');
+    const dungeonEntities = ({ entities }) => entities.filter(({ kind }) => kind !== 'player');
+    const roomSnapshot = latestSnapshot(first);
+    assertEquals(dungeonEntities(roomSnapshot), dungeonEntities(offline.captureSnapshot()));
+    const roomPlayer = roomSnapshot.entities.find(({ kind }) => kind === 'player');
+    assertEquals(roomPlayer?.state, offline.getPlayerSnapshot('offline').state);
+
     const chests = (snapshot) => snapshot.entities.filter(({ state }) => state.effect === 'epic_chest');
-    const initial = chests(latestSnapshot(first));
+    const initial = chests(roomSnapshot);
     assertEquals(initial.length, 1);
-    assertEquals(initial, chests(offline.captureSnapshot()));
 
     const sim = room.ensureSim();
     const { peerId } = first.sent.find(({ type }) => type === MESSAGE.WELCOME);
@@ -186,13 +193,10 @@ Deno.test('game room: Mimics use both encounter site types and share a dungeon c
     room.accept(socket, { userId: 'user-1', displayName: 'First' });
     try {
       const cave = room.ensureCave();
-      const offline = createArenaSimulation({ ...cave, seed: room.seed, enemyGroupSize: 3 });
-      offline.addPlayer('offline');
       const mimics = (snapshot) => snapshot.entities.filter(({ state }) => state.theme === 'mimic');
       const initial = latestSnapshot(socket);
       const records = mimics(initial);
       assertEquals(records.length, 1);
-      assertEquals(records, mimics(offline.captureSnapshot()));
       const [{ id, kind, state }] = records;
       assertEquals(kind, 'mob');
       assertEquals(state.mimicClosed, true);
@@ -223,14 +227,12 @@ Deno.test('game room: encounters stay spread out while some mobs patrol', () => 
     const cave = room.ensureCave();
     const [entrance] = cave.spawns;
     const sim = room.ensureSim();
-    const offline = createArenaSimulation({ ...cave, seed: room.seed, enemyGroupSize: 3 });
-    offline.addPlayer('offline');
     const mobStates = (snapshot) => snapshot.entities.filter(({ kind }) => kind === 'mob').map(({ state }) => state);
-    assertEquals(mobStates(latestSnapshot(socket)), mobStates(offline.captureSnapshot()));
-    assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'floating_eye').length, 1);
-    assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'gas_spore').length, 1);
-    assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'bat').length, 3);
-    assertEquals(mobStates(latestSnapshot(socket)).filter(({ theme }) => theme === 'flaming_bat').length, 1);
+    const initialMobs = mobStates(latestSnapshot(socket));
+    assertEquals(initialMobs.filter(({ theme }) => theme === 'floating_eye').length, 1);
+    assertEquals(initialMobs.filter(({ theme }) => theme === 'gas_spore').length, 1);
+    assertEquals(initialMobs.filter(({ theme }) => theme === 'bat').length, 3);
+    assertEquals(initialMobs.filter(({ theme }) => theme === 'flaming_bat').length, 1);
 
     const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     const mobs = [...sim.world.query(AI, Position, Actor)].map(([id, ai, pos, actor]) => ({ id, ai, pos, home: { ...pos }, theme: actor.theme }));
@@ -364,7 +366,7 @@ Deno.test('game room: walking through the campfire applies and replicates timed 
   room.accept(socket, { userId: 'user-1', displayName: 'First' });
   try {
     const { peerId } = socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
-    const { grid, campfires: [campfire] } = room.ensureCave();
+    const { campfires: [campfire] } = room.ensureCave();
     assert(campfire);
     const field = latestSnapshot(socket).entities.find(({ state }) => state.auraEmitter?.id === 'campfire');
     assert(field);
@@ -407,7 +409,9 @@ Deno.test('game room: walking through the campfire applies and replicates timed 
     move(0, 0);
     room.broadcastSnapshot();
     assert(playerState().conditions[0].remaining < 3);
-    const replica = createArenaSimulation({ grid, mode: SIM_MODE.REPLICA });
+    const cave = generateArenaCave(room.seed);
+    const replica = createArenaDungeonSimulation({ seed: room.seed, cave, mode: SIM_MODE.REPLICA });
+    assertEquals(replica.world.alive.size, 0);
     replica.applySnapshot(latestSnapshot(socket));
     const replicaConditions = replica.world.get(replica.getPlayerEntity(peerId), Conditions);
     assertEquals(replicaConditions.active[0].id, 'burning');

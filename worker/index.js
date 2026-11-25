@@ -12,11 +12,8 @@ import {
 } from '../public/src/shared/net/protocol.js';
 import { generateArenaCave } from '../public/src/rules/geometry/caveGen.js';
 import { Gold } from '../public/src/rules/components/index.js';
-import {
-  SIM_DT,
-  SIM_TICK_HZ,
-  createArenaSimulation,
-} from '../public/src/rules/sim/arenaSim.js';
+import { SIM_DT, SIM_TICK_HZ } from '../public/src/rules/sim/arenaSim.js';
+import { createArenaDungeonSimulation } from '../public/src/rules/sim/arenaDungeon.js';
 import {
   authCallback,
   authConfigStatus,
@@ -294,16 +291,9 @@ export class GameRoom {
 
   ensureSim() {
     if (!this.sim) {
-      const caveData = this.ensureCave();
-      this.sim = createArenaSimulation({
+      this.sim = createArenaDungeonSimulation({
         seed: this.seed,
-        grid: caveData.grid,
-        spawns: caveData.spawns,
-        campfires: caveData.campfires,
-        chestSites: caveData.chestSites,
-        enemyGroupSize: 3,
-        encounterSites: caveData.encounterSites,
-        starterHasteRing: true,
+        cave: this.ensureCave(),
       });
     }
     return this.sim;

@@ -5,12 +5,13 @@ import {
   assertThrows,
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { AI, Actor, Auras, Facing, Gold, Health, Input, ItemInfo, Lifetime, Mana, PointLight, Position, Powerups, Projectile, Ring, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
-import { generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
+import { generateArenaCave, generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
 import { GOLD_LIGHT, spawnAuraField, spawnBat, spawnEpicChest, spawnEpicSword, spawnFlamingBat, spawnFloatingEye, spawnFuryRune, spawnGasSpore, spawnHasteRune, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
 import { BAT_SHRIEK_WINDUP, GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
 import { applyAura, applyDamage, getStatMultiplier } from '../public/src/rules/effects.js';
 import { SpellCastMode, spells as spellCatalog } from '../public/src/rules/data/spellCatalog.js';
 import { getPreviewMob, spawnPreviewMob } from '../public/src/runtime/mobPreview.js';
+import { createArenaDungeonSimulation } from '../public/src/rules/sim/arenaDungeon.js';
 import {
   SIM_DT,
   SIM_MODE,
@@ -1400,6 +1401,19 @@ Deno.test('arena sim: the spider plants its feet and commits its aim during Web 
   sim.setPlayerInput('peer-a', {});
   sim.step();
   assert(position.x < 260);
+});
+
+Deno.test('dungeon preview: preserves the campfire and skips normal population', () => {
+  const seed = 42;
+  const cave = generateArenaCave(seed);
+  assert(cave.chestSites.length > 0);
+  assert(cave.encounterSites.length > 0);
+  const sim = createArenaDungeonSimulation({ seed, cave, preview: true });
+  sim.addPlayer('local');
+  const { entities } = sim.captureSnapshot();
+  assertEquals(entities.filter(({ kind }) => kind !== 'player').map(({ kind, state }) => [
+    kind, state.auraEmitter?.id,
+  ]), [['aura_field', 'campfire']]);
 });
 
 Deno.test('mob preview: spawns the selected mob once on reachable ground near the player', () => {
