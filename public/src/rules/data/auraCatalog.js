@@ -1,4 +1,4 @@
-import { EffectKind } from './effectCatalog.js';
+import { EffectKind, EffectStat } from './effectCatalog.js';
 import { ConditionId } from './conditionCatalog.js';
 export { EffectKind };
 
@@ -51,7 +51,7 @@ export const auras = Object.freeze({
     team: 'hostile',
     targets: 'hostile',
     effects: Object.freeze([
-      Object.freeze({ kind: EffectKind.STAT_MULTIPLIER, stat: 'movementSpeed', value: 0.7 }),
+      Object.freeze({ kind: EffectKind.STAT_MULTIPLIER, stat: EffectStat.MOVEMENT_SPEED, value: 0.7 }),
     ]),
     visual: Object.freeze({ glyph: '❄', color: Object.freeze([0.32, 0.78, 1]) }),
   }),
@@ -62,7 +62,7 @@ export const auras = Object.freeze({
     team: 'friendly',
     targets: 'friendly',
     effects: Object.freeze([
-      Object.freeze({ kind: EffectKind.STAT_MULTIPLIER, stat: 'movementSpeed', value: 1.2 }),
+      Object.freeze({ kind: EffectKind.STAT_MULTIPLIER, stat: EffectStat.MOVEMENT_SPEED, value: 1.2 }),
     ]),
     visual: Object.freeze({ glyph: '»', color: Object.freeze([0.28, 1, 0.68]) }),
   }),

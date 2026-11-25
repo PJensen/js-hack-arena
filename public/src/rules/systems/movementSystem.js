@@ -1,7 +1,9 @@
 // rules/systems/movementSystem.js — player movement with wall slide
 import { Position, Velocity, Speed, Collider, Input, Facing, Health, Powerups } from '../components/index.js';
+import { EffectStat } from '../data/effectCatalog.js';
 import { moveWithSlide } from '../geometry/sweep.js';
-import { getStatMultiplier, isActionLocked } from '../effects.js';
+import { isActionLocked } from '../effects.js';
+import { getStatMultiplier } from '../stats.js';
 
 export function createMovementSystem(ctx) {
   const { grid } = ctx;
@@ -10,7 +12,7 @@ export function createMovementSystem(ctx) {
     for (const [id, pos, vel, spd, col, inp, fac, health] of world.query(Position, Velocity, Speed, Collider, Input, Facing, Health)) {
       if (health.dead || health.hp <= 0) { vel.vx = 0; vel.vy = 0; continue; }
       const speedMultiplier = (world.get(id, Powerups)?.hasteMultiplier || 1) *
-        getStatMultiplier(world, id, 'movementSpeed');
+        getStatMultiplier(world, id, EffectStat.MOVEMENT_SPEED);
       if (isActionLocked(world, id, 'move')) {
         vel.vx = 0;
         vel.vy = 0;

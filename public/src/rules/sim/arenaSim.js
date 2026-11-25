@@ -39,7 +39,7 @@ import { conditions as conditionCatalog } from '../data/conditionCatalog.js';
 import { createEncounterSelector } from '../data/encounterCatalog.js';
 import { getMiningMaterial, miningMaterialIds } from '../data/miningMaterials.js';
 import { effectSystem, projectConditions, projectAuraEmitter } from '../effects.js';
-import { normalizeRingModifiers } from '../ringModifiers.js';
+import { normalizeStatModifiers } from '../stats.js';
 import { createGridCarver } from '../geometry/carve.js';
 import { sweepMaxFree } from '../geometry/sweep.js';
 import {
@@ -1002,7 +1002,7 @@ function normalizeRingState(id, ring) {
     glyph: String(ring.glyph ?? Ring.defaults.glyph),
     rarity: String(ring.rarity ?? Ring.defaults.rarity),
     haste: Math.max(0, finiteNumber(ring.haste, `${id}.ring.haste`)),
-    modifiers: normalizeRingModifiers(ring.modifiers ?? Ring.defaults.modifiers, `${id}.ring.modifiers`),
+    modifiers: normalizeStatModifiers(ring.modifiers ?? Ring.defaults.modifiers, `${id}.ring.modifiers`),
   };
 }
 

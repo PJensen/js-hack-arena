@@ -10,7 +10,7 @@ import { MaterialStacks } from './components/MaterialStacks.js';
 import { Ring } from './components/Ring.js';
 import { getMiningMaterial, miningMaterialIds } from './data/miningMaterials.js';
 import { ringCatalog } from './data/ringCatalog.js';
-import { normalizeRingModifiers } from './ringModifiers.js';
+import { normalizeStatModifiers } from './stats.js';
 
 export const GOLD_LIGHT = Object.freeze({ radius: 36, r: 255, g: 190, b: 45 });
 export const SPIDER_LIGHT = Object.freeze({ radius: 56, r: 148, g: 98, b: 70 });
@@ -375,7 +375,7 @@ export function spawnRing(world, x, y, {
   name = 'Haste Ring', glyph = Ring.defaults.glyph, rarity = 'epic', haste = 0.05,
   modifiers = Ring.defaults.modifiers,
 } = {}) {
-  const ringModifiers = normalizeRingModifiers(modifiers);
+  const ringModifiers = normalizeStatModifiers(modifiers, 'ring.modifiers');
   const id = world.create();
   world.add(id, Position, { x, y });
   world.add(id, ItemInfo, { name, glyph, slot: ItemSlot.RING, rarity });

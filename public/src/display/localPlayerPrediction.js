@@ -1,8 +1,10 @@
 // Responsive, client-owned local-player presentation. It never writes to the
 // authoritative replica world; snapshots only reconcile this render position.
 import { Collider, Position, Speed } from '../rules/components/index.js';
+import { EffectStat } from '../rules/data/effectCatalog.js';
 import { moveWithSlide } from '../rules/geometry/sweep.js';
-import { getStatMultiplier, isActionLocked } from '../rules/effects.js';
+import { isActionLocked } from '../rules/effects.js';
+import { getStatMultiplier } from '../rules/stats.js';
 
 export function createLocalPlayerPrediction({ world, playerId, grid }) {
   const initial = world.get(playerId, Position);
@@ -35,7 +37,7 @@ export function createLocalPlayerPrediction({ world, playerId, grid }) {
       correctionY = 0;
       return;
     }
-    const speed = (world.get(playerId, Speed)?.max ?? 0) * getStatMultiplier(world, playerId, 'movementSpeed');
+    const speed = (world.get(playerId, Speed)?.max ?? 0) * getStatMultiplier(world, playerId, EffectStat.MOVEMENT_SPEED);
     const radius = world.get(playerId, Collider)?.radius ?? 0;
     const moveX = finiteUnit(sample.intent?.moveX);
     const moveY = finiteUnit(sample.intent?.moveY);

@@ -8,4 +8,6 @@ export const EffectKind = Object.freeze({
 
 export const EffectStat = Object.freeze({
   CONDITION_DURATION_DEALT: 'conditionDurationDealt',
+  DAMAGE_TAKEN: 'damageTaken',
+  MOVEMENT_SPEED: 'movementSpeed',
 });

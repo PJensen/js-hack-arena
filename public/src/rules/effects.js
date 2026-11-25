@@ -1,7 +1,8 @@
-import { Actor, ActorKind, AuraEmitter, AuraMemberships, Collider, Conditions, Health, Position, Powerups, Ring } from './components/index.js';
+import { forEachActiveEffect } from './activeEffects.js';
+import { Actor, ActorKind, AuraEmitter, AuraMemberships, Collider, Conditions, Health, Position, Powerups } from './components/index.js';
 import { conditions as conditionCatalog } from './data/conditionCatalog.js';
 import { EffectKind, EffectStat } from './data/effectCatalog.js';
-import { getRingStatMultiplier } from './ringModifiers.js';
+import { getStatMultiplier } from './stats.js';
 
 const TIMER_EPSILON = 1e-9;
 
@@ -32,19 +33,6 @@ export function applyCondition(world, targetId, conditionId, sourceId = null, du
   return true;
 }
 
-export function getStatMultiplier(world, targetId, stat, context = {}) {
-  const ring = world.has(targetId, Actor) ? world.get(targetId, Ring) : null;
-  let multiplier = getRingStatMultiplier(ring, stat, context);
-  forEachEffect(world, targetId, (effect, source) => {
-    if (effect.kind === EffectKind.STAT_MULTIPLIER && effect.stat === stat &&
-      (!effect.damageType || effect.damageType === context.damageType) &&
-      (!effect.conditionId || effect.conditionId === context.conditionId)) {
-      multiplier *= finiteNumber(effect.value, 1) ** Math.max(1, source.stacks || 1);
-    }
-  });
-  return multiplier;
-}
-
 export function applyDamage(world, targetId, rawAmount, {
   sourceId = null, damageType = null, x = null, y = null, spellId = null, periodic = false, meleeArc = false,
   impactAngle = null,
@@ -52,7 +40,7 @@ export function applyDamage(world, targetId, rawAmount, {
   const health = world.get(targetId, Health);
   if (!health || health.dead || health.hp <= 0) return 0;
   const ward = world.get(targetId, Powerups)?.wardMultiplier || 1;
-  const mitigation = getStatMultiplier(world, targetId, 'damageTaken', { damageType });
+  const mitigation = getStatMultiplier(world, targetId, EffectStat.DAMAGE_TAKEN, { damageType });
   const amount = Math.max(0, Math.round(rawAmount * ward * mitigation));
   if (amount <= 0) return 0;
   const hpLost = Math.min(health.hp, amount);
@@ -86,7 +74,7 @@ export function applyHealing(world, targetId, rawAmount, { sourceId = null, x = 
 
 export function isActionLocked(world, targetId, action) {
   let locked = false;
-  forEachEffect(world, targetId, (effect) => {
+  forEachActiveEffect(world, targetId, (effect) => {
     if (effect.kind === EffectKind.ACTION_LOCK && effect.action === action) locked = true;
   });
   return locked;
@@ -243,22 +231,6 @@ function isTargeted(targets, sourceTeam, targetTeam) {
   if (targets === 'friendly') return sourceTeam === targetTeam;
   if (targets === 'hostile') return sourceTeam !== targetTeam;
   return false;
-}
-
-function forEachEffect(world, targetId, visit) {
-  const conditions = world.get(targetId, Conditions);
-  if (conditions) {
-    for (const condition of conditions.active) {
-      if (condition.remaining <= 0) continue;
-      for (const effect of condition.effects || []) visit(effect, condition);
-    }
-  }
-  const memberships = world.get(targetId, AuraMemberships);
-  if (memberships) {
-    for (const membership of memberships.active) {
-      for (const effect of membership.effects || []) visit(effect, membership);
-    }
-  }
 }
 
 function tickPeriodicEffects(world, targetId, source, dt, remaining = Infinity) {

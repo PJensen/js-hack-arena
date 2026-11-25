@@ -2,7 +2,9 @@
 import { Position, Velocity, Speed, Facing, AI, AIBehavior, Collider, Health, Projectile, Lifetime, Mana, Actor, ActorKind } from '../components/index.js';
 import { moveWithSlide, sweepMaxFree } from '../geometry/sweep.js';
 import { astar } from '../ai/pathfind.js';
-import { applyCondition, getStatMultiplier, isActionLocked } from '../effects.js';
+import { applyCondition, isActionLocked } from '../effects.js';
+import { EffectStat } from '../data/effectCatalog.js';
+import { getStatMultiplier } from '../stats.js';
 import { ConditionId } from '../data/conditionCatalog.js';
 import { ImpactKind } from '../data/spellCatalog.js';
 import { BAT_SHRIEK_PULSE, BAT_SHRIEK_RADIUS, BAT_SHRIEK_WINDUP, GAZE_CHARGE_SECONDS, MIMIC_LEAP_SECONDS, MIMIC_WINDUP_SECONDS, WEB_WINDUP_SECONDS } from '../components/AI.js';
@@ -46,7 +48,7 @@ export function createAISystem(ctx) {
         ai.shriekPulse = Math.max(0, ai.shriekPulse - dt);
         ai.castCooldown = Math.max(0, ai.castCooldown - dt);
       }
-      const movementSpeed = spd.max * getStatMultiplier(world, id, 'movementSpeed');
+      const movementSpeed = spd.max * getStatMultiplier(world, id, EffectStat.MOVEMENT_SPEED);
       const moveLocked = isActionLocked(world, id, 'move');
       if (ai.behavior === AIBehavior.PASSIVE) {
         ai.target = null;

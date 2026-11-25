@@ -1,4 +1,4 @@
-import { EffectKind } from './effectCatalog.js';
+import { EffectKind, EffectStat } from './effectCatalog.js';
 
 export const HEALTH_POTION_AMOUNT = 25;
 const HEALTH_POTION_DURATION = 5;
@@ -48,8 +48,8 @@ export const conditions = Object.freeze({
     disposition: 'harmful',
     visual: 'frozen',
     effects: Object.freeze([
-      Object.freeze({ kind: EffectKind.STAT_MULTIPLIER, stat: 'movementSpeed', value: 0.25 }),
-      Object.freeze({ kind: EffectKind.STAT_MULTIPLIER, stat: 'damageTaken', damageType: 'fire', value: 1.1 }),
+      Object.freeze({ kind: EffectKind.STAT_MULTIPLIER, stat: EffectStat.MOVEMENT_SPEED, value: 0.25 }),
+      Object.freeze({ kind: EffectKind.STAT_MULTIPLIER, stat: EffectStat.DAMAGE_TAKEN, damageType: 'fire', value: 1.1 }),
     ]),
   }),
   [ConditionId.SLOWED]: Object.freeze({
@@ -60,7 +60,7 @@ export const conditions = Object.freeze({
     disposition: 'harmful',
     visual: 'slowed',
     effects: Object.freeze([
-      Object.freeze({ kind: EffectKind.STAT_MULTIPLIER, stat: 'movementSpeed', value: 0.65 }),
+      Object.freeze({ kind: EffectKind.STAT_MULTIPLIER, stat: EffectStat.MOVEMENT_SPEED, value: 0.65 }),
     ]),
   }),
   [ConditionId.STUNNED]: Object.freeze({
@@ -116,7 +116,7 @@ export const conditions = Object.freeze({
     disposition: 'beneficial',
     visual: 'ice_armor',
     effects: Object.freeze([
-      Object.freeze({ kind: EffectKind.STAT_MULTIPLIER, stat: 'damageTaken', value: 0.65 }),
+      Object.freeze({ kind: EffectKind.STAT_MULTIPLIER, stat: EffectStat.DAMAGE_TAKEN, value: 0.65 }),
     ]),
   }),
   [ConditionId.REGENERATION]: Object.freeze({

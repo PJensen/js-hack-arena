@@ -5,7 +5,7 @@ import { createAtlasIcon } from './atlasIcon.js';
 import { ItemSlot } from '../../rules/components/ItemInfo.js';
 import { conditions } from '../../rules/data/conditionCatalog.js';
 import { EffectStat } from '../../rules/data/effectCatalog.js';
-import { getRingStatMultiplier } from '../../rules/ringModifiers.js';
+import { getModifierMultiplier } from '../../rules/stats.js';
 
 const RARITY_COLORS = Object.freeze({
   common: '#e8f1fa',
@@ -63,11 +63,12 @@ export function ringTooltipRows(ring, equipped) {
   const stat = EffectStat.CONDITION_DURATION_DEALT;
   const conditionIds = new Set(ring.modifiers.filter((modifier) => modifier.stat === stat).map(({ conditionId }) => conditionId));
   for (const conditionId of conditionIds) {
-    const multiplier = getRingStatMultiplier(ring, stat, { conditionId });
-    const current = getRingStatMultiplier(equipped, stat, { conditionId });
+    const multiplier = getModifierMultiplier(ring.modifiers, stat, { conditionId });
+    const current = getModifierMultiplier(equipped?.modifiers, stat, { conditionId });
+    const subject = conditionId ? `${conditions[conditionId].name} you inflict lasts` : 'Conditions you inflict last';
     rows.push({
       kind: 'equip', label: 'Equip: ',
-      value: `${conditions[conditionId].name} you inflict lasts ${formatPercent.format(Math.abs(multiplier - 1))} ${multiplier >= 1 ? 'longer' : 'shorter'}`,
+      value: `${subject} ${formatPercent.format(Math.abs(multiplier - 1))} ${multiplier >= 1 ? 'longer' : 'shorter'}`,
       change: compareDirection(multiplier, current),
     });
   }

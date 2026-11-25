@@ -4,11 +4,12 @@ import {
   assertEquals,
   assertThrows,
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
-import { AI, Actor, Auras, Facing, Gold, Health, Input, ItemInfo, Lifetime, Mana, PointLight, Position, Powerups, Projectile, Ring, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
+import { AI, Actor, Auras, Conditions, Facing, Gold, Health, Input, ItemInfo, Lifetime, Mana, PointLight, Position, Powerups, Projectile, Ring, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
 import { generateArenaCave, generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
 import { GOLD_LIGHT, attachAuraEmitter, spawnAuraField, spawnBat, spawnEpicChest, spawnEpicSword, spawnFlamingBat, spawnFloatingEye, spawnFuryRune, spawnGasSpore, spawnHasteRune, spawnItem, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
 import { BAT_SHRIEK_WINDUP, GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
-import { applyAura, applyDamage, getStatMultiplier } from '../public/src/rules/effects.js';
+import { applyAura, applyCondition, applyDamage } from '../public/src/rules/effects.js';
+import { getStatMultiplier } from '../public/src/rules/stats.js';
 import { ConditionId } from '../public/src/rules/data/conditionCatalog.js';
 import { EffectKind, EffectStat } from '../public/src/rules/data/effectCatalog.js';
 import { SpellCastMode, spells as spellCatalog } from '../public/src/rules/data/spellCatalog.js';
@@ -730,24 +731,62 @@ Deno.test("arena sim: fixed cast-time spells can be interrupted before resolutio
   assert(sim.captureSnapshot().events.some((event) => event.type === 'spell.interrupted' && event.payload.reason === 'damage'));
 });
 
-Deno.test('arena sim: Frost Bolt uses the source ring after charge scaling', () => {
-  for (const [item, duration] of [[null, 2.4], ['frostband', 2.52], ['rimeband', 2.64]]) {
+Deno.test('arena sim: Frozen duration uses equipped source modifiers on direct application', () => {
+  for (const [item, duration] of [['frostband', 2.52], ['rimeband', 2.64]]) {
     const sim = makeOpenSim(910, { enemyCount: 0 });
-    sim.addPlayer('peer-a');
+    const source = sim.addPlayer('peer-a');
     const { id: target } = spawnIdleTarget(sim, 180, 100);
-    if (item) {
-      spawnItem(sim.world, 100, 100, { type: item });
-      sim.setPlayerInput('peer-a', { seq: 1, pickupX: 100, pickupY: 100 });
-      sim.step();
-    }
-    sim.setPlayerInput('peer-a', { seq: 2, aimX: 1, fire: true, spellSlot: 0 });
-    for (let i = 0; i <= Math.ceil(1 / SIM_DT); i++) sim.step();
-    sim.setPlayerInput('peer-a', { seq: 3, fire: false });
-    for (let i = 0; i < 10; i++) sim.step();
-    const frozen = sim.world.get(target, Auras).active.find(({ id }) => id === ConditionId.FROZEN);
-    assert(frozen);
-    assertAlmostEquals(frozen.duration, duration);
+    const active = (conditionId) => sim.world.get(target, Conditions)?.active.find(({ id }) => id === conditionId);
+
+    const ring = spawnItem(sim.world, 100, 100, { type: item });
+    assert(applyCondition(sim.world, target, ConditionId.FROZEN, ring));
+    assertAlmostEquals(active(ConditionId.FROZEN).duration, 2.4);
+    assert(applyCondition(sim.world, target, ConditionId.FROZEN, source));
+    assertAlmostEquals(active(ConditionId.FROZEN).duration, 2.4);
+
+    sim.setPlayerInput('peer-a', { seq: 1, pickupX: 100, pickupY: 100 });
+    sim.step();
+    assert(applyCondition(sim.world, target, ConditionId.FROZEN, source));
+    assertAlmostEquals(active(ConditionId.FROZEN).remaining, duration);
+    assert(applyCondition(sim.world, target, ConditionId.BLEEDING, source, 1));
+    assertAlmostEquals(active(ConditionId.BLEEDING).remaining, 1);
+
+    spawnItem(sim.world, 100, 100, { type: 'haste_ring' });
+    sim.setPlayerInput('peer-a', { seq: 2, pickupX: 100, pickupY: 100 });
+    sim.step();
+    assertAlmostEquals(active(ConditionId.FROZEN).remaining, duration - SIM_DT);
+    sim.step(duration);
+    assertEquals(active(ConditionId.FROZEN), undefined);
+    assert(applyCondition(sim.world, target, ConditionId.FROZEN, source));
+    assertAlmostEquals(active(ConditionId.FROZEN).duration, 2.4);
   }
+});
+
+Deno.test('arena sim: an active effect and equipped item compose on the same condition stat', () => {
+  const sim = makeOpenSim(912, { enemyCount: 0 });
+  const source = sim.addPlayer('peer-a');
+  const { id: target } = spawnIdleTarget(sim, 180, 100);
+  const frozen = () => sim.world.get(target, Conditions)?.active.find(({ id }) => id === ConditionId.FROZEN);
+
+  spawnItem(sim.world, 100, 100, { type: 'frostband' });
+  sim.setPlayerInput('peer-a', { seq: 1, pickupX: 100, pickupY: 100 });
+  attachAuraEmitter(sim.world, source, {
+    radius: 30, targets: 'friendly', duration: 0.2,
+    effects: [{
+      kind: EffectKind.STAT_MULTIPLIER, stat: EffectStat.CONDITION_DURATION_DEALT,
+      conditionId: ConditionId.FROZEN, value: 1.2,
+    }],
+  });
+  sim.step();
+  assert(applyCondition(sim.world, target, ConditionId.FROZEN, source, 1));
+  assertAlmostEquals(frozen().remaining, 1.26);
+
+  sim.step(0.2);
+  assert(applyCondition(sim.world, target, ConditionId.FROZEN, source, 1));
+  assertAlmostEquals(frozen().remaining, 1.06);
+  sim.step(0.1);
+  assert(applyCondition(sim.world, target, ConditionId.FROZEN, source, 1));
+  assertAlmostEquals(frozen().remaining, 1.05);
 });
 
 Deno.test('arena sim: condition duration modifiers also apply on aura refresh', () => {
