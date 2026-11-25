@@ -239,12 +239,19 @@ function stepBatShriek(world, grid, id, ai, position, distance, dt, castLocked) 
   ai.shriekPulse = BAT_SHRIEK_PULSE;
   ai.castCooldown = ai.castRate;
   const team = world.get(id, Actor).team;
-  for (const [ally, allyAI, allyPosition, actor, health] of world.query(AI, Position, Actor, Health)) {
-    if (ally === id || actor.team !== team || health.dead || health.hp <= 0) continue;
-    if (allyAI.target != null || allyAI.behavior === AIBehavior.PASSIVE) continue;
-    if (Math.hypot(allyPosition.x - position.x, allyPosition.y - position.y) > BAT_SHRIEK_RADIUS) continue;
+  for (const [target, targetPosition, actor, health] of world.query(Position, Actor, Health)) {
+    if (target === id || health.dead || health.hp <= 0) continue;
+    const player = actor.kind === ActorKind.PLAYER && actor.team !== team;
+    const allyAI = actor.team === team ? world.get(target, AI) : null;
+    const canInvestigate = allyAI && allyAI.target == null && allyAI.behavior !== AIBehavior.PASSIVE;
+    if (!(player && ai.shriekConditionId) && !canInvestigate) continue;
+    if (Math.hypot(targetPosition.x - position.x, targetPosition.y - position.y) > BAT_SHRIEK_RADIUS) continue;
+    if (!hasLOS(grid, position.x, position.y, targetPosition.x, targetPosition.y, true)) continue;
+    if (player) {
+      applyCondition(world, target, ai.shriekConditionId, id);
+      continue;
+    }
     // Investigate the noise. The ally still needs its own sight to engage a player.
-    if (!hasLOS(grid, allyPosition.x, allyPosition.y, position.x, position.y, true)) continue;
     allyAI.investigate = { ...position, remaining: 2.4 };
   }
   return true;

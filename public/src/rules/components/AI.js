@@ -25,6 +25,7 @@ export const AI = defineComponent('AI', {
   webSpit:        false,
   webWindup:      0,
   gazeCharge:     0,
+  shriekConditionId: null,
   shriekWindup:   0,
   shriekPulse:    0,
   plantAtContact: false,

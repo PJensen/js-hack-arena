@@ -177,6 +177,7 @@ export const spawnBat = defineMob({
   packSize: 3,
   speed: 102, hp: 12, mana: 0, manaRegen: 0,
   light: BAT_LIGHT, behavior: AIBehavior.BAT, castRate: 5.5,
+  shriekConditionId: ConditionId.SLOWED,
   meleeDamage: 0, weapon: '', aggroRange: 185, searchRadius: 64,
 });
 
@@ -217,6 +218,7 @@ function spawnMob(world, grid, nearX, nearY, targetId, config, patrolPoints) {
     castRate: config.castRate ?? AI.defaults.castRate,
     projSpeed: config.projSpeed ?? AI.defaults.projSpeed,
     webSpit: config.webSpit ?? false,
+    shriekConditionId: config.shriekConditionId ?? null,
     plantAtContact: config.plantAtContact ?? false,
     aggroRange: config.aggroRange ?? 300,
     patrolPoints: patrolPoints || [],

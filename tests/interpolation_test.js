@@ -112,3 +112,17 @@ Deno.test('local prediction follows authoritative immobilization and release', (
   prediction.step(input, 0.25);
   assertEquals(prediction.position().x, 60);
 });
+
+Deno.test('local prediction uses the movement multiplier from a replicated condition', () => {
+  const authority = makeSim(SIM_MODE.AUTHORITY);
+  const player = authority.addPlayer('peer-a');
+  applyCondition(authority.world, player, 'slowed');
+  const replica = makeSim(SIM_MODE.REPLICA);
+  replica.applySnapshot(authority.captureSnapshot());
+  const playerId = replica.getPlayerEntity('peer-a');
+  const prediction = createLocalPlayerPrediction({ world: replica.world, playerId, grid: { distanceMove: () => 100 } });
+
+  prediction.step({ intent: { moveX: 1 } }, 0.25);
+  assertEquals(prediction.position().x, 42.5);
+  assertEquals(replica.world.get(playerId, Position).x, 10);
+});

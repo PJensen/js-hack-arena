@@ -935,11 +935,11 @@ Deno.test("arena sim: authored encounters include a spider and a bat flock", () 
   assert([...replica.world.query(Actor)].some(([, actor]) => actor.theme === 'spider'));
 });
 
-Deno.test('arena sim: Bat warns before shrieking and nearby allies investigate without acquiring through cover', () => {
+Deno.test('arena sim: Bat warns, slows exposed players, and alerts nearby allies', () => {
   let wall = false;
   const grid = {
     cellSize: 8,
-    distanceMove: (x) => wall && Math.abs(x - 140) < 11 ? 0 : 100,
+    distanceMove: (x, y) => (wall && Math.abs(x - 140) < 11) || (x < 155 && Math.abs(y - 150) < 8) ? 0 : 100,
   };
   const sim = makeOpenSim(926, { grid, enemyCount: 0 });
   const player = sim.addPlayer('peer-a');
@@ -967,13 +967,27 @@ Deno.test('arena sim: Bat warns before shrieking and nearby allies investigate w
   step(1);
   assertEquals(ai.shriekWindup, 0);
   assertEquals(allyAI.investigate, null);
+  assertEquals(getStatMultiplier(sim.world, player, 'movementSpeed'), 1);
   wall = false;
+  const exposed = sim.addPlayer('exposed');
+  const covered = sim.addPlayer('covered');
+  const outside = sim.addPlayer('outside');
+  Object.assign(sim.world.get(exposed, Position), { x: 90, y: 115 });
+  Object.assign(sim.world.get(covered, Position), { x: 85, y: 190 });
+  Object.assign(sim.world.get(outside, Position), { x: 20, y: 100 });
   step(1 + Math.round(BAT_SHRIEK_WINDUP / SIM_DT));
   assert(batState().shriekPulse > 0);
   assertEquals(allyAI.target, null);
   assertEquals([allyAI.investigate.x, allyAI.investigate.y], [180, 100]);
   assertEquals(distantAI.investigate, null);
   assertEquals(sim.world.get(player, Health).hp, 100);
+  assertEquals(getStatMultiplier(sim.world, player, 'movementSpeed'), 0.65);
+  assertEquals(getStatMultiplier(sim.world, exposed, 'movementSpeed'), 0.65);
+  assertEquals(getStatMultiplier(sim.world, covered, 'movementSpeed'), 1);
+  assertEquals(getStatMultiplier(sim.world, outside, 'movementSpeed'), 1);
+  replica.applySnapshot(sim.captureSnapshot());
+  const replicaPlayer = replica.getPlayerEntity('peer-a');
+  assertEquals(getStatMultiplier(replica.world, replicaPlayer, 'movementSpeed'), 0.65);
 
   wall = true;
   step(4);
@@ -983,6 +997,7 @@ Deno.test('arena sim: Bat warns before shrieking and nearby allies investigate w
   step(1);
   assertEquals(sim.world.alive.has(bat), false);
   step(55);
+  assertEquals(getStatMultiplier(sim.world, player, 'movementSpeed'), 1);
   assertEquals(allyAI.investigate, null);
   assertEquals(allyAI.target, null);
   assertEquals([...sim.world.query(AI)].length, 2);

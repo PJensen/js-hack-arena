@@ -1450,7 +1450,7 @@ export function createWebGLArenaRenderer(deps) {
         const ai = world.get(id, AI);
         const windup = ai?.shriekWindup ?? 0;
         const pulse = ai?.shriekPulse ?? 0;
-        if (!inView(shown.x, shown.y, pulse > 0 ? BAT_SHRIEK_RADIUS : flaming ? 64 : 42)) continue;
+        if (!inView(shown.x, shown.y, windup > 0 || pulse > 0 ? BAT_SHRIEK_RADIUS : flaming ? 64 : 42)) continue;
         const shriek = windup > 0 ? 1 - windup / BAT_SHRIEK_WINDUP : 0;
         const still = motionPreference.matches;
         const phase = combatTime * 26 + id * 1.43;
@@ -1580,11 +1580,13 @@ export function createWebGLArenaRenderer(deps) {
       if (windup > 0) {
         const charge = 1 - windup / BAT_SHRIEK_WINDUP;
         drawDisc(x, y - height, 14 - charge * 8, [0, 0, 0, 0], [0.88, 0.63, 1, 0.22 + charge * 0.45]);
+        drawDisc(x, y, BAT_SHRIEK_RADIUS, [0, 0, 0, 0], [0.84, 0.65, 1, 0.08 + charge * 0.16]);
       }
       if (pulse > 0) {
         const progress = 1 - pulse / BAT_SHRIEK_PULSE;
         const spread = motionPreference.matches ? 1 : 0.14 + progress * 0.86;
-        drawDisc(x, y, BAT_SHRIEK_RADIUS * spread, [0, 0, 0, 0], [0.84, 0.65, 1, (1 - progress) * 0.16]);
+        const alpha = (1 - progress) * 0.62;
+        drawDisc(x, y, BAT_SHRIEK_RADIUS * spread, [0.65, 0.38, 1, alpha * 0.08], [0.9, 0.73, 1, alpha]);
       }
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);

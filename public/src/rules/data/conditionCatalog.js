@@ -5,6 +5,7 @@ const HEALTH_POTION_DURATION = 5;
 
 export const ConditionId = Object.freeze({
   FROZEN: 'frozen',
+  SLOWED: 'slowed',
   STUNNED: 'stunned',
   IMMOBILIZED: 'immobilized',
   PARALYZED: 'paralyzed',
@@ -49,6 +50,17 @@ export const conditions = Object.freeze({
     effects: Object.freeze([
       Object.freeze({ kind: EffectKind.STAT_MULTIPLIER, stat: 'movementSpeed', value: 0.25 }),
       Object.freeze({ kind: EffectKind.STAT_MULTIPLIER, stat: 'damageTaken', damageType: 'fire', value: 1.1 }),
+    ]),
+  }),
+  [ConditionId.SLOWED]: Object.freeze({
+    id: ConditionId.SLOWED,
+    name: 'Slowed',
+    glyph: '⌄',
+    duration: 1.75,
+    disposition: 'harmful',
+    visual: 'slowed',
+    effects: Object.freeze([
+      Object.freeze({ kind: EffectKind.STAT_MULTIPLIER, stat: 'movementSpeed', value: 0.65 }),
     ]),
   }),
   [ConditionId.STUNNED]: Object.freeze({
