@@ -144,6 +144,10 @@ the default casting behavior. The catalog currently demonstrates instant
 Lightning, charged Frost Bolt, cast-time Venom Orb, channeled Blizzard, and the
 instant Ice Armor and Regeneration buffs.
 
+Select Cleave or Rend, then tap attack for a quick strike or hold and release for
+more damage. A charged Rend also bleeds longer. Charged hits briefly hold the
+impact on the attacking player's screen, with Cleave getting the heaviest pause.
+
 Timed consequences such as Frozen, Poisoned, Ice Armor, and Regeneration are
 Conditions attached to one actor. Their child Effects are generic operations
 such as stat multipliers, action locks, periodic damage, and periodic healing.

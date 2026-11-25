@@ -76,7 +76,7 @@ export function createPlayerCombatSystem({ grid }) {
       const mana = world.get(playerId, Mana);
       const minimumMana = spell.cast.mode === SpellCastMode.CHANNELED
         ? spell.mana.perTick || 0
-        : manaCostFor(spell, spell.cast.mode === SpellCastMode.CHARGED ? 0.25 : 1);
+        : manaCostFor(spell, spell.cast.mode === SpellCastMode.CHARGED ? spell.cast.minPower ?? 0.25 : 1);
       if (mana && mana.mana < minimumMana) {
         deny(world, playerId, spellId, 'mana');
         continue;
@@ -111,7 +111,7 @@ function maintainCast(world, grid, playerId, input, book, position, dt) {
       captureAim(book, input, position, spell);
       return;
     }
-    const power = Math.max(0.25, Math.min(1, book.charge / spell.cast.maxCharge));
+    const power = Math.max(spell.cast.minPower ?? 0.25, Math.min(1, book.charge / spell.cast.maxCharge));
     resolveCast(world, grid, playerId, book, position, spell, power);
     return;
   }

@@ -94,6 +94,11 @@ Deno.test("arena sim: Cleave hits its arc, respects walls and spends replicated 
 
   sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 2 });
   sim.step();
+  assertEquals(book.castPhase, 'charging');
+  assertEquals(stamina.stamina, 100);
+  assertEquals(front.health.hp, 100);
+  sim.setPlayerInput('peer-a', { seq: 2, fire: false });
+  sim.step();
   assertEquals([front.health.hp, flank.health.hp], [82, 82]);
   assertEquals([behindWall.health.hp, behind.health.hp, outOfRange.health.hp], [100, 100, 100]);
   assertEquals(stamina.stamina, 75);
@@ -130,7 +135,7 @@ Deno.test("arena sim: Cleave hits its arc, respects walls and spends replicated 
   assertEquals(stamina.stamina, 75);
   for (let i = 0; i < 35; i++) sim.step();
   assertEquals(stamina.stamina, 100);
-  assertEquals(front.health.hp, 82); // Holding fire never repeats the instant attack.
+  assertEquals(front.health.hp, 82);
 });
 
 Deno.test("arena sim: Rend picks the closest target, applies a finite bleed and denies low stamina", () => {
@@ -141,12 +146,13 @@ Deno.test("arena sim: Rend picks the closest target, applies a finite bleed and 
   const stamina = sim.world.get(playerId, Stamina);
   sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 3 });
   sim.step();
+  sim.setPlayerInput('peer-a', { seq: 2, fire: false });
+  sim.step();
   assertEquals(stamina.stamina, 80);
   assertEquals(near.health.hp, 88);
   assertEquals(far.health.hp, 100);
   assert(sim.world.get(near.id, Auras).active.some((condition) => condition.id === 'bleeding'));
 
-  sim.setPlayerInput('peer-a', { seq: 2, fire: false });
   for (let i = 0; i < 90; i++) sim.step();
   assertEquals(near.health.hp, 72);
   assertEquals(far.health.hp, 100);
@@ -155,11 +161,42 @@ Deno.test("arena sim: Rend picks the closest target, applies a finite bleed and 
   stamina.regenPerSecond = 0;
   sim.setPlayerInput('peer-a', { seq: 3, aimX: 1, fire: true });
   sim.step();
+  sim.setPlayerInput('peer-a', { seq: 4, fire: false });
+  sim.step();
   assertEquals(stamina.stamina, 10);
   assertEquals(near.health.hp, 72);
   assert(sim.captureSnapshot().events.some((event) =>
     event.type === 'spell.denied' && event.payload.reason === 'stamina' && event.payload.spellId === 'rend'
   ));
+});
+
+Deno.test('arena sim: melee charges cap while held and resolve once on release', () => {
+  for (const [spellId, slot, damage, staminaCost] of [['cleave', 2, 27, 25], ['rend', 3, 15, 20]]) {
+    const sim = makeOpenSim(917, { enemyCount: 0 });
+    const player = sim.addPlayer('peer-a');
+    const target = spawnIdleTarget(sim, 145, 100);
+    const book = sim.world.get(player, Spellbook);
+    const stamina = sim.world.get(player, Stamina);
+    sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: slot });
+    for (let i = 0; i < 25; i++) sim.step();
+    assertEquals(book.charge, spellCatalog[spellId].cast.maxCharge);
+    assertEquals(target.health.hp, 100);
+    assertEquals(stamina.stamina, 100);
+    assertEquals(sim.captureSnapshot().events.filter(({ type }) => type === 'spell.cast'), []);
+
+    sim.setPlayerInput('peer-a', { seq: 2, fire: false });
+    sim.step();
+    assertEquals(book.castPhase, 'idle');
+    assertEquals(target.health.hp, 100 - damage);
+    assertEquals(stamina.stamina, 100 - staminaCost);
+    assertEquals(sim.captureSnapshot().events.filter(({ type }) => type === 'spell.cast').map(({ payload }) => payload.charge), [1]);
+    if (spellId === 'rend') {
+      const bleed = sim.world.get(target.id, Auras).active.find(({ id }) => id === 'bleeding');
+      assertEquals(bleed.duration, 6);
+    }
+    sim.step();
+    assertEquals(target.health.hp, 100 - damage);
+  }
 });
 
 Deno.test("arena sim: player movement uses the canonical command and movement path", () => {
@@ -492,6 +529,8 @@ Deno.test("arena sim: direct hits pause passive mana recovery for five seconds",
 
   sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 2 });
   sim.step();
+  sim.setPlayerInput('peer-a', { seq: 2, fire: false });
+  sim.step();
   assert(mob.health.hp < mob.health.maxHp);
   const manaAfterHit = mana.mana;
   for (let i = 0; i < 60; i++) sim.step();
@@ -639,17 +678,22 @@ Deno.test('arena sim: ring haste changes follow-up timing and retains individual
 
       sim.setPlayerInput('peer-a', { seq: 2, aimX: 1, fire: true, spellSlot: 2 });
       sim.step();
+      sim.setPlayerInput('peer-a', { seq: 3, fire: false });
+      sim.step();
       assertAlmostEquals(book.cooldown, cooldown, 1e-9);
       assertEquals(book.cooldowns.cleave, 1.4);
-      sim.setPlayerInput('peer-a', { seq: 3, fire: false });
       for (let i = 1; i < followUpTick; i++) sim.step();
       assert(book.cooldown > 0);
 
       sim.setPlayerInput('peer-a', { seq: 4, aimX: 1, fire: true, spellSlot: slot });
       sim.step();
+      assertAlmostEquals(book.cooldowns.cleave, 1.4 - followUpTick * SIM_DT, 1e-9);
+      if (followUp === 'rend') {
+        sim.setPlayerInput('peer-a', { seq: 5, fire: false });
+        sim.step();
+      }
       const snapshot = sim.captureSnapshot();
       assert(snapshot.events.some(({ type, payload }) => type === 'spell.cast' && payload.spellId === followUp));
-      assertAlmostEquals(book.cooldowns.cleave, 1.4 - followUpTick * SIM_DT, 1e-9);
 
       const replica = makeOpenSim(123, { mode: SIM_MODE.REPLICA });
       replica.applySnapshot(snapshot);
@@ -1170,9 +1214,10 @@ Deno.test('arena sim: floating eye gaze needs sustained sight and replicates tim
   sim.setPlayerInput('peer-a', { moveY: 1, aimX: 1, spellSlot: 2, fire: true });
   step(1);
   assertEquals(position.y, 100);
-  assert(sim.captureSnapshot().events.some(({ type }) => type === 'spell.cast'));
   sim.setPlayerInput('peer-a', { moveY: 1 });
-  step(97);
+  step(1);
+  assert(sim.captureSnapshot().events.some(({ type }) => type === 'spell.cast'));
+  step(96);
   assertEquals(conditionIds(sim), ['paralyzed']);
   assertEquals(position.y, 100);
   step(3);
@@ -1304,10 +1349,12 @@ Deno.test('arena sim: a web shot roots on impact, permits casting, and wears off
   sim.world.on('spell.cast', ({ spellId }) => casts.push(spellId));
   sim.setPlayerInput('peer-a', { moveX: 1, aimX: 1, spellSlot: 2, fire: true });
   sim.step();
+  sim.setPlayerInput('peer-a', { moveX: 1 });
+  sim.step();
   assertEquals(casts, ['cleave']);
   assertEquals(position.x, 100);
   sim.setPlayerInput('peer-a', { moveY: 1 });
-  for (let i = 0; i < 25; i++) sim.step();
+  for (let i = 0; i < 24; i++) sim.step();
   assertEquals(sim.getPlayerSnapshot('peer-a').state.conditions, []);
   assert(position.y > 100);
 });

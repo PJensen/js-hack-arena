@@ -156,8 +156,16 @@ Deno.test('melee presentation: a confirmed local hit holds the swing once and pu
   assertEquals(effect.swings, []);
   assertEquals(contacts.length, 1);
 
+  const tap = createMeleeImpact({ playerId: 1, onContact: () => {} });
+  const charged = createMeleeImpact({ playerId: 1, onContact: () => {} });
+  tap.add({ ...cast, charge: 0 });
+  charged.add({ ...cast, charge: 1 });
+  tap.advance(0.09);
+  charged.advance(0.09);
+  assert(charged.advance(0.09) < tap.advance(0.09));
+
   for (const [event, reducedMotion, expectedContacts] of [
-    [{ ...cast, meleeArc: { ...arc, hits: [] } }, false, 0],
+    [{ ...cast, charge: 1, meleeArc: { ...arc, hits: [] } }, false, 0],
     [{ ...cast, playerId: 7 }, false, 1],
     [cast, true, 1],
   ]) {

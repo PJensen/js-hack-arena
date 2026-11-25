@@ -396,6 +396,14 @@ Deno.test('game room: a starter Cleave consumes stamina and broadcasts the swing
     room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, {
       input: { seq: 1, aimX: 1, fire: true, spellSlot: 2 },
     }));
+    for (let i = 0; i < 18; i++) room.step();
+    room.broadcastSnapshot();
+    const held = latestSnapshot(socket);
+    const charging = held.entities.find((entity) => entity.kind === 'player').state;
+    assertEquals(charging.castPhase, 'charging');
+    assertEquals(charging.stamina, 100);
+    assertEquals(held.events.filter(({ type }) => type === 'spell.cast'), []);
+    room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, { input: { seq: 2, fire: false } }));
     room.step();
     room.broadcastSnapshot();
     const snapshot = latestSnapshot(socket);
@@ -404,6 +412,7 @@ Deno.test('game room: a starter Cleave consumes stamina and broadcasts the swing
     assertEquals(player.mana, initial.mana);
     const swing = snapshot.events.find(({ type, payload }) => type === 'spell.cast' && payload.spellId === 'cleave');
     assert(swing);
+    assertEquals(swing.payload.charge, 1);
     assertEquals(swing.payload.meleeArc.hits, []);
     assert(swing.payload.caster.startsWith('player:'));
   } finally {

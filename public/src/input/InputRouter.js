@@ -125,6 +125,9 @@ export function createInputRouter({
 
   const keys = Object.create(null);
   let suspended = false;
+  let firePressed = false;
+  let rightStickAimed = false;
+  let pendingTouchAim = null;
   const mouse = {
     active: false,
     x: 0,
@@ -158,9 +161,24 @@ export function createInputRouter({
   const releaseTouches = (touches) => {
     for (const t of touches) {
       if (leftStick.touchId === t.identifier) leftStick.reset();
-      if (rightStick.touchId === t.identifier) rightStick.reset();
+      if (rightStick.touchId === t.identifier) {
+        rightStick.reset();
+        rightStickAimed = false;
+      }
     }
   };
+
+  function queueTouchAim() {
+    if (rightStick.mag <= 0.1) return;
+    if (!rightStickAimed) firePressed = true;
+    rightStickAimed = true;
+    if (firePressed) pendingTouchAim = { x: rightStick.x, y: rightStick.y };
+  }
+
+  function consumeFirePress() {
+    firePressed = false;
+    pendingTouchAim = null;
+  }
 
   const resetAll = () => {
     leftStick.reset();
@@ -168,6 +186,8 @@ export function createInputRouter({
     for (const k of Object.keys(keys)) keys[k] = false;
     mouse.active = false;
     mouse.down = false;
+    rightStickAimed = false;
+    consumeFirePress();
     // Clear queued actions when focus leaves gameplay.
     spellSlot = null;
     spellCycle = 0;
@@ -180,7 +200,10 @@ export function createInputRouter({
     e.preventDefault();
     for (const t of e.changedTouches) {
       const stick = t.clientX < window.innerWidth / 2 ? leftStick : rightStick;
-      if (stick.active === false) stick.start(t);
+      if (stick.active === false) {
+        stick.start(t);
+        if (stick === rightStick) queueTouchAim();
+      }
     }
   }, { passive: false });
 
@@ -189,7 +212,10 @@ export function createInputRouter({
     e.preventDefault();
     for (const t of e.changedTouches) {
       if (leftStick.touchId === t.identifier) leftStick.update(t);
-      if (rightStick.touchId === t.identifier) rightStick.update(t);
+      if (rightStick.touchId === t.identifier) {
+        rightStick.update(t);
+        queueTouchAim();
+      }
     }
   }, { passive: false });
 
@@ -199,13 +225,15 @@ export function createInputRouter({
   on(window, 'keydown', (e) => {
     if (suspended) return;
     const key = keyFromKeyboardEvent(e);
+    if (key === ' ' && !keys[key] && !e.repeat) firePressed = true;
     keys[key] = true;
     if (key === ' ') e.preventDefault();
   });
   on(window, 'keyup', (e) => { keys[keyFromKeyboardEvent(e)] = false; });
 
   on(canvas, 'pointerdown', (e) => {
-    if (suspended) return;
+    if (suspended || e.pointerType === 'touch') return;
+    if (!mouse.down) firePressed = true;
     mouse.active = true;
     mouse.down = true;
     mouse.x = e.clientX;
@@ -213,14 +241,14 @@ export function createInputRouter({
   });
 
   on(canvas, 'pointermove', (e) => {
-    if (suspended) return;
+    if (suspended || e.pointerType === 'touch') return;
     mouse.x = e.clientX;
     mouse.y = e.clientY;
     mouse.active = true;
   });
 
-  const stopMouse = () => {
-    mouse.down = false;
+  const stopMouse = (event) => {
+    if (event.pointerType !== 'touch') mouse.down = false;
   };
 
   on(window, 'pointerup', stopMouse);
@@ -335,9 +363,10 @@ export function createInputRouter({
     let aimY = 0;
     let sourceAim = 'none';
 
-    if (rightStick.active) {
-      aimX = rightStick.x;
-      aimY = rightStick.y;
+    if (rightStick.active || pendingTouchAim) {
+      const aim = rightStick.mag > 0.1 ? rightStick : pendingTouchAim ?? rightStick;
+      aimX = aim.x;
+      aimY = aim.y;
       sourceAim = 'touch-right';
     } else if (mouse.active) {
       const a = mouseAim();
@@ -350,7 +379,7 @@ export function createInputRouter({
       sourceAim = aimKb.mag > 0.05 ? 'keyboard' : 'none';
     }
 
-    const fire = rightStick.active || mouse.down || keys[' '];
+    const fire = Boolean(rightStickAimed || mouse.down || keys[' '] || firePressed);
 
     output.frame += 1;
     output.timeMs = nowMs;
@@ -391,6 +420,7 @@ export function createInputRouter({
 
   return {
     sample,
+    consumeFirePress,
     destroy,
     pulse,
     reset: resetAll,

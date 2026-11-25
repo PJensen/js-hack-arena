@@ -1,8 +1,8 @@
 import { spells } from '../../rules/data/spellCatalog.js';
 
 const profiles = {
-  cleave: { contactTime: 0.084, duration: 0.36, hold: 0.072, shake: 5.4, zoom: 0.1, lunge: 9 },
-  rend: { contactTime: 0.052, duration: 0.29, hold: 0.05, shake: 3.5, zoom: 0.075, lunge: 6 },
+  cleave: { contactTime: 0.084, duration: 0.36, hold: 0.072, chargeHold: 0.042, shake: 5.4, zoom: 0.1, lunge: 9 },
+  rend: { contactTime: 0.052, duration: 0.29, hold: 0.05, chargeHold: 0.015, shake: 3.5, zoom: 0.075, lunge: 6 },
 };
 
 export function createMeleeImpact({ playerId, reducedMotion = () => false, onContact }) {
@@ -14,8 +14,10 @@ export function createMeleeImpact({ playerId, reducedMotion = () => false, onCon
     const profile = profiles[event.spellId];
     if (!profile) return;
     const { range, halfAngle, hits = [] } = event.meleeArc ?? spells[event.spellId].targeting;
+    const charge = Math.min(1, Math.max(0, event.charge ?? 0));
     swings.push({
       ...event, ...profile, range, halfAngle,
+      hold: profile.hold + profile.chargeHold * charge,
       age: 0, landed: false, rend: event.spellId === 'rend',
       hits,
     });

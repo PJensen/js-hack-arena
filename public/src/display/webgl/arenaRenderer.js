@@ -8,7 +8,7 @@ import { AI, BAT_SHRIEK_PULSE, BAT_SHRIEK_RADIUS, BAT_SHRIEK_WINDUP, WEB_WINDUP_
 import { SHADOW_BOLT_LIFETIME } from '../../rules/components/Projectile.js';
 import { AuraId } from '../../rules/data/auraCatalog.js';
 import { ConditionId, conditions as conditionCatalog } from '../../rules/data/conditionCatalog.js';
-import { spells as spellCatalog } from '../../rules/data/spellCatalog.js';
+import { spells as spellCatalog, TargetingType } from '../../rules/data/spellCatalog.js';
 import { rarityTextColors } from '../../rules/data/lootTable.js';
 import { createMeleeImpact } from '../passes/meleeImpact.js';
 import { createFloatTextPass } from '../passes/floatText.js';
@@ -288,6 +288,7 @@ export function createWebGLArenaRenderer(deps) {
     halfAngle: uniform(gl, meleeArcProgram, 'u_half_angle'),
     progress: uniform(gl, meleeArcProgram, 'u_progress'),
     rend: uniform(gl, meleeArcProgram, 'u_rend'),
+    charging: uniform(gl, meleeArcProgram, 'u_charging'),
   };
 
   const lineProgram = device.program(LINE_VERTEX, SOLID_FRAGMENT);
@@ -600,7 +601,7 @@ export function createWebGLArenaRenderer(deps) {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  function drawMeleeArc(swing) {
+  function drawMeleeArc(swing, charge = null) {
     gl.useProgram(meleeArc.program);
     gl.bindVertexArray(quadVao);
     gl.uniform4fv(meleeArc.view, view);
@@ -608,8 +609,9 @@ export function createWebGLArenaRenderer(deps) {
     gl.uniform1f(meleeArc.range, swing.range);
     gl.uniform1f(meleeArc.angle, swing.angle);
     gl.uniform1f(meleeArc.halfAngle, swing.halfAngle);
-    gl.uniform1f(meleeArc.progress, swing.age / swing.duration);
+    gl.uniform1f(meleeArc.progress, charge ?? swing.age / swing.duration);
     gl.uniform1i(meleeArc.rend, Number(swing.rend));
+    gl.uniform1i(meleeArc.charging, Number(charge !== null));
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
@@ -1185,7 +1187,7 @@ export function createWebGLArenaRenderer(deps) {
     }
   }
 
-  function drawChargeAnimation(book, position, collider, now) {
+  function drawChargeAnimation(book, position, collider, now, local) {
     if (!book?.charging) return;
     const spellId = book.spells[book.chargeSpellIndex] || 'frost_bolt';
     const spell = spellCatalog[spellId];
@@ -1198,6 +1200,17 @@ export function createWebGLArenaRenderer(deps) {
     const charge = book.castPhase === 'channeling'
       ? 1 - book.channelRemaining / Math.max(0.001, duration)
       : Math.min(1, book.charge / Math.max(0.001, duration));
+    if (spell.targeting.type === TargetingType.MELEE_ARC) {
+      const { halfAngle, range } = spell.targeting;
+      if (!inView(position.x, position.y, range)) return;
+      drawMeleeArc({
+        ...position, halfAngle, range,
+        angle: Math.atan2(book.chargeAimY, book.chargeAimX),
+        rend: spellId === 'rend',
+      }, charge);
+      return;
+    }
+    if (!local) return;
     const theme = spell.element === 'electric' ? 'electric' : spell.element === 'arrow' ? 'fire' : spell.element;
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     if (book.castPhase === 'channeling') {
@@ -1718,7 +1731,10 @@ export function createWebGLArenaRenderer(deps) {
       const shown = displayPosition(id, position);
       drawAuraEmitter(emitter, shown, now, id);
     }
-    drawChargeAnimation(world.get(playerId, Spellbook), shownPlayer, playerCollider, now);
+    for (const [id, , position, collider, book] of world.query(PlayerTag, Position, Collider, Spellbook)) {
+      if (!book.charging) continue;
+      drawChargeAnimation(book, displayPosition(id, position), collider, now, id === playerId);
+    }
 
     // World-space status bars for every living actor.
     for (const [id, position, collider, health] of world.query(Position, Collider, Health)) {

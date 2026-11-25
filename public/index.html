@@ -154,6 +154,9 @@
     .spell-btn .spell-name { position:absolute; inset:auto 0 4px; color:#fff0db; font-size:9px; font-weight:800; line-height:1; }
     .spell-btn.resource-low { opacity:.52; }
     .spell-btn.charging { border-color:#d9fbff; background:conic-gradient(from -90deg,var(--cyan) calc(var(--charge,0) * 1turn),rgba(16,37,54,.88) 0); }
+    .spell-btn[data-resource="stamina"].charging::before { content:''; position:absolute; inset:auto 5px 2px; height:2px;
+      z-index:1; pointer-events:none; border-radius:2px;
+      background:linear-gradient(to right,#ffc167 calc(var(--charge,0) * 100%),rgba(255,193,103,.2) 0); }
     .spell-btn.cooldown:not(.charging) { opacity:.56; filter:saturate(.45); }
     .spell-btn.cooldown::after { content:attr(data-cooldown); position:absolute; inset:0; display:grid; place-items:center;
                                  color:#fff; font-size:11px; line-height:1; text-shadow:0 1px 3px #000; }
@@ -718,6 +721,7 @@ const loop = createFixedTickLoop({
         pendingWeaponPickup = null;
       }
       sim.setPlayerInput('local', command);
+      inputRouter.consumeFirePress();
       sim.step(dt);
       const gold = world.get(playerId, Gold).count;
       if (!isPreview && gold !== offlineProgress.gold) {
@@ -734,6 +738,7 @@ const loop = createFixedTickLoop({
       ? { ...o, spellSlot: pendingSpellSlot, spellCycle: pendingSpellSlot == null ? Math.sign(pendingSpellCycle) : 0 }
       : o;
     if (isNetworked && netClient.update(++netTick, networkInput, pendingWeaponPickup)) {
+      inputRouter.consumeFirePress();
       pendingWeaponPickup = null;
       pendingSpellSlot = null;
       pendingSpellCycle = 0;
