@@ -648,6 +648,11 @@ export function createArenaSimulation({
   }
 
   function projectEventPayload(type, payload) {
+    if (type === 'melee.hit') {
+      const sourceNetworkId = networkIdByEntity.get(payload.source) ??
+        (world.has(payload.source, AI) ? ensureNetworkId(payload.source, 'mob') : null);
+      return { ...payload, sourceNetworkId };
+    }
     if (type === 'damage.dealt') {
       const targetNetworkId = networkIdByEntity.get(payload.target) ??
         (world.has(payload.target, AI) ? ensureNetworkId(payload.target, 'mob') : null);
@@ -667,6 +672,9 @@ export function createArenaSimulation({
   }
 
   function resolveEventPayload(type, payload) {
+    if (type === 'melee.hit' && Object.hasOwn(payload, 'sourceNetworkId')) {
+      return { ...payload, source: entityByNetworkId.get(payload.sourceNetworkId) ?? null };
+    }
     if (type === 'damage.dealt' && Object.hasOwn(payload, 'targetNetworkId')) {
       return { ...payload, target: entityByNetworkId.get(payload.targetNetworkId) ?? null };
     }

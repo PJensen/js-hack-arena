@@ -17,6 +17,7 @@ import { biolum, emberLight, fireFlicker, torchLight } from '../lightPatterns.js
 import { createWebGLDevice } from './device.js';
 import { createGoreRenderer } from './goreRenderer.js';
 import { createSpiderMesh } from './spiderMesh.js';
+import { createGoblinMesh } from './goblinMesh.js';
 import { createBatMesh } from './batMesh.js';
 import { createFloatingEyeMesh } from './floatingEyeMesh.js';
 import { createGlyphAtlas } from './glyphAtlas.js';
@@ -64,8 +65,11 @@ import { SPORE_CLOUD_FRAGMENT } from './shaders/sporeCloud.frag.js';
 // sources for actors, loot, projectiles, and transient spell illumination.
 export const MAX_DYNAMIC_LIGHTS = 24;
 
-function hasRaisedStatusBar(theme) {
-  return theme === 'spider' || theme === 'floating_eye' || theme === 'gas_spore' || theme === 'bat' || theme === 'flaming_bat';
+function statusBarPadding(actor) {
+  if (actor?.name === 'Goblin Raider') return 29;
+  const theme = actor?.theme;
+  return theme === 'spider' || theme === 'floating_eye' || theme === 'gas_spore' ||
+    theme === 'bat' || theme === 'flaming_bat' ? 20 : 9;
 }
 
 function compareDirection(next, current) {
@@ -325,6 +329,7 @@ export function createWebGLArenaRenderer(deps) {
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   const goreRenderer = createGoreRenderer(device, QUAD);
   const spiderMesh = createSpiderMesh(device);
+  const drawGoblin = createGoblinMesh(device);
   const drawBat = createBatMesh(device);
   const drawFloatingEye = createFloatingEyeMesh(device);
 
@@ -1277,7 +1282,7 @@ export function createWebGLArenaRenderer(deps) {
       overlay.fillText(label, sx, labelY);
       const conditionLabel = activeConditionLabels(world.get(id, Conditions)).join(' · ');
       if (conditionLabel) {
-        const barOffset = collider.radius + (hasRaisedStatusBar(actor.theme) ? 20 : 9);
+        const barOffset = collider.radius + statusBarPadding(actor);
         const conditionY = sy - barOffset * width / view[2] - 14 * ratio;
         overlay.strokeText(conditionLabel, sx, conditionY);
         overlay.fillStyle = '#dff7ff';
@@ -1445,6 +1450,19 @@ export function createWebGLArenaRenderer(deps) {
       const velocity = world.get(id, Velocity);
       const speed = Math.hypot(velocity?.vx || 0, velocity?.vy || 0);
       const facing = world.get(id, Facing)?.angle ?? 0;
+      if (actor.name === 'Goblin Raider') {
+        const { radius } = collider;
+        if (!inView(shown.x, shown.y, radius * 3)) continue;
+        const still = motionPreference.matches;
+        const swing = meleeSwings.findLast((event) => event.source === id);
+        const attack = swing ? (still ? 0.24 : Math.min(1, swing.age / swing.duration)) : null;
+        const heading = swing ? Math.atan2(swing.y - swing.fromY, swing.x - swing.fromX) : facing;
+        const stride = still ? 0 : Math.min(1, speed / 125) * (swing ? 0.35 : 1);
+        drawDisc(shown.x, shown.y + 2, radius * 0.95, [0.03, 0.02, 0.012, 0.43], [0, 0, 0, 0]);
+        drawGoblin(view, shown.x, shown.y, radius, heading, combatTime * 15 + id * 1.47, stride, attack);
+        if (actor.rare) drawGlyph('★', shown.x + radius * 0.75, shown.y - radius * 2.15, 10, [1, 0.78, 0.18, 1]);
+        continue;
+      }
       const flaming = actor.theme === 'flaming_bat';
       if (actor.theme === 'bat' || flaming) {
         const ai = world.get(id, AI);
@@ -1684,15 +1702,14 @@ export function createWebGLArenaRenderer(deps) {
     // World-space status bars for every living actor.
     for (const [id, position, collider, health] of world.query(Position, Collider, Health)) {
       const shown = displayPosition(id, position);
-      const theme = world.get(id, Actor)?.theme;
-      const raisedBars = hasRaisedStatusBar(theme);
+      const padding = statusBarPadding(world.get(id, Actor));
       const barWidth = Math.max(25, collider.radius * 2.35);
-      const y = shown.y - collider.radius - (raisedBars ? 20 : 9);
+      const y = shown.y - collider.radius - padding;
       const healthRatio = Math.max(0, Math.min(1, health.hp / Math.max(1, health.maxHp)));
       drawRect(shown.x, y, barWidth + 2, 5, [0.025, 0.035, 0.055, 0.92]);
       if (healthRatio > 0) drawRect(shown.x - barWidth * (1 - healthRatio) * 0.5, y, barWidth * healthRatio, 3, [0.24, 0.91, 0.43, 1]);
       const mana = world.get(id, Mana);
-      if (mana && (!raisedBars || mana.maxMana > 0)) {
+      if (mana && (padding === 9 || mana.maxMana > 0)) {
         const manaRatio = Math.max(0, Math.min(1, mana.mana / Math.max(1, mana.maxMana)));
         drawRect(shown.x, y + 5, barWidth + 2, 4, [0.025, 0.035, 0.055, 0.92]);
         if (manaRatio > 0) drawRect(shown.x - barWidth * (1 - manaRatio) * 0.5, y + 5, barWidth * manaRatio, 2, [0.21, 0.58, 1, 1]);

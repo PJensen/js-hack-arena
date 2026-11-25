@@ -44,6 +44,9 @@ Open `/?chest=epic` for an offline Epic Chest preview. Enter the dungeon and
 walk up to the chest near the entrance to see its loot toss. Reload to try again,
 or add `&seed=73` to try another cave.
 
+Open `/?spawn=goblin&seed=42` for an isolated Goblin Raider preview. Enter the
+dungeon to see its 3D walk and blade swing in combat.
+
 To install Hack Arena as a standalone app, choose **Install Hack Arena** on the
 entry screen when offered. You can also use your browser's install menu.
 

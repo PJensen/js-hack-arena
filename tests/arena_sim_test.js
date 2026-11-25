@@ -1181,6 +1181,30 @@ Deno.test('arena sim: floating eye gaze needs sustained sight and replicates tim
   assertEquals([...sim.world.query(AI)].length, 0);
 });
 
+Deno.test('arena sim: replicated goblin melee identifies the attacking replica entity', () => {
+  const sim = makeOpenSim(921, { enemyCount: 0 });
+  sim.addPlayer('peer-a');
+  const goblin = spawnMelee(sim.world, { distanceMove: () => 100 }, 137, 100, null);
+  const replica = makeOpenSim(921, { mode: SIM_MODE.REPLICA });
+  for (let i = 0; i < 12; i++) replica.world.create();
+  const swings = [];
+  replica.world.on('melee.hit', (event) => {
+    if (event.sourceTheme === 'fire') swings.push(event.source);
+  });
+
+  replica.applySnapshot(sim.captureSnapshot());
+  assertEquals(swings, []);
+  const [replicaGoblin] = [...replica.world.query(Actor)]
+    .find(([, actor]) => actor.name === 'Goblin Raider');
+  assert(replicaGoblin !== goblin);
+
+  for (let i = 0; i < 5; i++) sim.step();
+  const snapshot = sim.captureSnapshot();
+  replica.applySnapshot(snapshot);
+  replica.applySnapshot(snapshot);
+  assertEquals(swings, [replicaGoblin]);
+});
+
 Deno.test("arena sim: a spider patrols, chases, poisons on contact, and stays dead", () => {
   const sim = makeOpenSim(921, { enemyCount: 0 });
   const player = sim.addPlayer('peer-a');
