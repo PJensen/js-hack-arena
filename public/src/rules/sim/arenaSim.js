@@ -20,6 +20,7 @@ import {
   MeleeWeapon,
   WeaponPickup,
   Mana,
+  Materials,
   PointLight,
   Powerups,
   PlayerTag,
@@ -35,6 +36,7 @@ import { epicChestTable, epicChestTotalWeight, mobDropTable, mobDropTotalWeight,
 import { AuraId } from '../data/auraCatalog.js';
 import { conditions as conditionCatalog } from '../data/conditionCatalog.js';
 import { createEncounterSelector } from '../data/encounterCatalog.js';
+import { getMiningMaterial, miningMaterialIds } from '../data/miningMaterials.js';
 import { effectSystem, projectConditions, projectAuraEmitter } from '../effects.js';
 import { createGridCarver } from '../geometry/carve.js';
 import { sweepMaxFree } from '../geometry/sweep.js';
@@ -68,6 +70,7 @@ import { deathSystem } from '../systems/deathSystem.js';
 import { lootTossSystem, tossLoot } from '../systems/lootTossSystem.js';
 import { createMovementSystem } from '../systems/movementSystem.js';
 import { installManaCombatDelay, manaSystem } from '../systems/manaSystem.js';
+import { createOreMining } from '../systems/oreMining.js';
 import { createPickupSystem } from '../systems/pickupSystem.js';
 import { powerupSystem } from '../systems/powerupSystem.js';
 import { createPlayerCombatSystem } from '../systems/playerCombatSystem.js';
@@ -123,6 +126,7 @@ export function createArenaSimulation({
   encounterSites,
   patrolRoutes = [],
   enemySpawnExclusionRadius = 0,
+  oreSites = [],
 } = {}) {
   if (!grid) throw new Error('arena simulation requires a collision grid');
   if (!Object.values(SIM_MODE).includes(mode)) throw new Error(`invalid arena simulation mode: ${mode}`);
@@ -140,9 +144,12 @@ export function createArenaSimulation({
   let lastAppliedEventSequence = -1;
   let populationStarted = false;
   const encounters = mode === SIM_MODE.AUTHORITY ? createEncounterSelector(seed) : null;
+  const mining = createOreMining({ seed, grid, sites: oreSites });
+  let remoteOre = [];
+  const getMineableOre = mode === SIM_MODE.AUTHORITY ? mining.available : () => remoteOre;
 
   if (mode === SIM_MODE.AUTHORITY) {
-    installAuthoritativeRules(world, grid);
+    installAuthoritativeRules(world, grid, mining.mine);
     installEventJournal(world, eventHistory, () => ({ tick, sequence: ++eventSequence }), projectEventPayload);
     installLootRules(world);
     for (const { x, y } of campfires) spawnAuraField(world, x, y, AuraId.CAMPFIRE);
@@ -219,6 +226,7 @@ export function createArenaSimulation({
     if (Number.isFinite(command.pickupX) && Number.isFinite(command.pickupY)) {
       input.pickupX = command.pickupX;
       input.pickupY = command.pickupY;
+      input.mine = command.mine === true;
     }
 
     if (Number.isInteger(command.spellSlot) && world.has(entityId, Spellbook)) {
@@ -259,6 +267,7 @@ export function createArenaSimulation({
       revision,
       entities,
       events: eventHistory.map(cloneEvent),
+      oreAvailable: getMineableOre().map(({ id }) => id),
     };
     pruneRetiredNetworkIds();
     return snapshot;
@@ -282,6 +291,7 @@ export function createArenaSimulation({
     tick = snapshot.tick;
     revision = snapshot.revision;
     lastAppliedRevision = snapshot.revision;
+    remoteOre = snapshot.oreAvailable.map((id) => mining.deposits[id]).filter(Boolean);
     for (const event of snapshot.events) {
       if (event.sequence <= lastAppliedEventSequence) continue;
       lastAppliedEventSequence = event.sequence;
@@ -371,6 +381,7 @@ export function createArenaSimulation({
         ring: ring.name ? { ...ring } : null,
         arrowCount: ammo.count,
         gold: world.get(entityId, Gold).count,
+        materials: { ...world.get(entityId, Materials).counts },
         conditions: projectConditions(world, entityId),
         auraEmitter: projectAuraEmitter(world, entityId),
       },
@@ -520,7 +531,7 @@ export function createArenaSimulation({
       if (state.weapon) world.add(entityId, WeaponPickup, state.weapon);
       if (state.ring) world.add(entityId, Ring, state.ring);
       if (state.pickupLock) world.add(entityId, PickupLock, { owner: null, remaining: state.pickupLock.remaining });
-      world.add(entityId, PointLight, replicaItemLight(state.effect, state.rarity));
+      if (!getMiningMaterial(state.effect)) world.add(entityId, PointLight, replicaItemLight(state.effect, state.rarity));
     } else if (record.kind === 'aura_field') {
       world.add(entityId, AuraEmitter, state.auraEmitter);
     }
@@ -592,6 +603,7 @@ export function createArenaSimulation({
       Object.assign(world.get(entityId, Ring), state.ring ?? Ring.defaults);
       world.get(entityId, ArrowAmmo).count = state.arrowCount;
       world.get(entityId, Gold).count = state.gold;
+      world.get(entityId, Materials).counts = state.materials;
       world.get(entityId, Conditions).active = state.conditions.map(replicaCondition);
     } else if (record.kind === 'item') {
       const toss = world.get(entityId, LootToss);
@@ -753,6 +765,7 @@ export function createArenaSimulation({
     applySnapshot,
     captureSnapshot,
     getMode: () => mode,
+    getMineableOre,
     getPlayerEntity,
     getPlayerSnapshot,
     getRevision: () => revision,
@@ -773,6 +786,8 @@ export function normalizeSnapshot(snapshot) {
   const revision = nonNegativeInteger(snapshot.revision, 'snapshot revision');
   if (!Array.isArray(snapshot.entities)) throw new Error('simulation snapshot entities must be an array');
   if (!Array.isArray(snapshot.events)) throw new Error('simulation snapshot events must be an array');
+  const oreAvailable = snapshot.oreAvailable ?? [];
+  if (!Array.isArray(oreAvailable)) throw new Error('simulation snapshot ore availability must be an array');
 
   const ids = new Set();
   const owners = new Set();
@@ -785,10 +800,13 @@ export function normalizeSnapshot(snapshot) {
     return record;
   });
   const events = snapshot.events.map(normalizeEvent);
-  return { version: SIM_SNAPSHOT_VERSION, tick, revision, entities, events };
+  return {
+    version: SIM_SNAPSHOT_VERSION, tick, revision, entities, events,
+    oreAvailable: [...new Set(oreAvailable.map((id) => nonNegativeInteger(id, 'ore deposit id')))],
+  };
 }
 
-function installAuthoritativeRules(world, grid) {
+function installAuthoritativeRules(world, grid, mine) {
   installManaCombatDelay(world);
   const systems = [
     effectSystem,
@@ -800,7 +818,7 @@ function installAuthoritativeRules(world, grid) {
     createPlayerCombatSystem({ grid }),
     createBumpSystem(),
     lootTossSystem,
-    createPickupSystem({ grid }),
+    createPickupSystem({ grid, mine }),
     createProjectileSystem({ grid, carve: createGridCarver(grid) }),
     deathSystem,
   ];
@@ -941,6 +959,10 @@ function normalizePlayerState(id, state) {
     ring: normalizeRingState(id, state.ring),
     arrowCount: nonNegativeInteger(state.arrowCount ?? 10, `${id}.arrowCount`),
     gold: nonNegativeInteger(state.gold ?? 0, `${id}.gold`),
+    materials: Object.fromEntries(miningMaterialIds.flatMap((type) =>
+      Object.hasOwn(state.materials ?? {}, type)
+        ? [[type, nonNegativeInteger(state.materials[type], `${id}.materials.${type}`)]]
+        : [])),
   };
 }
 

@@ -45,6 +45,14 @@
                           box-shadow:0 14px 34px rgba(0,0,0,.46),inset 0 0 22px rgba(80,180,230,.05);
                           font:12px/1.25 ui-monospace,SFMono-Regular,monospace; }
     .arena-item-tooltip[data-side="left"] { --tooltip-left:calc(var(--tooltip-anchor-x) - 14px - var(--tooltip-width)); }
+    .arena-item-tooltip[data-mining] { --tooltip-width:min(142px,40vw);
+                                      --tooltip-left:calc(var(--tooltip-anchor-x) + 49px); }
+    .arena-item-tooltip[data-mining][data-side="left"] {
+      --tooltip-left:calc(var(--tooltip-anchor-x) - 49px - var(--tooltip-width));
+    }
+    .arena-item-tooltip[data-mining] .arena-item-tooltip-rarity,
+    .arena-item-tooltip[data-mining] .arena-item-tooltip-rows { display:none; }
+    .arena-item-tooltip[data-mining] .arena-item-tooltip-action { margin-top:6px; }
     .arena-item-tooltip-header { display:flex; align-items:center; gap:9px; padding-bottom:8px;
                                  border-bottom:1px solid rgba(255,255,255,.1); }
     .arena-item-tooltip-icon { flex:none; }
@@ -120,6 +128,10 @@
     @keyframes resource-drain-flash { 0% { filter:brightness(1.5); } 100% { filter:brightness(1); } }
     @keyframes mana-surge { to { box-shadow:inset 0 2px 4px rgba(0,0,0,.5),0 0 16px rgba(75,175,255,.42); } }
     .hud-meta { max-width:min(240px,22vw); color:rgba(203,220,235,.48); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    #hud-materials { position:fixed; top:calc(max(10px, env(safe-area-inset-top)) + 50px);
+                     left:max(10px, env(safe-area-inset-left)); z-index:30;
+                     max-width:min(380px, 50vw); padding:6px 8px; background:rgba(5,10,18,.86);
+                     color:#f1dfaa; border:1px solid var(--edge); border-radius:6px; font:12px/1.4 system-ui,sans-serif; }
 
     /* ── Joysticks ── */
     .joystick { position:fixed; bottom:max(22px,env(safe-area-inset-bottom)); width:112px; height:112px; border-radius:50%;
@@ -202,6 +214,7 @@
       #hud { grid-auto-flow:row; grid-template-columns:repeat(3,minmax(0,1fr)); max-width:calc(100vw - 20px); gap:4px; padding:6px 7px; font-size:11px; }
       .brand { grid-row:1; letter-spacing:.06em; justify-self:start; }
       .hud-meta { grid-row:1; grid-column:2 / -1; max-width:none; text-align:right; }
+      #hud-materials { top:calc(max(10px, env(safe-area-inset-top)) + 62px); }
       #reset-dungeon { position:fixed; top:calc(max(10px, env(safe-area-inset-top)) + 62px); right:max(10px, env(safe-area-inset-right)); }
       .joystick { width:104px; height:104px; }
       #spell-bar { bottom:calc(max(22px,env(safe-area-inset-bottom)) + 117px); gap:4px; }
@@ -234,6 +247,7 @@
     <span class="hud-meta" id="hud-meta">connecting</span>
     <button id="reset-dungeon" type="button" title="Leave this room and generate a fresh dungeon">New Dungeon</button>
   </div>
+  <output id="hud-materials" aria-label="Collected materials" hidden></output>
   <span id="hud-hp" hidden></span><span id="hud-mana" hidden></span><span id="hud-weapon" hidden></span>
   <div id="zoom-readout" style="position:fixed;left:50%;transform:translateX(-50%);
     font:13px ui-monospace,monospace;color:rgba(255,255,255,0.5);z-index:40;
@@ -467,7 +481,7 @@ const tracksOfflineProgress = !isNetworked && !isPreview && !itemPreview;
 // ── Seed + cave ─────────────────────────────────────────────────
 const SEED = netWelcome?.seed ?? (chestPreview && !pageParams.get('seed') ? 7 : resolveSeed().seed);
 const caveData = generateArenaCave(SEED);
-const { grid, bounds, spawns, routes, campfires, oreSites } = caveData;
+const { grid, bounds, spawns, routes, campfires } = caveData;
 const spawn = spawns[0];
 const previewChestSite = chestPreview ? findReachableNear(grid, spawn, [72, 56, 40]) : null;
 const decorations = createDungeonDecorations({ grid, routes, spawns, campfires, seed: SEED });
@@ -518,7 +532,7 @@ const sim = createArenaDungeonSimulation({
   preview: isPreview,
 });
 let renderer = null;
-let pendingWeaponPickup = null;
+let pendingInteraction = null;
 let pendingSpellSlot = null;
 let pendingSpellCycle = 0;
 sim.world.on('terrain.carved', (event) => {
@@ -539,7 +553,7 @@ if (isNetworked) {
     onCompose(open) {
       inputRouter.setSuspended(open);
       if (open) {
-        pendingWeaponPickup = null;
+        pendingInteraction = null;
         pendingSpellSlot = null;
         pendingSpellCycle = 0;
       }
@@ -642,7 +656,7 @@ const arenaAudio = createArenaAudio({
 // ── Renderer ────────────────────────────────────────────────────
 const itemTooltip = createItemTooltip({
   root: document.getElementById('arena-ui'),
-  onActivate(target) { if (!dungeonChat?.isComposing()) pendingWeaponPickup = target; },
+  onActivate(target) { if (!dungeonChat?.isComposing()) pendingInteraction = target; },
 });
 const healthBar = createResourceBar(document.getElementById('hud-hp-bar'), { key: 'health', label: '♥', color: '#ff4164' });
 const manaBar = createResourceBar(document.getElementById('hud-mana-bar'), { key: 'mana', label: '◆', color: '#55aaff', boostedClass: 'mana-boosted' });
@@ -660,7 +674,8 @@ function syncHudResources() {
 }
 syncHudResources();
 renderer = createWebGLArenaRenderer({
-  canvas, overlayCanvas, cam, grid, bounds, decorations, oreSites, fx, world, SEED, runtimeEvents,
+  canvas, overlayCanvas, cam, grid, bounds, decorations, fx, world, SEED, runtimeEvents,
+  getMineableOre: sim.getMineableOre,
   net: isNetworked ? netClient : null, playerId,
   presentation,
   speechBubbles: () => dungeonChat?.getBubbles(),
@@ -673,6 +688,7 @@ renderer = createWebGLArenaRenderer({
     weapon:      document.getElementById('hud-weapon'),
     mana:        document.getElementById('hud-mana'),
     meta:        document.getElementById('hud-meta'),
+    materials:   document.getElementById('hud-materials'),
     readL:       document.getElementById('readout-left'),
     readR:       document.getElementById('readout-right'),
     zoomReadout: document.getElementById('zoom-readout'),
@@ -710,10 +726,11 @@ const loop = createFixedTickLoop({
       localPrediction.step(o, dt);
     } else {
       const command = samplePlayerCommand(o, ++netTick);
-      if (pendingWeaponPickup) {
-        command.pickupX = pendingWeaponPickup.x;
-        command.pickupY = pendingWeaponPickup.y;
-        pendingWeaponPickup = null;
+      if (pendingInteraction) {
+        command.pickupX = pendingInteraction.x;
+        command.pickupY = pendingInteraction.y;
+        command.mine = pendingInteraction.mine;
+        pendingInteraction = null;
       }
       sim.setPlayerInput('local', command);
       inputRouter.consumeFirePress();
@@ -732,9 +749,9 @@ const loop = createFixedTickLoop({
     const networkInput = isNetworked
       ? { ...o, spellSlot: pendingSpellSlot, spellCycle: pendingSpellSlot == null ? Math.sign(pendingSpellCycle) : 0 }
       : o;
-    if (isNetworked && netClient.update(++netTick, networkInput, pendingWeaponPickup)) {
+    if (isNetworked && netClient.update(++netTick, networkInput, pendingInteraction)) {
       inputRouter.consumeFirePress();
-      pendingWeaponPickup = null;
+      pendingInteraction = null;
       pendingSpellSlot = null;
       pendingSpellCycle = 0;
     }

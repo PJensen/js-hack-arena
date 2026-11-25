@@ -2,14 +2,15 @@
 // intent from their comparison card. Replaced equipment is dropped nearby.
 import {
   ArrowAmmo, BowWeapon, Collider, Conditions, Consumable, Facing, Gold, GroundItem, Health,
-  Input, ItemInfo, ItemSlot, LootToss, Mana, MeleeWeapon, PickupLock, Position, Powerups,
+  Input, ItemInfo, ItemSlot, LootToss, Mana, Materials, MeleeWeapon, PickupLock, Position, Powerups,
   Ring, Spellbook, SpellId, WeaponPickup,
 } from '../components/index.js';
 import { ConditionId } from '../data/conditionCatalog.js';
+import { getMiningMaterial } from '../data/miningMaterials.js';
 import { applyCondition, applyHealing } from '../effects.js';
 import { findOpenNear, spawnRing, spawnWeaponPickup } from '../spawner.js';
 
-export function createPickupSystem({ grid = null } = {}) {
+export function createPickupSystem({ grid = null, mine } = {}) {
   return function pickupSystem(world, dt) {
     const players = [];
     for (const [id, pos, col, hp, input] of world.query(Position, Collider, Health, Input)) {
@@ -29,6 +30,11 @@ export function createPickupSystem({ grid = null } = {}) {
       if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) continue;
       player.input.pickupX = null;
       player.input.pickupY = null;
+      if (player.input.mine) {
+        player.input.mine = false;
+        mine?.(world, player, targetX, targetY);
+        continue;
+      }
 
       let selected = null;
       let selectedDistance = Infinity;
@@ -165,6 +171,14 @@ function getDropPosition(world, player, itemPosition, grid) {
 
 function consumeItem(world, player, itemId, position, info, consumable) {
   const { hp, id } = player;
+  const material = getMiningMaterial(consumable.effect);
+  const stock = material && world.get(id, Materials);
+  if (stock) {
+    const type = consumable.effect;
+    stock.counts[type] = (stock.counts[type] ?? 0) + info.count;
+    world.emit('item.pickup', { entity: id, item: info.name, x: player.pos.x, y: player.pos.y });
+    return true;
+  }
   if (consumable.effect === 'heal_over_time') {
     if (hp.hp >= hp.maxHp) return false;
     if (world.get(id, Conditions)?.active.some((condition) => condition.id === ConditionId.HEALTH_POTION)) return false;

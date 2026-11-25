@@ -3,20 +3,21 @@ import { sweepMaxFree } from '../geometry/sweep.js';
 
 const TOSS_SECONDS = 0.55;
 const TOSS_DISTANCE = 76;
-const TOSS_HEIGHT = 30;
 const TOSS_ANGLES = [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, Math.PI];
 
-export function tossLoot(world, itemId, grid, openerId) {
+export function tossLoot(world, itemId, grid, openerId, {
+  heading, distance = TOSS_DISTANCE, peak = LootToss.defaults.peak, rebound = false,
+} = {}) {
   const origin = world.get(itemId, Position);
   const opener = world.get(openerId, Position) ?? origin;
-  const heading = Math.atan2(origin.y - opener.y, origin.x - opener.x);
+  const direction = heading ?? Math.atan2(origin.y - opener.y, origin.x - opener.x);
   const clearance = Math.max(14, world.get(itemId, Collider).radius);
   let landingX = origin.x;
   let landingY = origin.y;
   let best = 0;
   for (const offset of TOSS_ANGLES) {
-    const dx = Math.cos(heading + offset) * TOSS_DISTANCE;
-    const dy = Math.sin(heading + offset) * TOSS_DISTANCE;
+    const dx = Math.cos(direction + offset) * distance;
+    const dy = Math.sin(direction + offset) * distance;
     const fraction = sweepMaxFree(grid, origin.x, origin.y, origin.x + dx, origin.y + dy, clearance);
     if (fraction <= best) continue;
     landingX = origin.x + dx * fraction;
@@ -24,7 +25,7 @@ export function tossLoot(world, itemId, grid, openerId) {
     best = fraction;
     if (best === 1) break;
   }
-  world.add(itemId, LootToss, { landingX, landingY, remaining: TOSS_SECONDS });
+  world.add(itemId, LootToss, { landingX, landingY, remaining: TOSS_SECONDS, peak, rebound });
 }
 
 export function lootTossSystem(world, dt) {
@@ -40,6 +41,11 @@ export function lootTossSystem(world, dt) {
     position.y += (toss.landingY - position.y) * fraction;
     toss.remaining -= dt;
     const progress = 1 - toss.remaining / TOSS_SECONDS;
-    toss.height = 4 * TOSS_HEIGHT * progress * (1 - progress);
+    const firstLanding = 0.72;
+    const bouncing = toss.rebound && progress >= firstLanding;
+    const arc = !toss.rebound ? progress : bouncing
+      ? (progress - firstLanding) / (1 - firstLanding) : progress / firstLanding;
+    const peak = bouncing ? toss.peak * 0.18 : toss.peak;
+    toss.height = 4 * peak * arc * (1 - arc);
   }
 }

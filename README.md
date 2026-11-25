@@ -73,6 +73,10 @@ routes such as `/api/*` and `/ws/*`, then falls back to static asset serving.
 Copper, tin, and gold deposits form along chamber walls. Some are buried in
 solid rock and become visible when the terrain is carved away. The dungeon
 seed determines their positions.
+Walk up to an exposed deposit and click or tap **Mine**, or press **,**. A vein
+breaks once, tossing three ore chunks and sometimes a gemstone onto the floor.
+Walk over the drops after they settle to collect them. The HUD shows materials
+collected during the current dungeon run.
 
 Open `/?chest=epic` for an offline Epic Chest preview. Enter the dungeon and
 walk up to the chest near the entrance to see its loot toss. Reload to try again,

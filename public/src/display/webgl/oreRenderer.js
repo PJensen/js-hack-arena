@@ -1,17 +1,17 @@
-import { isOreExposed } from '../../rules/geometry/oreSites.js';
+import { getMiningMaterial, oreMaterialId } from '../../rules/data/miningMaterials.js';
 import { uniform } from './device.js';
 import { createOreMesh } from './oreMesh.js';
 import { uploadPropMesh } from './propMeshBuilder.js';
 import { createOreFragment } from './shaders/ore.frag.js';
 import { ORE_VERTEX } from './shaders/ore.vert.js';
 
-const oreMaterials = {
-  copper: { albedo: [0.77, 0.30, 0.16], reflection: [1.0, 0.65, 0.37], roughness: 0.65 },
-  tin: { albedo: [0.52, 0.63, 0.73], reflection: [0.78, 0.92, 1.0], roughness: 0.45 },
-  gold: { albedo: [0.89, 0.64, 0.16], reflection: [1.0, 0.88, 0.51], roughness: 0.26 },
+const oreFinishes = {
+  copper: { reflection: [1.0, 0.65, 0.37], roughness: 0.65 },
+  tin: { reflection: [0.78, 0.92, 1.0], roughness: 0.45 },
+  gold: { reflection: [1.0, 0.88, 0.51], roughness: 0.26 },
 };
 
-export function createOreRenderer(device, grid, sites) {
+export function createOreRenderer(device) {
   const { gl } = device;
   const { vertices, glintCenters } = createOreMesh();
   const program = device.program(ORE_VERTEX, createOreFragment(glintCenters.length / 3));
@@ -28,8 +28,8 @@ export function createOreRenderer(device, grid, sites) {
   };
   const mesh = uploadPropMesh(device, vertices);
 
-  return function drawOre(view, inView, time) {
-    const visible = sites.filter((site) => inView(site.x, site.y, 40) && isOreExposed(grid, site));
+  return function drawOre(view, inView, sites, time) {
+    const visible = sites.filter((site) => inView(site.x, site.y, 40));
     if (!visible.length) return;
     gl.useProgram(shader.program);
     gl.bindVertexArray(mesh.vao);
@@ -38,10 +38,11 @@ export function createOreRenderer(device, grid, sites) {
     gl.clear(gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
     for (const { x, y, normalX, normalY, kind } of visible) {
-      const { albedo, reflection, roughness } = oreMaterials[kind];
+      const { color } = getMiningMaterial(oreMaterialId(kind));
+      const { reflection, roughness } = oreFinishes[kind];
       gl.uniform2f(shader.position, x, y);
       gl.uniform2f(shader.wallNormal, normalX, normalY);
-      gl.uniform3fv(shader.albedo, albedo);
+      gl.uniform3fv(shader.albedo, color);
       gl.uniform3fv(shader.reflection, reflection);
       gl.uniform1f(shader.roughness, roughness);
       gl.uniform1f(shader.glintTime, time === null ? -1 : time + x * 0.013 + y * 0.017);

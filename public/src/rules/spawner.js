@@ -6,7 +6,9 @@ import { Position, Velocity, Facing, Collider, Speed, Input, Actor, ActorKind, H
 import { auras as auraCatalog } from './data/auraCatalog.js';
 import { ConditionId, HEALTH_POTION_AMOUNT } from './data/conditionCatalog.js';
 import { Gold } from './components/Gold.js';
+import { Materials } from './components/Materials.js';
 import { Ring } from './components/Ring.js';
+import { getMiningMaterial, miningMaterialIds } from './data/miningMaterials.js';
 
 export const GOLD_LIGHT = Object.freeze({ radius: 36, r: 255, g: 190, b: 45 });
 export const SPIDER_LIGHT = Object.freeze({ radius: 56, r: 148, g: 98, b: 70 });
@@ -105,6 +107,7 @@ export function spawnPlayer(world, x, y, name = 'Player') {
   world.add(id, Ring);
   world.add(id, ArrowAmmo, { count: 10 });
   world.add(id, Gold);
+  world.add(id, Materials, { counts: {} });
   world.add(id, Spellbook, {
     spells: [SpellId.FROST_BOLT, SpellId.LIGHTNING, SpellId.CLEAVE, SpellId.REND],
     activeIndex: 0,
@@ -483,6 +486,17 @@ export function spawnLegendaryBow(world, x, y) {
   });
 }
 
+function spawnMiningMaterial(world, x, y, type) {
+  const { name, shape, rarity } = getMiningMaterial(type);
+  const id = world.create();
+  world.add(id, Position, { x, y });
+  world.add(id, ItemInfo, { name, glyph: shape === 'gem' ? '♦' : '●', rarity });
+  world.add(id, Consumable, { effect: type, potency: 1 });
+  world.add(id, GroundItem);
+  world.add(id, Collider, { radius: 8 });
+  return id;
+}
+
 // Stable IDs shared by loot tables and offline item grants.
 const itemSpawners = new Map([
   ['health_potion', spawnPotion],
@@ -505,6 +519,7 @@ const itemSpawners = new Map([
   ...Object.keys(spellbooks).map((spellId) => [
     `spellbook:${spellId}`, (world, x, y) => spawnSpellbook(world, x, y, spellId),
   ]),
+  ...miningMaterialIds.map((type) => [type, (world, x, y) => spawnMiningMaterial(world, x, y, type)]),
 ]);
 
 export const itemIds = Object.freeze([...itemSpawners.keys()].sort());

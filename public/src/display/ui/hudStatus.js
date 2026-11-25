@@ -1,5 +1,6 @@
 import { createAtlasIcon } from './atlasIcon.js';
 import { conditions as conditionCatalog } from '../../rules/data/conditionCatalog.js';
+import { getMiningMaterial } from '../../rules/data/miningMaterials.js';
 
 const POWERUP_ICONS = [
   ['manaRegenSeconds', 'mana_surge', 'SURGE'],
@@ -8,10 +9,20 @@ const POWERUP_ICONS = [
   ['wardSeconds', 'ward_rune', 'WARD'],
 ];
 
-export function createHudStatus(root) {
+export function createHudStatus(root, materialReadout) {
   let shown = '';
+  let shownMaterials = '';
 
-  return function sync({ dead, gold, powerups, conditions, casts, connection }) {
+  return function sync({ dead, gold, materials, powerups, conditions, casts, connection }) {
+    if (materialReadout) {
+      const text = Object.entries(materials ?? {}).map(([id, count]) =>
+        `${getMiningMaterial(id).name} ×${count}`).join(' · ');
+      if (text !== shownMaterials) {
+        materialReadout.textContent = text;
+        materialReadout.hidden = !text;
+        shownMaterials = text;
+      }
+    }
     if (dead) {
       const message = 'YOU DIED · refresh to re-enter';
       if (shown !== message) root.textContent = message;

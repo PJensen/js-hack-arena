@@ -1,0 +1,44 @@
+import { gemstoneIds, oreMaterialId } from '../data/miningMaterials.js';
+import { mulberry32 } from '../geometry/caveGen.js';
+import { canMineOre, isOreExposed } from '../geometry/oreSites.js';
+import { sweepMaxFree } from '../geometry/sweep.js';
+import { spawnItem } from '../spawner.js';
+import { tossLoot } from './lootTossSystem.js';
+
+const TARGET_RADIUS = 24;
+const GEMSTONE_CHANCE = 0.20;
+const ROCK_SPREAD = [-0.78, 0.57, 1.10];
+
+export function createOreMining({ seed, grid, sites }) {
+  const deposits = sites.map((site, id) => ({ ...site, id }));
+  const mined = new Set();
+  const available = () => deposits.filter((site) => !mined.has(site.id) && isOreExposed(grid, site));
+
+  function mine(world, { id: playerId, pos }, x, y) {
+    const site = available().find((deposit) =>
+      Math.hypot(deposit.x - x, deposit.y - y) <= TARGET_RADIUS && canMineOre(grid, pos, deposit));
+    if (!site) return;
+    mined.add(site.id);
+
+    // Keep the drops on the miner's side even when an excavated opening is too narrow to enter.
+    const reach = sweepMaxFree(grid, pos.x, pos.y, site.x, site.y, 14);
+    const originX = pos.x + (site.x - pos.x) * reach;
+    const originY = pos.y + (site.y - pos.y) * reach;
+    const heading = Math.atan2(pos.y - site.y, pos.x - site.x);
+    const random = mulberry32(seed ^ Math.imul(site.id + 1, 0x5e91db));
+
+    function drop(type, spread, distance, peak) {
+      const item = spawnItem(world, originX, originY, { type });
+      tossLoot(world, item, grid, playerId, { heading: heading + spread, distance, peak, rebound: true });
+    }
+
+    const ore = oreMaterialId(site.kind);
+    for (const spread of ROCK_SPREAD) drop(ore, spread, 46 + random() * 24, 16 + random() * 8);
+    if (random() < GEMSTONE_CHANCE) {
+      const gemstone = gemstoneIds[Math.floor(random() * gemstoneIds.length)];
+      drop(gemstone, -1.2, 78, 28);
+    }
+  }
+
+  return { deposits, available, mine };
+}

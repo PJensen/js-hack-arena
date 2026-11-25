@@ -133,7 +133,9 @@ export function createItemTooltip({ root, onActivate } = {}) {
     }
     tip._target = model.target || null;
 
-    const edge = model.anchorX > window.innerWidth * 0.62 ? 'left' : 'right';
+    const mining = model.target?.mine === true;
+    tip.toggleAttribute('data-mining', mining);
+    const edge = model.anchorX > window.innerWidth * (mining ? 0.5 : 0.62) ? 'left' : 'right';
     tip.dataset.side = edge;
     tip.style.setProperty('--tooltip-anchor-x', `${Math.round(model.anchorX)}px`);
     tip.style.top = `${Math.round(model.anchorY)}px`;

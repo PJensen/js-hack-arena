@@ -4,6 +4,7 @@ import { sweepMaxFree } from './sweep.js';
 const WALL_CLEARANCE = 18;
 const DEPOSIT_SPACING = 200;
 const ORE_DISTRIBUTION = ['copper', 'tin', 'copper', 'tin', 'gold'];
+const MINING_RANGE = 92;
 
 function isOreWall(grid, { x, y, normalX, normalY }) {
   const step = grid.cellSize;
@@ -13,6 +14,11 @@ function isOreWall(grid, { x, y, normalX, normalY }) {
 
 export function isOreExposed(grid, site) {
   return site.buried ? grid.distanceMove(site.x, site.y) > WALL_CLEARANCE : isOreWall(grid, site);
+}
+
+export function canMineOre(grid, { x, y }, site) {
+  return Math.hypot(site.x - x, site.y - y) <= MINING_RANGE &&
+    sweepMaxFree(grid, x, y, site.x, site.y, 3) === 1;
 }
 
 function findWall(grid, chamber, field, heading) {

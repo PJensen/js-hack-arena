@@ -1,6 +1,6 @@
 import {
   Actor, ActorKind, BowWeapon, Conditions, AuraEmitter, Collider,
-  Consumable, Facing, Gold, GroundItem, Health, Input, ItemInfo, ItemSlot, Lifetime, LootToss, Mana, MeleeWeapon,
+  Consumable, Facing, Gold, GroundItem, Health, Input, ItemInfo, ItemSlot, Lifetime, LootToss, Mana, Materials, MeleeWeapon,
   PickupLock, PlayerTag, PointLight, Position, Powerups, Projectile, Ring, Spellbook,
   Velocity, WeaponPickup,
 } from '../../rules/components/index.js';
@@ -10,6 +10,8 @@ import { AuraId } from '../../rules/data/auraCatalog.js';
 import { ConditionId, conditions as conditionCatalog } from '../../rules/data/conditionCatalog.js';
 import { spells as spellCatalog, TargetingType } from '../../rules/data/spellCatalog.js';
 import { rarityTextColors } from '../../rules/data/lootTable.js';
+import { getMiningMaterial, oreMaterialId } from '../../rules/data/miningMaterials.js';
+import { canMineOre } from '../../rules/geometry/oreSites.js';
 import { createMeleeImpact } from '../passes/meleeImpact.js';
 import { createFloatTextPass } from '../passes/floatText.js';
 import { createGorePass } from '../passes/gore.js';
@@ -175,8 +177,8 @@ function uploadCubeMesh(device, vertices) {
 }
 
 export function createWebGLArenaRenderer(deps) {
-  const { canvas, overlayCanvas, cam, grid, bounds, decorations, oreSites = [], world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars, stepParticles, speechBubbles } = deps;
-  const syncHudStatus = createHudStatus(hud.meta);
+  const { canvas, overlayCanvas, cam, grid, bounds, decorations, getMineableOre = () => [], world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars, stepParticles, speechBubbles } = deps;
+  const syncHudStatus = createHudStatus(hud.meta, hud.materials);
   const device = createWebGLDevice(canvas);
   const { gl } = device;
   const overlay = overlayCanvas?.getContext('2d') || null;
@@ -237,7 +239,7 @@ export function createWebGLArenaRenderer(deps) {
   cube.time = uniform(gl, cube.program, 'u_time');
   cube.alpha = uniform(gl, cube.program, 'u_alpha');
   const cubeMesh = uploadCubeMesh(device, createCubeMesh());
-  const drawOre = createOreRenderer(device, grid, oreSites);
+  const drawOre = createOreRenderer(device);
   const lootProgram = device.program(LOOT_VERTEX, LOOT_FRAGMENT);
   const loot = {
     view: uniform(gl, lootProgram, 'u_view'),
@@ -672,17 +674,22 @@ export function createWebGLArenaRenderer(deps) {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  function drawLootModel(model, id, shown, info, effect, airborne, now) {
-    const angle = now * 0.85 + id * 1.7;
-    const bob = Math.sin(now * 2.8 + id) * 1.5;
+  function drawLootModel({ model, id, shown, info, effect, airborne, material }, now) {
+    const still = material && (!airborne || motionPreference.matches);
+    const angle = (still ? 0 : now * (material ? 9 : 0.85)) + id * 1.7;
+    const bob = material ? 0 : Math.sin(now * 2.8 + id) * 1.5;
     const potion = model === 'potion';
     const mesh = lootMeshes[model];
     gl.bindVertexArray(mesh.vao);
     gl.uniform2f(loot.position, shown.x, shown.y + 5 + (model === 'chest' ? 0 : bob));
     gl.uniform1f(loot.angle, model === 'chest' ? -0.52 : angle);
     const lean = model === 'sword' ? -0.48 : 0;
-    gl.uniform1f(loot.lean, lean + (airborne ? Math.sin(now * 13 + id) * 0.5 : 0));
-    if (potion) {
+    gl.uniform1f(loot.lean, lean + (airborne && !still ? Math.sin(now * 13 + id) * 0.5 : 0));
+    if (material) {
+      gl.uniform3fv(loot.body, model === 'rock' ? [0.45, 0.39, 0.34] : material.color);
+      gl.uniform3fv(loot.trim, material.color);
+      gl.uniform3f(loot.detail, 0.30, 0.25, 0.21);
+    } else if (potion) {
       const blue = effect === 'mana';
       gl.uniform3f(loot.body, blue ? 0.2 : 0.95, blue ? 0.58 : 0.12, blue ? 1 : 0.34);
       if (effect === 'heal') gl.uniform3f(loot.trim, 1, 0.7, 0.26);
@@ -1298,7 +1305,7 @@ export function createWebGLArenaRenderer(deps) {
     overlay.restore();
   }
 
-  function drawOverlay(width, height, ratio, shownPlayer, campfires) {
+  function drawOverlay(width, height, ratio, shownPlayer, campfires, oreSites) {
     if (!overlay || !overlayCanvas) return;
     if (overlayCanvas.width !== width || overlayCanvas.height !== height) {
       overlayCanvas.width = width; overlayCanvas.height = height;
@@ -1354,10 +1361,14 @@ export function createWebGLArenaRenderer(deps) {
     }
     overlay.textAlign = 'left'; overlay.textBaseline = 'bottom'; overlay.font = `800 ${Math.round(9 * ratio)}px ui-monospace,monospace`;
     overlay.fillStyle = 'rgba(210,240,255,.68)'; overlay.fillText('THE DEEP', left + 7 * ratio, top - 4 * ratio);
-    updateNearbyGearTooltip(width, height, shownPlayer);
+    updateNearbyItemTooltip(width, height, shownPlayer, oreSites);
   }
 
-  function updateNearbyGearTooltip(width, height, shownPlayer) {
+  function updateNearbyItemTooltip(width, height, shownPlayer, oreSites) {
+    if (world.get(playerId, Health)?.dead) {
+      itemTooltip?.hide();
+      return;
+    }
     const previewRadius = 132;
     let candidate = null;
     for (const [id, position, _ground, info] of world.query(Position, GroundItem, ItemInfo)) {
@@ -1371,6 +1382,13 @@ export function createWebGLArenaRenderer(deps) {
       if (distance > previewRadius || !inView(position.x, position.y, 20)) continue;
       if (!candidate || distance < candidate.distance) candidate = { position, info, pickup, ring, distance };
     }
+    for (const site of oreSites) {
+      if (!inView(site.x, site.y, 20) || !canMineOre(grid, shownPlayer, site)) continue;
+      const distance = Math.hypot(site.x - shownPlayer.x, site.y - shownPlayer.y);
+      if (candidate && distance >= candidate.distance) continue;
+      const info = getMiningMaterial(oreMaterialId(site.kind));
+      candidate = { position: site, info, distance, mine: true };
+    }
     if (!candidate) {
       itemTooltip?.hide();
       return;
@@ -1378,7 +1396,7 @@ export function createWebGLArenaRenderer(deps) {
 
     const currentMelee = world.get(playerId, MeleeWeapon);
     const currentBow = world.get(playerId, BowWeapon);
-    const rows = candidate.ring
+    const rows = candidate.mine ? [] : candidate.ring
       ? [{
         kind: 'equip', label: 'Equip: ', value: `${Math.round(candidate.ring.haste * 100)}% haste`,
         change: compareDirection(candidate.ring.haste, world.get(playerId, Ring)?.haste ?? 0),
@@ -1406,7 +1424,8 @@ export function createWebGLArenaRenderer(deps) {
     itemTooltip?.update({
       info: { ...candidate.info, slot: candidate.pickup?.slot || candidate.info.slot },
       rows,
-      target: { x: candidate.position.x, y: candidate.position.y },
+      target: { x: candidate.position.x, y: candidate.position.y, mine: candidate.mine },
+      actionLabel: candidate.mine ? 'MINE' : undefined,
       anchorX: rect.left + sx * rect.width / width,
       anchorY: rect.top + sy * rect.height / height,
     });
@@ -1469,7 +1488,8 @@ export function createWebGLArenaRenderer(deps) {
         batFlamePuffs.push({ x, y, emitter, flicker });
       }
     }
-    drawOre(view, inView, motionPreference.matches ? null : now);
+    const oreSites = getMineableOre();
+    drawOre(view, inView, oreSites, motionPreference.matches ? null : now);
     drawDungeonDecorations(now, renderDt, campfires);
 
     goreRenderer.drawFloor(gore, view, inView);
@@ -1692,7 +1712,8 @@ export function createWebGLArenaRenderer(deps) {
       const shown = height > 0 ? { x: ground.x, y: ground.y - height } : ground;
       const weapon = world.get(id, WeaponPickup);
       const effect = consumable?.effect;
-      const shaft = lootShaftHeight(info, effect);
+      const material = getMiningMaterial(effect);
+      const shaft = material?.shape === 'rock' ? 0 : lootShaftHeight(info, effect);
       if (!inView(shown.x, shown.y, Math.max(32, shaft + 16))) continue;
       if (airborne) {
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -1707,16 +1728,16 @@ export function createWebGLArenaRenderer(deps) {
       const healthPotion = effect === 'heal' || effect === 'heal_over_time';
       const potion = healthPotion || effect === 'mana';
       const book = effect === 'add_spell';
-      const model = weapon ? (weapon.slot === 'ranged' ? 'bow' : 'sword')
-        : effect === 'epic_chest' ? 'chest' : potion ? 'potion' : null;
-      if (model) models.push({ model, id, shown, info, effect, airborne });
+      const model = material?.shape ?? (weapon ? (weapon.slot === 'ranged' ? 'bow' : 'sword')
+        : effect === 'epic_chest' ? 'chest' : potion ? 'potion' : null);
+      if (model) models.push({ model, id, shown, info, effect, airborne, material });
       if (book) books.push({ id, shown, airborne });
       const pulse = 0.5 + 0.5 * Math.sin(now * 2.4 + id * 0.73);
       if (shaft > 0 && !airborne) {
-        const glow = lootGlowColor(info, effect);
+        const glow = material?.color ?? lootGlowColor(info, effect);
         drawLootShaft(shown.x, shown.y + 5, shaft, glow, (motionPreference.matches ? 0 : now) + id * 0.29);
       }
-      if (consumable && effect !== 'epic_chest' && !book) {
+      if (consumable && effect !== 'epic_chest' && !book && !material) {
         const potionTheme = consumable.effect === 'mana' ? 'electric' : 'fire';
         const swirl = healthPotion ? 0 : 1;
         drawPotionGlow(potionTheme, shown.x, shown.y, 16 + pulse * 2, now + id * 0.13, 0.9, swirl);
@@ -1734,9 +1755,7 @@ export function createWebGLArenaRenderer(deps) {
       if (models.length) {
         gl.useProgram(lootProgram);
         gl.uniform4fv(loot.view, view);
-        for (const { model, id, shown, info, effect, airborne } of models) {
-          drawLootModel(model, id, shown, info, effect, airborne, now);
-        }
+        for (const model of models) drawLootModel(model, now);
       }
       if (books.length) {
         const mesh = lootMeshes.book;
@@ -1885,6 +1904,7 @@ export function createWebGLArenaRenderer(deps) {
     syncHudStatus({
       dead: hp?.dead,
       gold: world.get(playerId, Gold)?.count ?? 0,
+      materials: world.get(playerId, Materials)?.counts,
       powerups: activePowerups,
       conditions: world.get(playerId, Conditions),
       casts: runtimeEvents.casts,
@@ -1894,7 +1914,7 @@ export function createWebGLArenaRenderer(deps) {
     hud.zoomReadout.textContent = `zoom: ${cam.scale.toFixed(2)}x  particles:${fx.pool.count}`;
     hud.readL.textContent = router.left.active ? `L x:${playerInput.moveX.toFixed(2)} y:${playerInput.moveY.toFixed(2)}` : (Math.abs(keyboard.mx) + Math.abs(keyboard.my) ? `KB ${keyboard.mx},${keyboard.my}` : 'L stick idle');
     hud.readR.textContent = router.right.active ? `R x:${playerInput.aimX.toFixed(2)} y:${playerInput.aimY.toFixed(2)}` : 'R stick idle';
-    drawOverlay(width, height, ratio, shownPlayer, campfires);
+    drawOverlay(width, height, ratio, shownPlayer, campfires, oreSites);
   }
 
   return Object.freeze({

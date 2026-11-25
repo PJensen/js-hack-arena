@@ -122,6 +122,7 @@ export function createNetClient({
         spellCycle: sampledInput?.spellCycle,
         pickupX: pickupIntent?.x,
         pickupY: pickupIntent?.y,
+        mine: pickupIntent?.mine,
       }),
     });
     return true;

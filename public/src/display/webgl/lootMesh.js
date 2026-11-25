@@ -53,5 +53,16 @@ export function createLootMeshes() {
   for (const z of [-9, 9]) box(-10.8, 3.7, z, 3.3, 7.8, 2.1, 2);
   const book = finish();
 
-  return { chest, potion, sword, bow, book };
+  const fragment = [[-6, -1], [-3, -5], [3, -4], [6, 0], [2, 5], [-4, 3]];
+  loft([[0, 0.8, 0], [3, 1, 0], [7, 0.6, -1]].map(([y, scale, shift]) =>
+    fragment.map(([x, z]) => [x * scale + shift, y, z * scale])), 0);
+  box(-1.4, 6.3, -0.6, 4.6, 2.5, 3.1, 1, -0.16);
+  const rock = finish();
+
+  const facets = [[-1, 0], [-0.5, -0.9], [0.5, -0.9], [1, 0], [0.5, 0.9], [-0.5, 0.9]];
+  loft([[0, 0.7], [5, 4.5], [9.5, 3.1], [11, 1.6]].map(([y, radius]) =>
+    facets.map(([x, z]) => [x * radius, y, z * radius])), 0);
+  const gem = finish();
+
+  return { chest, potion, sword, bow, book, rock, gem };
 }

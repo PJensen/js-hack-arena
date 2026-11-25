@@ -94,6 +94,7 @@ export function makeInputFrame({
   spellCycle = 0,
   pickupX = null,
   pickupY = null,
+  mine = false,
 } = {}) {
   const frame = {
     seq: Number.isFinite(seq) ? seq : 0,
@@ -110,6 +111,7 @@ export function makeInputFrame({
   if (Number.isFinite(pickupX) && Number.isFinite(pickupY)) {
     frame.pickupX = pickupX;
     frame.pickupY = pickupY;
+    if (mine === true) frame.mine = true;
   }
   return frame;
 }

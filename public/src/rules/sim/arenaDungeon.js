@@ -10,5 +10,6 @@ export function createArenaDungeonSimulation({ seed, cave, mode, preview = false
     mode,
     enemyGroupSize: 3,
     encounterSites: preview ? [] : cave.encounterSites,
+    oreSites: cave.oreSites,
   });
 }

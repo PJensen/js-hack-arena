@@ -4,7 +4,9 @@ import { AI, Actor, Conditions, Health, Position, Projectile, Spellbook } from '
 import { SIM_DT, SIM_MODE } from '../public/src/rules/sim/arenaSim.js';
 import { createArenaDungeonSimulation } from '../public/src/rules/sim/arenaDungeon.js';
 import { GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
+import { getMiningMaterial } from '../public/src/rules/data/miningMaterials.js';
 import { generateArenaCave } from '../public/src/rules/geometry/caveGen.js';
+import { canMineOre } from '../public/src/rules/geometry/oreSites.js';
 import { sweepMaxFree } from '../public/src/rules/geometry/sweep.js';
 import { applyDamage } from '../public/src/rules/effects.js';
 import { spawnGold, spawnRing } from '../public/src/rules/spawner.js';
@@ -361,6 +363,47 @@ function latestSnapshot(socket) {
   assert(message?.snapshot);
   return message.snapshot;
 }
+
+Deno.test('game room: a mining command drops ore and a gem and late joins see the spent vein', () => {
+  const room = new GameRoom(makeRoomState(), {});
+  room.seed = 42;
+  const miner = new FakeSocket();
+  const late = new FakeSocket();
+  room.accept(miner, { userId: 'miner', displayName: 'Miner' });
+  try {
+    const sim = room.ensureSim();
+    const site = sim.getMineableOre()[0];
+    assertEquals(site.id, 0);
+    const mine = (seq) => room.handleMessage(miner, encodeMessage(MESSAGE.INPUT, {
+      input: { seq, pickupX: site.x, pickupY: site.y, mine: true },
+    }));
+    const { peerId } = miner.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    const pos = sim.world.get(sim.getPlayerEntity(peerId), Position);
+    const grid = room.ensureCave().grid;
+    const stand = [56, 48, 36, 24].map((distance) => ({
+      x: site.x - distance * site.normalX, y: site.y - distance * site.normalY,
+    })).find((point) => grid.distanceMove(point.x, point.y) >= 20 && canMineOre(grid, point, site));
+    assert(stand);
+
+    mine(1);
+    room.step();
+    assert(sim.getMineableOre().some(({ id }) => id === site.id));
+    Object.assign(pos, stand);
+    mine(2);
+    room.step();
+
+    room.accept(late, { userId: 'late', displayName: 'Late' });
+    const joined = latestSnapshot(late);
+    const drops = joined.entities.filter(({ state }) => getMiningMaterial(state.effect));
+    assertEquals(drops.filter(({ state }) => state.effect === 'copper_ore').length, 3);
+    assertEquals(drops.filter(({ state }) => getMiningMaterial(state.effect).shape === 'gem').length, 1);
+    assert(drops.every(({ state }) => state.tossHeight === 0));
+    assert(!joined.oreAvailable.includes(site.id));
+  } finally {
+    room.leave(miner);
+    room.leave(late);
+  }
+});
 
 Deno.test('game room: walking through the campfire applies and replicates timed burning', () => {
   const room = new GameRoom(makeRoomState(), {});

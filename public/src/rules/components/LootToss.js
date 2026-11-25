@@ -5,4 +5,6 @@ export const LootToss = defineComponent('LootToss', {
   landingY: 0,
   remaining: 0,
   height: 0,
+  peak: 30,
+  rebound: false,
 });
