@@ -10,5 +10,6 @@ export function samplePlayerCommand(sample = {}, seq = null) {
     fire: sample.intent?.fire,
     spellSlot: sample.spellSlot,
     spellCycle: sample.spellCycle,
+    targetId: sample.targetId,
   };
 }

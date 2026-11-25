@@ -118,7 +118,8 @@ export function createInputRouter({
   rightKnob,
   rightMarker,
   canvas,
-  canPointerFire = () => true,
+  getUnitSpell = () => null,
+  pickUnit = () => null,
   bus,
 } = {}) {
   const leftStick = new Joystick(leftBase, leftKnob, leftMarker);
@@ -127,8 +128,11 @@ export function createInputRouter({
   const keys = Object.create(null);
   let suspended = false;
   let firePressed = false;
+  let keyboardFirePressed = false;
   let rightStickAimed = false;
   let pendingTouchAim = null;
+  let targetId = null;
+  const unitTaps = new Map();
   const mouse = {
     active: false,
     x: 0,
@@ -170,7 +174,7 @@ export function createInputRouter({
   };
 
   function queueTouchAim() {
-    if (rightStick.mag <= 0.1) return;
+    if (rightStick.mag <= 0.1 || getUnitSpell(spellSlot, spellCycle)) return;
     if (!rightStickAimed) firePressed = true;
     rightStickAimed = true;
     if (firePressed) pendingTouchAim = { x: rightStick.x, y: rightStick.y };
@@ -178,7 +182,16 @@ export function createInputRouter({
 
   function consumeFirePress() {
     firePressed = false;
+    keyboardFirePressed = false;
     pendingTouchAim = null;
+    targetId = null;
+  }
+
+  function startStick(touch, startX = touch.clientX) {
+    const stick = startX < window.innerWidth / 2 ? leftStick : rightStick;
+    if (stick.active) return;
+    stick.start(touch);
+    if (stick === rightStick) queueTouchAim();
   }
 
   const resetAll = () => {
@@ -188,6 +201,7 @@ export function createInputRouter({
     mouse.active = false;
     mouse.down = false;
     rightStickAimed = false;
+    unitTaps.clear();
     consumeFirePress();
     // Clear queued actions when focus leaves gameplay.
     spellSlot = null;
@@ -200,11 +214,15 @@ export function createInputRouter({
     if (suspended) return;
     e.preventDefault();
     for (const t of e.changedTouches) {
-      const stick = t.clientX < window.innerWidth / 2 ? leftStick : rightStick;
-      if (stick.active === false) {
-        stick.start(t);
-        if (stick === rightStick) queueTouchAim();
+      if (t.target === canvas) {
+        const spell = getUnitSpell(spellSlot, spellCycle);
+        const id = spell && pickUnit(spell, t.clientX, t.clientY);
+        if (id != null) {
+          unitTaps.set(t.identifier, { id, spell, x: t.clientX, y: t.clientY });
+          continue;
+        }
       }
+      startStick(t);
     }
   }, { passive: false });
 
@@ -212,6 +230,13 @@ export function createInputRouter({
     if (suspended) return;
     e.preventDefault();
     for (const t of e.changedTouches) {
+      const tap = unitTaps.get(t.identifier);
+      if (tap) {
+        if (Math.hypot(t.clientX - tap.x, t.clientY - tap.y) <= 12) continue;
+        unitTaps.delete(t.identifier);
+        startStick(t, tap.x);
+        continue;
+      }
       if (leftStick.touchId === t.identifier) leftStick.update(t);
       if (rightStick.touchId === t.identifier) {
         rightStick.update(t);
@@ -220,20 +245,40 @@ export function createInputRouter({
     }
   }, { passive: false });
 
-  on(document, 'touchend', (e) => releaseTouches(e.changedTouches));
-  on(document, 'touchcancel', (e) => releaseTouches(e.changedTouches));
+  on(document, 'touchend', (e) => {
+    for (const t of e.changedTouches) {
+      const tap = unitTaps.get(t.identifier);
+      if (!tap) continue;
+      unitTaps.delete(t.identifier);
+      if (tap.spell === getUnitSpell(spellSlot, spellCycle) && Math.hypot(t.clientX - tap.x, t.clientY - tap.y) <= 12) {
+        targetId = tap.id;
+      }
+    }
+    releaseTouches(e.changedTouches);
+  });
+  on(document, 'touchcancel', (e) => {
+    for (const t of e.changedTouches) unitTaps.delete(t.identifier);
+    releaseTouches(e.changedTouches);
+  });
 
   on(window, 'keydown', (e) => {
     if (suspended) return;
     const key = keyFromKeyboardEvent(e);
-    if (key === ' ' && !keys[key] && !e.repeat) firePressed = true;
+    if (key === ' ' && !keys[key] && !e.repeat) keyboardFirePressed = true;
     keys[key] = true;
     if (key === ' ') e.preventDefault();
   });
   on(window, 'keyup', (e) => { keys[keyFromKeyboardEvent(e)] = false; });
 
   on(canvas, 'pointerdown', (e) => {
-    if (suspended || e.pointerType === 'touch' || !canPointerFire()) return;
+    if (suspended || e.pointerType === 'touch') return;
+    const spell = getUnitSpell(spellSlot, spellCycle);
+    if (spell) {
+      if (e.button !== 0) return;
+      const id = pickUnit(spell, e.clientX, e.clientY);
+      if (id != null) targetId = id;
+      return;
+    }
     if (!mouse.down) firePressed = true;
     mouse.active = true;
     mouse.down = true;
@@ -380,7 +425,9 @@ export function createInputRouter({
       sourceAim = aimKb.mag > 0.05 ? 'keyboard' : 'none';
     }
 
-    const fire = Boolean(rightStickAimed || mouse.down || keys[' '] || firePressed);
+    const unitSpell = getUnitSpell(spellSlot, spellCycle);
+    const pointerFire = unitSpell ? targetId != null : rightStickAimed || mouse.down || firePressed;
+    const fire = Boolean(pointerFire || keys[' '] || keyboardFirePressed);
 
     output.frame += 1;
     output.timeMs = nowMs;
@@ -390,6 +437,7 @@ export function createInputRouter({
     zoomDelta = 0;  // drain
     output.spellSlot = spellSlot;
     output.spellCycle = spellCycle;
+    output.targetId = unitSpell ? targetId : null;
     output.pickupPressed = pickupPressed;
     output.cancelCast = suspended;
     spellSlot = null;   // drain
@@ -421,9 +469,6 @@ export function createInputRouter({
 
   return {
     sample,
-    requestFire() {
-      if (!suspended) firePressed = true;
-    },
     consumeFirePress,
     destroy,
     pulse,

@@ -178,7 +178,7 @@ function uploadCubeMesh(device, vertices) {
 }
 
 export function createWebGLArenaRenderer(deps) {
-  const { canvas, overlayCanvas, cam, grid, bounds, decorations, getMineableOre = () => [], world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, unitTargeting, resourceBars, stepParticles, speechBubbles } = deps;
+  const { canvas, overlayCanvas, cam, grid, bounds, decorations, getMineableOre = () => [], world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars, stepParticles, speechBubbles } = deps;
   const syncHudStatus = createHudStatus(hud.meta, hud.materials);
   const device = createWebGLDevice(canvas);
   const { gl } = device;
@@ -1042,7 +1042,9 @@ export function createWebGLArenaRenderer(deps) {
           drawGlyph('◇', position.x + Math.cos(angle) * (collider.radius + 5), position.y + Math.sin(angle) * (collider.radius + 5), 8, [0.72, 0.94, 1, 0.9]);
         }
       } else if (condition.visual === 'regeneration') {
-        drawDisc(position.x, position.y, collider.radius + 3 + pulse * 2, [0.1, 0.72, 0.28, 0.12], [0.35, 1, 0.52, 0.58]);
+        if (condition.id !== ConditionId.REGENERATION) {
+          drawDisc(position.x, position.y, collider.radius + 3 + pulse * 2, [0.1, 0.72, 0.28, 0.12], [0.35, 1, 0.52, 0.58]);
+        }
         drawGlyph('✚', position.x, position.y - collider.radius - 9 - pulse * 3, 10, [0.55, 1, 0.68, 0.95]);
       } else {
         drawGlyph(condition.glyph || '•', position.x, position.y - collider.radius - 9, 10, [0.9, 0.9, 1, 0.9]);
@@ -1115,6 +1117,30 @@ export function createWebGLArenaRenderer(deps) {
 
   function inView(x, y, margin = 80) {
     return Math.abs(x - view[0]) <= view[2] * 0.5 + margin && Math.abs(y - view[1]) <= view[3] * 0.5 + margin;
+  }
+
+  function pickUnit(clientX, clientY, canPick) {
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height || !view[2] || !view[3]) return null;
+    const x = view[0] + ((clientX - rect.left) / rect.width - 0.5) * view[2];
+    const y = view[1] + ((clientY - rect.top) / rect.height - 0.5) * view[3];
+    let hit = null;
+    let closest = 1;
+    for (const [id, position, collider, actor] of world.query(Position, Collider, Actor)) {
+      if (!canPick(id)) continue;
+      const shown = displayPosition(id, position);
+      if (!inView(shown.x, shown.y, collider.radius)) continue;
+      // Tall sprites extend upward from their collider in the top-down view.
+      const lift = (statusBarPadding(actor) - 9) * 0.5;
+      const dx = (x - shown.x) / collider.radius;
+      const dy = (y - shown.y + lift) / (collider.radius + lift);
+      const distance = dx * dx + dy * dy;
+      if (distance < closest) {
+        closest = distance;
+        hit = id;
+      }
+    }
+    return hit;
   }
 
   function drawPropMesh({ vao, count }) {
@@ -1281,7 +1307,7 @@ export function createWebGLArenaRenderer(deps) {
     if (!book?.charging) return;
     const spellId = book.spells[book.chargeSpellIndex] || 'frost_bolt';
     const spell = spellCatalog[spellId];
-    if (!spell) return;
+    if (!spell || spell.targeting.type === TargetingType.SELECTED_UNIT) return;
     const charge = spellCastProgress(book, spell);
     if (spell.targeting.type === TargetingType.MELEE_ARC) {
       const { halfAngle, range } = spell.targeting;
@@ -1378,32 +1404,11 @@ export function createWebGLArenaRenderer(deps) {
       const aboveBar = sy - barOffset * width / view[2] - 14 * ratio;
       const labelY = actor.theme === 'mimic' ? aboveBar : sy + collider.radius * width / view[2] + 9 * ratio;
       const label = actor.rare ? `★ ${actor.name}` : actor.name;
-      if (id === unitTargeting?.getSelected()) {
-        const r = collider.radius * width / view[2] + 5 * ratio;
-        overlay.beginPath();
-        overlay.ellipse(sx, sy, r, r * 0.78, 0, 0, Math.PI * 2);
-        overlay.lineWidth = 2 * ratio;
-        overlay.strokeStyle = '#82f5ff';
-        overlay.stroke();
-      }
-      const plateY = unitTargeting?.isActive() && inView(shown.x, shown.y, 0)
-        ? unitTargeting.showNameplate(id, label, sx / ratio, labelY / ratio, overlay.measureText(label).width / ratio)
-        : null;
-      if (plateY != null && Math.abs(plateY * ratio - labelY) > 1) {
-        overlay.beginPath();
-        overlay.moveTo(sx, labelY);
-        overlay.lineTo(sx, plateY * ratio);
-        overlay.lineWidth = ratio;
-        overlay.strokeStyle = 'rgba(210,240,255,.56)';
-        overlay.stroke();
-      }
       overlay.lineWidth = 3 * ratio;
       overlay.strokeStyle = 'rgba(2,5,9,.9)';
-      if (plateY == null) {
-        overlay.strokeText(label, sx, labelY);
-        overlay.fillStyle = actor.rare ? '#ffd65a' : actor.kind === ActorKind.PLAYER ? '#dff8ff' : '#d6c9e8';
-        overlay.fillText(label, sx, labelY);
-      }
+      overlay.strokeText(label, sx, labelY);
+      overlay.fillStyle = actor.rare ? '#ffd65a' : actor.kind === ActorKind.PLAYER ? '#dff8ff' : '#d6c9e8';
+      overlay.fillText(label, sx, labelY);
       const conditionLabel = activeConditionLabels(world.get(id, Conditions)).join(' · ');
       if (conditionLabel) {
         const conditionY = actor.theme === 'mimic' ? aboveBar - 14 * ratio : aboveBar;
@@ -1920,7 +1925,8 @@ export function createWebGLArenaRenderer(deps) {
     const book = world.get(playerId, Spellbook);
     const activeSpell = book && spellCatalog[book.spells[book.charging ? book.chargeSpellIndex : book.activeIndex]];
     const cleaveSelected = activeSpell?.id === 'cleave';
-    if (aimMagnitude > 0.05 && !(cleaveSelected && book.charging) && !world.get(playerId, Health)?.dead) {
+    if (aimMagnitude > 0.05 && activeSpell?.targeting.type !== TargetingType.SELECTED_UNIT &&
+        !(cleaveSelected && book.charging) && !world.get(playerId, Health)?.dead) {
       const aimAngle = Math.atan2(playerInput.aimY, playerInput.aimX);
       const stickDistance = playerCollider.radius + 12 + aimMagnitude * 72;
       const aimDistance = cleaveSelected ? Math.min(stickDistance, activeSpell.targeting.range) : stickDistance;
@@ -2012,6 +2018,7 @@ export function createWebGLArenaRenderer(deps) {
 
   return Object.freeze({
     renderFrame,
+    pickUnit,
     terrainChanged() { fieldDirty = true; },
     dispose() { if (!disposed) { disposed = true; overlay?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height); device.dispose(); } },
   });

@@ -107,14 +107,11 @@ your feet. For a combat test, combine it with a mob preview such as
 Runs with `give` are offline and use separate, temporary progress.
 
 Try `/?spawn=backline&seed=8&give=spellbook:curse_of_agony,spellbook:regeneration`
-for unit targeting with stationary practice mobs. Select Curse of Agony and
-tap or click the Wraith's nameplate behind the Goblin. Use the **Cast** button
-or **Space**. Creatures can
-stand between you and your recipient. Cave walls and spell range still limit
-the cast. Regeneration targets a selected ally and defaults to yourself when
-the selection is clear. Selection stays until you clear it, pick another
-unit, or the current target dies or leaves. Other spells use their usual
-controls.
+for unit targeting with stationary practice mobs. Select Curse of Agony, then
+click or tap the Wraith itself behind the Goblin to cast. Creatures can stand
+between you and your recipient. Cave walls and spell range still limit the
+cast. Select Regeneration and click or tap yourself or an ally to heal them.
+You can also press **Space** to cast Regeneration on yourself.
 
 Frostband (rare, found in mob loot) makes Frozen you inflict last 5% longer.
 Rimeband (epic, found in epic chests) increases it by 10%. Preview either with

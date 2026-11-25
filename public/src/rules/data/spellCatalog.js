@@ -125,7 +125,7 @@ export const spells = Object.freeze({
   regeneration: spell({
     id: 'regeneration',
     name: 'Regeneration', glyph: '✚', element: 'nature',
-    description: 'Heal a selected ally for 4 HP per second for 6 seconds. Defaults to yourself with no selection.',
+    description: 'Click or tap an ally to heal them for 4 HP per second for 6 seconds. Press Space to heal yourself.',
     cast: { mode: SpellCastMode.INSTANT },
     mana: { cost: 26 },
     cooldown: 10,
@@ -136,7 +136,7 @@ export const spells = Object.freeze({
   curse_of_agony: spell({
     id: 'curse_of_agony',
     name: 'Curse of Agony', glyph: '◆', element: 'curse',
-    description: 'Curse a selected enemy for 6 seconds. The damage grows with every tick.',
+    description: 'Click or tap an enemy to curse it for 6 seconds. The damage grows with every tick.',
     cast: { mode: SpellCastMode.CAST_TIME, castTime: 0.45, interruptOnDamage: true },
     mana: { cost: 22 },
     cooldown: 2,
