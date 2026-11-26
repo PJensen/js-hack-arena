@@ -1,3 +1,4 @@
+import { readGearKey } from '../public/src/rules/gear.js';
 import { assert, assertAlmostEquals, assertEquals, assertRejects } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { timingSafeEqual } from 'node:crypto';
 import { AI, Actor, Conditions, Health, MaterialStacks, Position, Projectile, Ring, Spellbook } from '../public/src/rules/components/index.js';
@@ -389,87 +390,80 @@ Deno.test('game room: encounters stay spread out while some mobs patrol', async 
   }
 });
 
-Deno.test('game room: a ring equips through pickup intent and swapping drops the previous ring', async () => {
-  const room = new GameRoom(makeRoomState(), makeEnv());
+Deno.test('game room: gear is carried, deposited and never equips inside an expedition', async () => {
+  const env = makeEnv();
+  const room = new GameRoom(makeRoomState(), env);
   const socket = new FakeSocket();
-  await room.accept(socket, { userId: 'user-1', displayName: 'First' });
-  try {
-    const entities = latestSnapshot(socket).entities;
-    const player = entities.find(({ kind }) => kind === 'player');
-    assertEquals(player.state.ring, null);
-    const { x, y } = player.state;
-    spawnRing(room.ensureSim().world, x, y);
-    room.broadcastSnapshot();
-    const ring = latestSnapshot(socket).entities.find(({ kind, state }) => kind === 'item' && state.ring);
-    assertEquals(ring.state.rarity, 'epic');
-    assertEquals(ring.state.ring.haste, 0.05);
-
-    room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, {
-      input: { seq: 1, pickupX: x, pickupY: y },
-    }));
-    room.step();
-    room.broadcastSnapshot();
-    const equipped = latestSnapshot(socket).entities;
-    assertEquals(equipped.find(({ id }) => id === player.id).state.ring, ring.state.ring);
-    assert(!equipped.some(({ id }) => id === ring.id));
-
-    spawnRing(room.ensureSim().world, x, y, { name: 'Test Ring', haste: 0.1 });
-    room.step();
-    room.broadcastSnapshot();
-    assertEquals(latestSnapshot(socket).entities.find(({ id }) => id === player.id).state.ring, ring.state.ring);
-    room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, { input: { seq: 2, pickupX: x, pickupY: y } }));
-    room.step();
-    room.broadcastSnapshot();
-    const swapped = latestSnapshot(socket).entities;
-    assertEquals(swapped.find(({ id }) => id === player.id).state.ring.name, 'Test Ring');
-    const dropped = swapped.find(({ kind, state }) => kind === 'item' && state.slot === 'ring');
-    assertEquals(dropped.state.ring, ring.state.ring);
-    assertEquals(dropped.state.pickupLock.owner, player.id);
-  } finally {
-    room.leave(socket);
-  }
-});
-
-Deno.test('game room: condition duration rings survive swaps and replicate from the authority', async () => {
-  const room = new GameRoom(makeRoomState(), makeEnv());
-  const socket = new FakeSocket();
-  await room.accept(socket, { userId: 'user-1', displayName: 'First' });
+  const back = new FakeSocket();
+  const identity = { userId: 'user-1', displayName: 'First' };
+  await room.accept(socket, identity);
   try {
     const { peerId } = socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
     const sim = room.ensureSim();
-    const { x, y } = sim.world.get(sim.getPlayerEntity(peerId), Position);
-    for (const [seq, type] of [[1, 'frostband'], [2, 'rimeband']]) {
+    const player = sim.getPlayerEntity(peerId);
+    const pos = sim.world.get(player, Position);
+    const { x, y } = pos;
+    for (const [seq, type] of [[1, 'frostband'], [2, 'rimeband'], [3, 'godslayer']]) {
       spawnItem(sim.world, x, y, { type });
       room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, { input: { seq, pickupX: x, pickupY: y } }));
       room.step();
     }
     room.broadcastSnapshot();
     const snapshot = latestSnapshot(socket);
-    const rare = snapshot.entities.find(({ kind, state }) => kind === 'item' && state.ring?.name === 'Frostband');
-    assertEquals(rare.state.ring.modifiers[0].value, 1.05);
-    const cave = generateArenaCave(room.seed);
-    const replica = createArenaDungeonSimulation({ seed: room.seed, cave, mode: SIM_MODE.REPLICA });
+    const record = snapshot.entities.find(({ owner }) => owner === peerId);
+    assertEquals(record.state.ring, null);
+    assertEquals(record.state.weapon.name, 'Fists');
+    const carried = Object.entries(record.state.materials);
+    assertEquals(carried.length, 3);
+    const frost = carried.find(([key]) => readGearKey(key).name === 'Frostband');
+    assertEquals(readGearKey(frost[0]).modifiers[0].value, 1.05);
+    const replica = createArenaDungeonSimulation({ seed: room.seed, cave: generateArenaCave(room.seed), mode: SIM_MODE.REPLICA });
     replica.applySnapshot(snapshot);
-    const equipped = replica.world.get(replica.getPlayerEntity(peerId), Ring);
-    assertEquals(equipped.name, 'Rimeband');
-    assertEquals(equipped.modifiers[0].value, 1.1);
-    assertEquals(equipped.haste, 0);
-    const dropped = [...replica.world.query(Ring)].find(([, ring]) => ring.name === 'Frostband');
-    assertEquals(dropped[1].modifiers, rare.state.ring.modifiers);
-
-    const target = spawnMelee(sim.world, cave.grid, x + 60, y, null);
-    sim.world.get(target, AI).aggroRange = 0;
-    sim.world.get(target, Health).hp = 100;
-    room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, { input: { seq: 3, aimX: 1, fire: true, spellSlot: 0 } }));
-    for (let i = 0; i <= Math.ceil(1 / SIM_DT); i++) room.step();
-    room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, { input: { seq: 4, fire: false } }));
-    for (let i = 0; i < 10; i++) room.step();
-    const frozen = sim.world.get(target, Conditions).active.find(({ id }) => id === 'frozen');
-    assert(frozen);
-    assertAlmostEquals(frozen.duration, 2.64);
+    assertEquals(replica.world.get(replica.getPlayerEntity(peerId), MaterialStacks).counts, record.state.materials);
+    assertEquals(await room.readCharacterProgress(identity.userId), { gold: 0 });
+    const request = action => room.handleMessage(socket, encodeMessage(MESSAGE.CAMP_ACTION, { action }));
+    Object.assign(pos, room.ensureCave().camp.portal);
+    await request(CampAction.EXIT);
+    assert(socket.sent.at(-1).error.includes('first'));
+    Object.assign(pos, room.ensureCave().camp.bank);
+    await request(CampAction.DEPOSIT);
+    assertEquals(sim.world.get(player, MaterialStacks).counts, {});
+    const secured = await room.readCharacterProgress(identity.userId);
+    assertEquals(secured.gear, record.state.materials);
+    Object.assign(pos, room.ensureCave().camp.portal);
+    await request(CampAction.EXIT);
+    await room.accept(back, identity);
+    assertEquals(await room.readCharacterProgress(identity.userId), secured);
+    const returned = latestSnapshot(back).entities.find(({ owner }) => owner === back.sent[0].peerId);
+    assertEquals(returned.state.ring, null);
+    assertEquals(returned.state.materials, {});
   } finally {
     room.leave(socket);
+    room.leave(back);
   }
+});
+
+Deno.test('game room: dying with unsecured gear does not credit the bank', async () => {
+  const env = makeEnv();
+  const room = new GameRoom(makeRoomState(), env);
+  const socket = new FakeSocket();
+  await room.accept(socket, { userId: 'user-1', displayName: 'First' });
+  try {
+    const { peerId } = socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    const sim = room.ensureSim();
+    const player = sim.getPlayerEntity(peerId);
+    const { x, y } = sim.world.get(player, Position);
+    spawnRing(sim.world, x, y);
+    room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, { input: { seq: 1, pickupX: x, pickupY: y } }));
+    room.step();
+    assertEquals(Object.keys(sim.world.get(player, MaterialStacks).counts).length, 1);
+    sim.world.get(player, Health).hp = 0;
+    room.step();
+    await room.handleMessage(socket, encodeMessage(MESSAGE.CAMP_ACTION, { action: CampAction.DEPOSIT }));
+    assert(socket.sent.at(-1).error);
+    await room.handleMessage(socket, encodeMessage(MESSAGE.CAMP_ACTION, { action: CampAction.EXIT }));
+    assertEquals(await room.readCharacterProgress('user-1'), { gold: 0 });
+  } finally { room.leave(socket); }
 });
 
 function latestSnapshot(socket) {
