@@ -93,13 +93,18 @@ breaks once, tossing three ore chunks and sometimes a gemstone onto the floor.
 Walk over the drops after they settle to collect them. The HUD shows materials
 collected during the current dungeon run.
 
-Walk back to the starting camp and use **Deposit materials** beside the bank
+Walk back to the starting camp and use **Deposit loot** beside the bank
 chest to save your ore and gems. The chest is shared in the world, and the
 stash belongs to your character. After the deposit is confirmed, use the
 nearby **Exit Portal** to return to the main screen and see your banked
 materials and gold. Other players can keep exploring the same dungeon.
-Carried materials are lost when your cave visit ends before you bank them.
-Gold saves on pickup. Normal offline play keeps a separate local stash.
+Carried loot is lost when your cave visit ends before you bank it.
+Weapons and rings remain explicit pickups, but no longer replace equipped gear
+in normal dungeon runs. They travel in the expedition pack and are secured by
+the same camp chest transaction as ore and gemstones. The Inventory screen lists
+banked equipment separately; equipping banked items before a run is a later step.
+Gold saves on pickup. Consumables and spellbook pickups retain their existing
+behavior. Normal offline play keeps a separate local stash.
 
 Open `/?chest=epic` for an offline Epic Chest preview. Enter the dungeon and
 walk up to the chest near the entrance to see its loot toss. Reload to try again,
