@@ -121,7 +121,7 @@ export function createItemTooltip({ root, onActivate } = {}) {
   const action = document.createElement('button');
   action.className = 'arena-item-tooltip-action';
   action.type = 'button';
-  action.textContent = 'CLICK / TAP TO EQUIP';
+  action.textContent = 'CLICK / TAP TO PICK UP';
   function activate() {
     if (!tip.hidden && tip._target) onActivate?.(tip._target);
   }
@@ -155,7 +155,7 @@ export function createItemTooltip({ root, onActivate } = {}) {
       icon.replaceChildren(...(image ? [image] : []));
       icon.hidden = !image;
       rows.replaceChildren(...(model.rows || []).map(makeRow));
-      action.textContent = model.actionLabel || 'CLICK / TAP TO EQUIP';
+      action.textContent = model.actionLabel || 'CLICK / TAP TO PICK UP';
       contentKey = nextKey;
     }
     tip._target = model.target || null;
