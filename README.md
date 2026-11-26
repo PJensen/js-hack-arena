@@ -73,9 +73,10 @@ routes such as `/api/*` and `/ws/*`, then falls back to static asset serving.
 Open `/interface-preview/` to review the Run, Crafting, Smelting, and Crafting
 Queue screens with sample data. The preview supports navigation between screens
 and queue tabs. Party controls and run selection are static. Signed-in characters can smelt
-one Copper Ingot from two banked Copper Ore and one Gold. The first recipe
-uses a 10-minute base duration, with one active job at a time.
-Crafting inputs and the job are committed atomically; completed outputs are
+Copper Ingots from two banked Copper Ore and one Gold each. The first recipe
+uses a 10-minute base duration per ingot. Each profession has one active slot
+and five pending slots by default. Batch quantities reserve inputs for all units
+atomically and schedule each unit sequentially within its profession. Completed outputs are
 credited on character access, even after the player has been away. The queue
 and inventory show actual character data. Local-only offline characters cannot
 craft yet; already-queued online jobs do not require an active browser.
