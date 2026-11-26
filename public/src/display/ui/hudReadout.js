@@ -1,6 +1,7 @@
 import { createAtlasIcon } from './atlasIcon.js';
 import { createConditionIcon } from './conditionIcon.js';
 import { ConditionId, conditions as conditionCatalog } from '../../rules/data/conditionCatalog.js';
+import { readGearKey } from '../../rules/gear.js';
 import { getMiningMaterial } from '../../rules/data/miningMaterials.js';
 
 const POWERUP_ICONS = [
@@ -23,7 +24,7 @@ export function createHudReadout(root, conditionRow, materialReadout) {
   return function sync({ dead, gold, materials, powerups, conditions, casts, connection, camp }) {
     if (materialReadout) {
       const text = Object.entries(materials ?? {}).map(([id, count]) =>
-        `${getMiningMaterial(id).name} ×${count}`).join(' · ');
+        `${(getMiningMaterial(id) ?? readGearKey(id))?.name ?? 'Unknown loot'} ×${count}`).join(' · ');
       if (text !== shownMaterials) {
         materialReadout.textContent = text ? `Carrying ${text}` : '';
         materialReadout.hidden = !text;

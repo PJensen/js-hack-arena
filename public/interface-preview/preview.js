@@ -1,5 +1,6 @@
 import { getMiningMaterial, miningMaterialIds } from '../src/rules/data/miningMaterials.js';
 
+import { bankedGear } from '../src/rules/gear.js';
 import { getRecipe } from '../src/rules/data/craftingRecipes.js';
 
 import { availableCraftSlots, pendingCapacity } from '../src/rules/crafting.js';
@@ -145,7 +146,19 @@ function renderBalance(state) {
   document.querySelector('#bank-gold').textContent = `${gold.toLocaleString()} Gold`;
   bank.innerHTML = stacks.length ? `<ul class="bank-grid">${stacks.map(({ name, count, glyph }) => `
     <li class="row bank-item">${glyph}<strong>${name}</strong><span>×${count}</span></li>`).join('')}</ul>`
-    : '<p class="bank-message">Your bank is empty. Deposit ore and gems at the camp chest to see them here.</p>';
+    : '<p class="bank-message">No banked materials.</p>';
+  const gear = document.querySelector('#banked-gear');
+  if (gear) {
+    gear.replaceChildren();
+    const items = bankedGear(state);
+    if (!items.length) { const empty = document.createElement('p'); empty.className = 'bank-message'; empty.textContent = 'No banked equipment.'; gear.append(empty); }
+    else for (const item of items) {
+      const row = document.createElement('div'); row.className = 'row bank-item';
+      const title = document.createElement('strong'); title.textContent = item.name;
+      const details = document.createElement('span'); details.textContent = item.rarity + ' · ' + item.slot + ' · ×' + item.count;
+      row.append(title, details); gear.append(row);
+    }
+  }
 }
 
 async function loadBalance() {
@@ -385,6 +398,7 @@ function inventoryScreen() {
         <span id="bank-gold"></span>
       </div>
       <div id="bank-content" aria-live="polite"><p class="bank-message">Loading your bank…</p></div>
+      <h2>Banked Equipment</h2><div id="banked-gear" aria-live="polite"></div>
       <a class="bank-action" href="/${gameQuery ? `?${gameQuery}` : ''}">Open Game</a>
     </section>`;
 }

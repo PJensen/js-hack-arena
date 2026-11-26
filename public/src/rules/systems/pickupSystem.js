@@ -1,16 +1,17 @@
 // Consumables are collected by walking over them; gear requires an explicit
-// intent from their comparison card. Replaced equipment is dropped nearby.
+// intent from their comparison card. Expedition gear is carried, not equipped.
 import {
   ArrowAmmo, BowWeapon, Collider, Conditions, Consumable, Facing, Gold, GroundItem, Health,
   Input, ItemInfo, ItemSlot, LootToss, Mana, MaterialStacks, MeleeWeapon, PickupLock, Position, Powerups,
   Ring, Spellbook, SpellId, WeaponPickup,
 } from '../components/index.js';
+import { gearKey } from '../gear.js';
 import { ConditionId } from '../data/conditionCatalog.js';
 import { getMiningMaterial } from '../data/miningMaterials.js';
 import { applyCondition, applyHealing } from '../effects.js';
 import { findOpenNear, spawnRing, spawnWeaponPickup } from '../spawner.js';
 
-export function createPickupSystem({ grid = null, mine } = {}) {
+export function createPickupSystem({ grid = null, mine, collectGear = false } = {}) {
   return function pickupSystem(world, dt) {
     const players = [];
     for (const [id, pos, col, hp, input] of world.query(Position, Collider, Health, Input)) {
@@ -49,7 +50,7 @@ export function createPickupSystem({ grid = null, mine } = {}) {
         selected = itemId;
         selectedDistance = targetDistance;
       }
-      if (selected != null && applyItemPickup(world, player.id, selected, grid)) {
+      if (selected != null && applyItemPickup(world, player.id, selected, grid, { collectGear })) {
         toDestroy.add(selected);
       }
     }
@@ -82,12 +83,18 @@ function isGear(world, itemId) {
 }
 
 // Apply the selected item's effect. The caller handles access and removal.
-export function applyItemPickup(world, playerId, itemId, grid) {
+export function applyItemPickup(world, playerId, itemId, grid, { collectGear = false } = {}) {
   const player = { id: playerId, pos: world.get(playerId, Position), hp: world.get(playerId, Health) };
   const ipos = world.get(itemId, Position);
   const info = world.get(itemId, ItemInfo);
   if (isGear(world, itemId)) {
-    equipGear(world, player, { itemId, ipos, info }, grid);
+    if (collectGear) {
+      const pack = world.get(playerId, MaterialStacks);
+      const key = gearKey(world, itemId);
+      if (!pack || !key) return false;
+      pack.counts[key] = (pack.counts[key] ?? 0) + 1;
+      world.emit('item.pickup', { entity: playerId, item: info.name, carried: true, x: player.pos.x, y: player.pos.y });
+    } else equipGear(world, player, { itemId, ipos, info }, grid);
     return true;
   }
   const consumable = world.get(itemId, Consumable);

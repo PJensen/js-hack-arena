@@ -38,6 +38,7 @@ import { epicChestTable, epicChestTotalWeight, mobDropTable, mobDropTotalWeight,
 import { AuraId } from '../data/auraCatalog.js';
 import { conditions as conditionCatalog } from '../data/conditionCatalog.js';
 import { createEncounterSelector } from '../data/encounterCatalog.js';
+import { readGearKey } from '../gear.js';
 import { getMiningMaterial, miningMaterialIds } from '../data/miningMaterials.js';
 import { effectSystem, projectConditions, projectAuraEmitter } from '../effects.js';
 import { normalizeStatModifiers } from '../stats.js';
@@ -134,6 +135,7 @@ export function createArenaSimulation({
   patrolRoutes = [],
   enemySpawnExclusionRadius = 0,
   oreSites = [],
+  collectGear = false,
 } = {}) {
   if (!grid) throw new Error('arena simulation requires a collision grid');
   if (!Object.values(SIM_MODE).includes(mode)) throw new Error(`invalid arena simulation mode: ${mode}`);
@@ -156,7 +158,7 @@ export function createArenaSimulation({
   const getMineableOre = mode === SIM_MODE.AUTHORITY ? mining.available : () => remoteOre;
 
   if (mode === SIM_MODE.AUTHORITY) {
-    installAuthoritativeRules(world, grid, mining);
+    installAuthoritativeRules(world, grid, mining, collectGear);
     installEventJournal(world, eventHistory, () => ({ tick, sequence: ++eventSequence }), projectEventPayload);
     world.on('loot_goblin.escaped', ({ id }) => forgetEntity(id));
     installLootRules(world);
@@ -841,7 +843,7 @@ export function normalizeSnapshot(snapshot) {
   };
 }
 
-function installAuthoritativeRules(world, grid, mining) {
+function installAuthoritativeRules(world, grid, mining, collectGear) {
   installManaCombatDelay(world);
   const systems = [
     effectSystem,
@@ -854,7 +856,7 @@ function installAuthoritativeRules(world, grid, mining) {
     createBumpSystem(),
     lootTossSystem,
     mining.update,
-    createPickupSystem({ grid, mine: mining.start }),
+    createPickupSystem({ grid, mine: mining.start, collectGear }),
     createProjectileSystem({ grid, carve: createGridCarver(grid) }),
     deathSystem,
     installLootGoblinRules(world, grid),
@@ -1000,9 +1002,9 @@ function normalizePlayerState(id, state) {
       siteId: nonNegativeInteger(state.mining.siteId, `${id}.mining.siteId`),
       remaining: finiteNumber(state.mining.remaining, `${id}.mining.remaining`),
     } }),
-    materials: Object.fromEntries(miningMaterialIds.flatMap((type) =>
-      Object.hasOwn(state.materials ?? {}, type)
-        ? [[type, nonNegativeInteger(state.materials[type], `${id}.materials.${type}`)]]
+    materials: Object.fromEntries(Object.entries(state.materials ?? {}).flatMap(([type, count]) =>
+      miningMaterialIds.includes(type) || readGearKey(type)
+        ? [[type, nonNegativeInteger(count, `${id}.materials.${type}`)]]
         : [])),
   };
 }
