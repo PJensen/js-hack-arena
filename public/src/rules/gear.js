@@ -1,4 +1,4 @@
-import { BowWeapon, ItemInfo, ItemSlot, MeleeWeapon, Ring, Spellbook, SpellId, WeaponPickup } from './components/index.js';
+import { ItemInfo, ItemSlot, Ring, WeaponPickup } from './components/index.js';
 
 // Stack key is a versioned, canonical descriptor of server-authored gear.
 // Identical drops stack; rolled stats and modifiers remain part of identity.
@@ -31,35 +31,9 @@ export function readGearKey(key) {
 }
 
 export function bankedGear(character) {
-  return Object.entries(character?.materials ?? {}).flatMap(([key, count]) => {
+  return Object.entries(character?.gear ?? {}).flatMap(([key, count]) => {
     const item = readGearKey(key);
     return item && Number.isSafeInteger(count) && count > 0 ? [{ key, count, ...item }] : [];
   });
 }
 
-// Loadout references only banked items. Swapping references does not consume
-// or duplicate equipment, and affects only subsequently created players.
-export function selectGear(character, { slot, key }) {
-  if (![ItemSlot.MELEE, ItemSlot.RANGED, ItemSlot.RING].includes(slot)) return { error: 'Invalid equipment slot' };
-  const equipment = { ...character.equipment };
-  if (key === null) delete equipment[slot];
-  else {
-    const item = readGearKey(key);
-    if (!item || item.slot !== slot || !(character.materials?.[key] > 0)) return { error: 'Item is not in your bank' };
-    equipment[slot] = key;
-  }
-  return { character: { ...character, equipment } };
-}
-
-export function applyLoadout(world, player, character) {
-  for (const { key, slot, name, glyph, rarity, haste, modifiers, damage, infiniteArrows } of bankedGear(character)) {
-    if (character.equipment?.[slot] !== key) continue;
-    if (slot === ItemSlot.RING) Object.assign(world.get(player, Ring), { name, glyph, rarity, haste, modifiers });
-    if (slot === ItemSlot.MELEE) Object.assign(world.get(player, MeleeWeapon), { name, glyph, rarity, damage });
-    if (slot === ItemSlot.RANGED) {
-      Object.assign(world.get(player, BowWeapon), { equipped: true, name, glyph, rarity, damage, infiniteArrows });
-      const book = world.get(player, Spellbook);
-      if (!book.spells.includes(SpellId.ARROW)) book.spells.push(SpellId.ARROW);
-    }
-  }
-}
