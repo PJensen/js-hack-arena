@@ -79,7 +79,23 @@ export default {
       const session = await readSession(request, env);
       if (!session) return json({ ok: false, error: 'login required' }, { status: 401 });
       const roomId = normalizeRoomId(url.searchParams.get('room') ?? DEFAULT_ROOM_ID);
-      return json(await env.GAME_ROOM.getByName(roomId).readCharacterProgress(session.sub));
+      const character = await env.GAME_ROOM.getByName(roomId).readCharacterProgress(session.sub);
+      return json({ ...character, serverNow: Date.now() });
+    }
+
+    if (url.pathname === '/api/character/crafting' && request.method === 'POST') {
+      const session = await readSession(request, env);
+      if (!session) return json({ error: 'login required' }, { status: 401 });
+      if (request.headers.get('origin') !== url.origin) return json({ error: 'Invalid origin' }, { status: 403 });
+      if (!request.headers.get('content-type')?.startsWith('application/json')) return json({ error: 'Expected JSON' }, { status: 415 });
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'Invalid request' }, { status: 400 }); }
+      if (!body || typeof body.recipeId !== 'string' || typeof body.requestId !== 'string') return json({ error: 'Invalid request' }, { status: 400 });
+      const roomId = normalizeRoomId(url.searchParams.get('room') ?? DEFAULT_ROOM_ID);
+      await env.GAME_ROOM.getByName(roomId).readCharacterProgress(session.sub);
+      const result = await env.CHARACTER.getByName(session.sub).enqueueCraft({ recipeId: body.recipeId, requestId: body.requestId });
+      if (result.error) return json({ error: result.error }, { status: 409 });
+      return json({ ...result.character, serverNow: Date.now() });
     }
 
     const roomPath = /^\/ws\/([a-z0-9_-]{1,48})$/.exec(url.pathname);
