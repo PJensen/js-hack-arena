@@ -19,11 +19,11 @@ export function checkCampAction({ world, player, grid, camp, action, pending }) 
   if (action === CampAction.DEPOSIT) {
     if (dead || !inCampReach(grid, position, camp.bank)) return 'Walk up to the camp chest to deposit.';
     if (pending) return 'Your deposit is still saving.';
-    if (!carrying) return 'Your pack has no materials to deposit.';
+    if (!carrying) return 'Your pack has no loot to deposit.';
   } else if (action === CampAction.EXIT) {
     if (!dead && !inCampReach(grid, position, camp.portal)) return 'Walk up to the camp portal to leave.';
     if (pending) return 'Wait for your deposit to finish saving.';
-    if (!dead && carrying) return 'Deposit your materials in the camp chest first.';
+    if (!dead && carrying) return 'Deposit your loot in the camp chest first.';
   } else {
     return 'Unknown camp action.';
   }
