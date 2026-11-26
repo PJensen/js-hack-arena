@@ -1,7 +1,7 @@
 // sw.js
 // Asset-free service worker for js-hack-arena.
 
-const SW_VERSION = 'arena-sw-2026-11-23-7';
+const SW_VERSION = 'arena-sw-2026-11-26-1';
 const SHELL_CACHE = `shell-${SW_VERSION}`;
 const RUNTIME_CACHE = `runtime-${SW_VERSION}`;
 const APP_SHELL = ['./', './index.html'];
@@ -51,17 +51,21 @@ self.addEventListener('fetch', (event) => {
 
   // Navigation: network first, fallback to shell cache.
   if (req.mode === 'navigate') {
+    // The preview and game use different documents, including in offline mode.
+    const isPreview = url.pathname === '/interface-preview/' || url.pathname === '/interface-preview/index.html';
+    if (!isPreview && url.pathname !== '/' && url.pathname !== '/index.html') return;
+    const shellUrl = isPreview ? './interface-preview/' : './index.html';
     event.respondWith((async () => {
       try {
         const network = await fetch(req, { cache: 'reload' });
         if (network.ok) {
           const cache = await caches.open(SHELL_CACHE);
-          await cache.put('./index.html', network.clone()).catch(() => {});
+          await cache.put(shellUrl, network.clone()).catch(() => {});
         }
         return network;
       } catch {
         const cache = await caches.open(SHELL_CACHE);
-        const cached = await cache.match('./index.html');
+        const cached = await cache.match(shellUrl);
         if (cached) return cached;
         return Response.error();
       }

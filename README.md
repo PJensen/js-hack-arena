@@ -74,6 +74,9 @@ Open `/interface-preview/` to review the Run, Crafting, Smelting, and Crafting
 Queue screens with sample data. The preview supports navigation between screens
 and queue tabs. Crafting actions, party controls, and run selection are static.
 On wider screens the Smelting view shows recipes, details, and the queue together.
+**Inventory** shows your saved materials and gold. Use **View Banked Materials**
+on the game entry screen to open it after returning from the dungeon, including
+when playing offline.
 
 Copper, tin, and gold deposits form along chamber walls. Some are buried in
 solid rock and become visible when the terrain is carved away. The dungeon

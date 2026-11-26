@@ -92,6 +92,8 @@
     #entry-balance { display:block; margin:0 0 14px; padding:9px; border:1px solid var(--edge);
                      border-radius:8px; color:#f1dfaa; font:13px/1.5 system-ui,sans-serif; }
     #entry-balance[hidden] { display:none; }
+    #entry-inventory { display:block; margin:0 0 12px; padding:8px 0; color:#8af0ff; font-size:13px; }
+    #entry-inventory[hidden] { display:none; }
     #camp-controls { position:fixed; z-index:51; inset:24% 0 auto; text-align:center; pointer-events:none; }
     #camp-controls button { pointer-events:auto; min-height:44px; padding:6px 12px; margin:2px;
                             color:#dff8ff; background:#101f2b; border:1px solid #5796ad; border-radius:7px;
@@ -296,6 +298,7 @@
       <p>Enter the shared dungeon with your Hairylogic identity. Offline play remains available at <code>?offline</code>.</p>
       <div id="entry-status" aria-live="polite">CHECKING SIGN-IN STATUS…</div>
       <output id="entry-balance" aria-label="Character balance" hidden></output>
+      <a id="entry-inventory" hidden>View Banked Materials</a>
       <input id="player-name" maxlength="20" autocomplete="nickname" placeholder="Adventurer" aria-label="Character name" />
       <button id="enter-dungeon" type="submit" disabled>Enter the Dungeon</button>
       <button id="install-arena" type="button" hidden>Install Hack Arena</button>
@@ -508,6 +511,14 @@ const authState = forceOffline ? null : await fetch('/auth/me', { credentials: '
   .catch(() => ({ authenticated: false, unavailable: true }));
 
 const entryBalance = document.getElementById('entry-balance');
+if (tracksOfflineProgress || authState?.authenticated) {
+  const inventory = document.getElementById('entry-inventory');
+  const inventoryUrl = new URL('/interface-preview/?view=inventory', location.href);
+  if (pageParams.has('room')) inventoryUrl.searchParams.set('room', pageParams.get('room'));
+  if (tracksOfflineProgress) inventoryUrl.searchParams.set('offline', '');
+  inventory.href = inventoryUrl.href;
+  inventory.hidden = false;
+}
 function showBalance({ gold, materials }) {
   const banked = Object.entries(materials ?? {}).flatMap(([id, count]) => {
     const item = getMiningMaterial(id);

@@ -1,3 +1,5 @@
+import { getMiningMaterial, miningMaterialIds } from '../src/rules/data/miningMaterials.js';
+
 const modes = [
   { name: 'Smelting', icon: 'ingot copper', description: 'Refine ore into ingots', view: 'smelting' },
   { name: 'Smithing', icon: 'hammer', description: 'Craft and upgrade gear' },
@@ -37,9 +39,14 @@ const completedJobs = [
 
 const params = new URLSearchParams(location.search);
 const requestedView = params.get('view');
-const view = ['craft', 'smelting', 'queue'].includes(requestedView) ? requestedView : 'run';
+const view = ['craft', 'smelting', 'queue', 'inventory'].includes(requestedView) ? requestedView : 'run';
 const completed = params.get('status') === 'completed';
-const title = { run: 'Select a Run', craft: 'Crafting', smelting: 'Smelting', queue: 'Crafting Queue' };
+const offline = params.has('offline');
+const title = { run: 'Select a Run', craft: 'Crafting', smelting: 'Smelting', queue: 'Crafting Queue', inventory: 'Inventory' };
+const gameParams = new URLSearchParams();
+for (const name of ['room', 'offline']) {
+  if (params.has(name)) gameParams.set(name, params.get(name));
+}
 
 function icon(name) {
   const symbols = {
@@ -50,15 +57,18 @@ function icon(name) {
 }
 
 function href(screen, status = '') {
-  return `?view=${screen}${status ? `&amp;status=${status}` : ''}`;
+  const query = new URLSearchParams(gameParams);
+  query.set('view', screen);
+  if (status) query.set('status', status);
+  return `?${query.toString().replaceAll('&', '&amp;')}`;
 }
 
 function navigation() {
   const tabs = [
     ['Run', 'run', 'run'], ['Craft', 'craft', 'craft'],
-    ['Character', 'helmet'], ['Inventory', 'pack'],
+    ['Character', 'helmet'], ['Inventory', 'pack', 'inventory'],
   ];
-  const section = view === 'run' ? 'run' : 'craft';
+  const section = view === 'smelting' || view === 'queue' ? 'craft' : view;
   return tabs.map(([label, glyph, screen]) => {
     const content = `${icon(glyph)}<span>${label}</span>`;
     return screen
@@ -67,15 +77,69 @@ function navigation() {
   }).join('');
 }
 
-function balances() {
-  const materials = [
-    ['ore', 'Copper Ore', '18'], ['ore tin', 'Tin Ore', '8'],
-    ['ore gold', 'Gold Ore', '1'], ['crystal violet', 'Amethyst', '2'],
-    ['crystal amber', 'Amber', '3'], ['coin', 'Gold', '1,427'],
-  ];
-  return `<ul class="balances" aria-label="Sample materials and gold">${materials.map(([glyph, name, amount]) =>
-    `<li aria-label="${amount} ${name}" title="${name}">${icon(glyph)} ${amount}</li>`
-  ).join('')}</ul>`;
+function materialIcon(id, { shape, color }) {
+  if (shape === 'rock') return icon(`ore ${id.split('_')[0]}`);
+  const rgb = color.map((channel) => Math.round(channel * 255)).join(' ');
+  return `<span class="icon crystal bank-gem" aria-hidden="true" style="--gem-color: rgb(${rgb})"></span>`;
+}
+
+function bankedStacks(materials) {
+  return miningMaterialIds.flatMap((id) => {
+    const count = materials?.[id];
+    if (!Number.isSafeInteger(count) || count <= 0) return [];
+    const material = getMiningMaterial(id);
+    return [{ name: material.name, count: count.toLocaleString(), glyph: materialIcon(id, material) }];
+  });
+}
+
+function renderBalance({ gold, materials }) {
+  if (!Number.isSafeInteger(gold) || gold < 0) throw new Error('Invalid character balance');
+  const stacks = bankedStacks(materials);
+  const header = document.querySelector('.balances');
+  header.innerHTML = `${stacks.slice(0, 5).map(({ name, count, glyph }) => `
+    <span class="balance-material" title="${name}">${glyph}<span class="sr-only">${name} </span>${count}</span>`).join('')}
+    <span>${icon('coin')}<span class="sr-only">Gold </span>${gold.toLocaleString()}</span>`;
+  header.hidden = false;
+
+  const copper = document.querySelector('#copper-balance');
+  if (copper) {
+    const count = Number.isSafeInteger(materials?.copper_ore) && materials.copper_ore > 0 ? materials.copper_ore : 0;
+    copper.textContent = `${count.toLocaleString()} / 3`;
+    copper.classList.toggle('good', count >= 3);
+  }
+
+  const bank = document.querySelector('#bank-content');
+  if (!bank) return;
+  document.querySelector('#bank-gold').textContent = `${gold.toLocaleString()} Gold`;
+  bank.innerHTML = stacks.length ? `<ul class="bank-grid">${stacks.map(({ name, count, glyph }) => `
+    <li class="row bank-item">${glyph}<strong>${name}</strong><span>×${count}</span></li>`).join('')}</ul>`
+    : '<p class="bank-message">Your bank is empty. Deposit ore and gems at the camp chest to see them here.</p>';
+}
+
+async function loadBalance() {
+  const bank = document.querySelector('#bank-content');
+  try {
+    if (offline) {
+      const saved = JSON.parse(localStorage.getItem('hack-arena.offline-progress'));
+      renderBalance({ gold: 0, ...saved });
+      return;
+    }
+    const endpoint = new URL('/api/character', location.href);
+    if (params.has('room')) endpoint.searchParams.set('room', params.get('room'));
+    const response = await fetch(endpoint, { credentials: 'same-origin', cache: 'no-store' });
+    if (response.status === 401) {
+      if (bank) {
+        const returnTo = encodeURIComponent(location.pathname + location.search);
+        bank.innerHTML = `<p class="bank-message">Sign in to see your banked materials and gold.</p>
+          <a class="bank-action" href="/auth/login?return=${returnTo}">Sign in</a>`;
+      }
+      return;
+    }
+    if (!response.ok) throw new Error('Could not load character balance');
+    renderBalance(await response.json());
+  } catch {
+    if (bank) bank.innerHTML = '<p class="bank-message">Bank balance unavailable. Reload to try again.</p>';
+  }
 }
 
 function back(screen, label) {
@@ -180,7 +244,7 @@ function recipeDetails() {
       </header>
       <div class="detail-group">
         <h3>Requirements <span>(per craft)</span></h3>
-        <div class="row material">${icon('ore')} <span>Copper Ore</span><strong class="good">18 / 3</strong></div>
+        <div class="row material">${icon('ore')} <span>Copper Ore</span><strong id="copper-balance">— / 3</strong></div>
       </div>
       <div class="detail-group">
         <h3>Output <span>(per craft)</span></h3>
@@ -267,16 +331,31 @@ function queueScreen() {
     ${queue('queue')}`;
 }
 
-const screens = { run: runScreen, craft: craftingScreen, smelting: smeltingScreen, queue: queueScreen };
+function inventoryScreen() {
+  const gameQuery = gameParams.toString().replaceAll('&', '&amp;');
+  return `
+    <div class="screen-heading"><h1>Inventory</h1></div>
+    <section class="panel bank-panel" aria-labelledby="bank-title">
+      <div class="bank-heading">
+        <h2 id="bank-title">Banked Materials</h2>
+        <span id="bank-gold"></span>
+      </div>
+      <div id="bank-content" aria-live="polite"><p class="bank-message">Loading your bank…</p></div>
+      <a class="bank-action" href="/${gameQuery ? `?${gameQuery}` : ''}">Open Game</a>
+    </section>`;
+}
+
+const screens = { run: runScreen, craft: craftingScreen, smelting: smeltingScreen, queue: queueScreen, inventory: inventoryScreen };
 document.title = `${title[view]} | Hack Arena Preview`;
 document.querySelector('#preview').innerHTML = `
   <header class="topbar">
     <button class="top-action" type="button" aria-label="Menu" disabled>${icon('menu')}</button>
     <span class="brand" aria-label="Hack Arena">HACK<span>//ARENA</span></span>
-    ${balances()}
+    <a class="balances" href="${href('inventory')}" hidden></a>
     <button class="top-action notifications" type="button" aria-label="Notifications" disabled>${icon('bell')}</button>
   </header>
   <nav class="primary-nav ${view === 'smelting' || view === 'queue' ? 'subscreen' : ''}" aria-label="Arena sections">
     ${navigation()}
   </nav>
   <main class="screen screen-${view}">${screens[view]()}</main>`;
+loadBalance();
