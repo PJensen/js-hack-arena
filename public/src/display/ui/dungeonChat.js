@@ -17,9 +17,7 @@ export function createDungeonChat({ root, localPeerId, playerForPeer, onCompose,
   field.maxLength = MAX_SAY_LENGTH + '/say '.length;
   root.hidden = false;
   toggle.addEventListener('click', () => setComposing(!composing));
-  for (const event of ['touchstart', 'touchmove', 'wheel']) {
-    root.addEventListener(event, (e) => e.stopPropagation());
-  }
+  root.addEventListener('wheel', (e) => e.stopPropagation());
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     if (pending) return;

@@ -104,11 +104,6 @@ export function createItemTooltip({ root, onActivate } = {}) {
   tip.setAttribute('aria-label', 'Nearby item');
   tip.hidden = true;
 
-  // Keep the joystick's document handlers from canceling native button taps.
-  const keepTooltipTouch = (event) => event.stopPropagation();
-  tip.addEventListener('touchstart', keepTooltipTouch, { passive: true });
-  tip.addEventListener('touchmove', keepTooltipTouch, { passive: true });
-
   const header = document.createElement('div');
   header.className = 'arena-item-tooltip-header';
   const icon = document.createElement('span');

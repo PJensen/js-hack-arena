@@ -1194,6 +1194,14 @@ export function createWebGLArenaRenderer(deps) {
     return hit;
   }
 
+  function worldToClient({ x, y }) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: rect.left + ((x - view[0]) / view[2] + 0.5) * rect.width,
+      y: rect.top + ((y - view[1]) / view[3] + 0.5) * rect.height,
+    };
+  }
+
   function drawPropMesh({ vao, count }) {
     gl.bindVertexArray(vao);
     gl.clear(gl.DEPTH_BUFFER_BIT);
@@ -2105,6 +2113,7 @@ export function createWebGLArenaRenderer(deps) {
   return Object.freeze({
     renderFrame,
     pickUnit,
+    worldToClient,
     showCampDeposit(message) { campDeposit = { message, age: 0 }; },
     terrainChanged() { fieldDirty = true; },
     dispose() { if (!disposed) { disposed = true; overlay?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height); device.dispose(); } },

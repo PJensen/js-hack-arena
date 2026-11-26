@@ -92,11 +92,20 @@
     #entry-balance { display:block; margin:0 0 14px; padding:9px; border:1px solid var(--edge);
                      border-radius:8px; color:#f1dfaa; font:13px/1.5 system-ui,sans-serif; }
     #entry-balance[hidden] { display:none; }
-    #camp-controls { position:fixed; z-index:34; top:24%; left:50%; transform:translateX(-50%);
-                     width:max-content; max-width:calc(100vw - 30px); text-align:center; pointer-events:none; }
+    #camp-controls { position:fixed; z-index:51; inset:24% 0 auto; text-align:center; pointer-events:none; }
     #camp-controls button { pointer-events:auto; min-height:44px; padding:6px 12px; margin:2px;
                             color:#dff8ff; background:#101f2b; border:1px solid #5796ad; border-radius:7px;
-                            font:700 13px system-ui,sans-serif; cursor:pointer; }
+                            font:700 13px system-ui,sans-serif; cursor:pointer; touch-action:manipulation; }
+    #camp-controls button[data-anchored] {
+      --prompt-width:152px; --prompt-top:64px; --prompt-bottom:54px;
+      position:fixed; width:var(--prompt-width); margin:0; transform:translateX(-50%);
+      left:clamp(calc(var(--prompt-width) / 2 + max(8px,env(safe-area-inset-left))),var(--prompt-x),
+                 calc(100% - var(--prompt-width) / 2 - max(8px,env(safe-area-inset-right))));
+      top:clamp(max(var(--prompt-top),env(safe-area-inset-top)),var(--prompt-y),
+                calc(100% - max(var(--prompt-bottom),env(safe-area-inset-bottom) + 44px)));
+    }
+    #camp-controls[data-paired] button[data-anchored] { --prompt-bottom:106px; }
+    #camp-controls[data-paired] button[data-below] { --prompt-top:116px; --prompt-bottom:54px; }
     #camp-controls button:disabled { opacity:.65; }
     #camp-status { display:block; width:fit-content; margin:3px auto 0; padding:4px 8px;
                    border-radius:6px; background:#09131e; color:#dff8ff; font:13px/1.4 system-ui,sans-serif; }
@@ -851,9 +860,25 @@ function syncCampControls() {
   const dead = health.dead || health.hp <= 0;
   depositButton.hidden = dead || !inCampReach(grid, position, camp.bank);
   exitButton.hidden = !dead && !inCampReach(grid, position, camp.portal);
-  exitButton.textContent = dead ? 'Return to main screen' : 'Take exit portal';
+  const exitLabel = dead ? 'Return to main screen' : 'Take exit portal';
+  if (exitButton.textContent !== exitLabel) exitButton.textContent = exitLabel;
   depositButton.disabled = exitButton.disabled = campRequest !== null;
   campControls.hidden = depositButton.hidden && exitButton.hidden && !campStatus.textContent;
+
+  const bankPoint = depositButton.hidden ? null : renderer.worldToClient(camp.bank);
+  const portalPoint = exitButton.hidden || dead ? null : renderer.worldToClient(camp.portal);
+  const paired = Boolean(bankPoint && portalPoint);
+  campControls.toggleAttribute('data-paired', paired);
+  positionCampPrompt(depositButton, bankPoint, paired && bankPoint.y > portalPoint.y);
+  positionCampPrompt(exitButton, portalPoint, paired && portalPoint.y >= bankPoint.y);
+}
+
+function positionCampPrompt(button, point, below) {
+  button.toggleAttribute('data-anchored', Boolean(point));
+  button.toggleAttribute('data-below', below);
+  if (!point) return;
+  button.style.setProperty('--prompt-x', `${Math.round(point.x)}px`);
+  button.style.setProperty('--prompt-y', `${Math.round(point.y + (below ? 38 : -62))}px`);
 }
 
 onCampResult = ({ action, error, deposited }) => {

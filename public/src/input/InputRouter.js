@@ -210,7 +210,7 @@ export function createInputRouter({
     zoomDelta = 0;
   };
 
-  on(document, 'touchstart', (e) => {
+  function onTouchStart(e) {
     if (suspended) return;
     e.preventDefault();
     for (const t of e.changedTouches) {
@@ -224,9 +224,9 @@ export function createInputRouter({
       }
       startStick(t);
     }
-  }, { passive: false });
+  }
 
-  on(document, 'touchmove', (e) => {
+  function onTouchMove(e) {
     if (suspended) return;
     e.preventDefault();
     for (const t of e.changedTouches) {
@@ -243,7 +243,13 @@ export function createInputRouter({
         queueTouchAim();
       }
     }
-  }, { passive: false });
+  }
+
+  // Only gameplay surfaces own joystick gestures. Other DOM controls use native taps.
+  for (const surface of [canvas, leftBase, rightBase]) {
+    on(surface, 'touchstart', onTouchStart, { passive: false });
+    on(surface, 'touchmove', onTouchMove, { passive: false });
+  }
 
   on(document, 'touchend', (e) => {
     for (const t of e.changedTouches) {
