@@ -26,21 +26,26 @@ export class CharacterProgress {
     });
   }
 
-  enqueueCraft({ recipeId, requestId }, now = Date.now()) {
+  enqueueCraft({ recipeId, requestId, quantity = 1 }, now = Date.now()) {
     if (typeof requestId !== 'string' || !/^[0-9a-f-]{36}$/i.test(requestId)) return { error: 'Invalid request ID' };
     return this.storage.transactionSync(() => {
       const current = this.readRaw();
       if (!current) return { error: 'Character not initialized' };
       const key = 'craft-request:' + requestId;
-      if (this.storage.kv.get(key) !== undefined) {
+      const previous = this.storage.kv.get(key);
+      if (previous !== undefined) {
+        const matches = typeof previous === 'string'
+          ? previous === recipeId && quantity === 1
+          : previous.recipeId === recipeId && previous.quantity === quantity;
+        if (!matches) return { error: 'Request ID already used for a different craft' };
         const updated = reconcileCrafting(current, now);
         if (updated !== current) this.storage.kv.put(CHARACTER_KEY, updated);
         return { character: updated };
       }
-      const result = enqueueCraft(current, { recipeId, requestId }, now);
+      const result = enqueueCraft(current, { recipeId, requestId, quantity }, now);
       if (result.error) return result;
       this.storage.kv.put(CHARACTER_KEY, result.character);
-      this.storage.kv.put(key, recipeId);
+      this.storage.kv.put(key, { recipeId, quantity });
       return result;
     });
   }
