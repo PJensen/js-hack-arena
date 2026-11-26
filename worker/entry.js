@@ -24,6 +24,7 @@ export class Character extends DurableObject {
 
   read() { return this.progress.read(); }
   initialize(legacyGold) { return this.progress.initialize(legacyGold); }
+  enqueueCraft(request) { return this.progress.enqueueCraft(request); }
   creditGold(roomId, earned) { return this.progress.creditGold(roomId, earned); }
   creditMaterials(roomId, earned) { return this.progress.creditMaterials(roomId, earned); }
 }
