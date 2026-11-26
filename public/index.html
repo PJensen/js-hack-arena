@@ -78,7 +78,7 @@
                                  border-radius:5px; color:rgba(190,230,245,.75); background:rgba(20,65,88,.28);
                                  font:700 9px ui-monospace,monospace; letter-spacing:.05em; cursor:pointer; }
     .arena-item-tooltip-action:hover { color:#fff; border-color:#70e6ff; background:rgba(40,120,160,.35); }
-    #entry-gate { position:fixed; inset:0; z-index:100; display:grid; place-items:center;
+    #entry-gate { position:fixed; inset:0; z-index:100; display:grid; place-items:center; overflow:auto;
                   background:radial-gradient(circle at 50% 45%,rgba(18,55,76,.9),rgba(3,7,12,.98)); }
     #entry-card { width:min(390px,calc(100vw - 34px)); padding:28px; text-align:center;
                   background:linear-gradient(165deg,rgba(13,29,44,.98),rgba(5,10,18,.98));
@@ -89,6 +89,19 @@
     #entry-status { margin:-8px 0 16px; color:#8af0ff; font:700 12px/1.4 ui-monospace,monospace; }
     #entry-status[data-state="signed-out"], #entry-status[data-state="join-failed"] { color:#ffd58a; }
     #entry-status[data-state="offline"] { color:rgba(210,228,242,.58); }
+    #entry-balance { display:block; margin:0 0 14px; padding:9px; border:1px solid var(--edge);
+                     border-radius:8px; color:#f1dfaa; font:13px/1.5 system-ui,sans-serif; }
+    #entry-balance[hidden] { display:none; }
+    #camp-controls { position:fixed; z-index:34; top:24%; left:50%; transform:translateX(-50%);
+                     width:max-content; max-width:calc(100vw - 30px); text-align:center; pointer-events:none; }
+    #camp-controls button { pointer-events:auto; min-height:44px; padding:6px 12px; margin:2px;
+                            color:#dff8ff; background:#101f2b; border:1px solid #5796ad; border-radius:7px;
+                            font:700 13px system-ui,sans-serif; cursor:pointer; }
+    #camp-controls button:disabled { opacity:.65; }
+    #camp-status { display:block; width:fit-content; margin:3px auto 0; padding:4px 8px;
+                   border-radius:6px; background:#09131e; color:#dff8ff; font:13px/1.4 system-ui,sans-serif; }
+    #camp-status:empty { display:none; }
+    #camp-status[data-confirmed] { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
     #player-name { width:100%; padding:12px 14px; color:#fff; background:rgba(1,6,12,.72);
                    border:1px solid rgba(112,230,255,.3); border-radius:8px; outline:none;
                    font:700 16px ui-monospace,monospace; text-align:center; user-select:text; }
@@ -273,10 +286,16 @@
       <h1>HACK//ARENA</h1>
       <p>Enter the shared dungeon with your Hairylogic identity. Offline play remains available at <code>?offline</code>.</p>
       <div id="entry-status" aria-live="polite">CHECKING SIGN-IN STATUS…</div>
+      <output id="entry-balance" aria-label="Character balance" hidden></output>
       <input id="player-name" maxlength="20" autocomplete="nickname" placeholder="Adventurer" aria-label="Character name" />
       <button id="enter-dungeon" type="submit" disabled>Enter the Dungeon</button>
       <button id="install-arena" type="button" hidden>Install Hack Arena</button>
     </form>
+  </div>
+  <div id="camp-controls" hidden>
+    <button id="camp-deposit" type="button" hidden>Deposit materials</button>
+    <button id="camp-exit" type="button" hidden>Take exit portal</button>
+    <output id="camp-status" aria-live="polite"></output>
   </div>
   <div id="hud">
     <div class="hud-top-bar">
@@ -288,7 +307,7 @@
       <button id="reset-dungeon" type="button" title="Leave this room and generate a fresh dungeon">New Dungeon</button>
     </div>
     <div id="hud-conditions" role="group" aria-label="Active conditions" hidden></div>
-    <output id="hud-materials" aria-label="Collected materials" hidden></output>
+  <output id="hud-materials" aria-label="Carried materials" hidden></output>
   </div>
   <span id="hud-hp" hidden></span><span id="hud-mana" hidden></span><span id="hud-weapon" hidden></span>
   <div class="stick-readout" id="readout-left">L stick idle</div>
@@ -427,7 +446,9 @@ import { createItemTooltip } from './src/display/ui/itemTooltip.js';
 import { createDungeonChat } from './src/display/ui/dungeonChat.js';
 import { createResourceBar } from './src/display/ui/resourceBars.js';
 import { spellCastProgress } from './src/display/spellCastProgress.js';
-import { ArrowAmmo, BowWeapon, Gold, Health, Mana, MeleeWeapon, Mining, Powerups, Spellbook, Position, Stamina } from './src/rules/components/index.js';
+import { ArrowAmmo, BowWeapon, Gold, Health, Mana, MaterialStacks, MeleeWeapon, Mining, Powerups, Spellbook, Position, Stamina } from './src/rules/components/index.js';
+import { CampAction, checkCampAction, inCampReach } from './src/rules/camp.js';
+import { getMiningMaterial } from './src/rules/data/miningMaterials.js';
 import { MINING_SECONDS } from './src/rules/components/Mining.js';
 import { createNetClient } from './src/net/client.js';
 import { normalizePlayerName } from './src/shared/net/protocol.js';
@@ -448,6 +469,20 @@ const chestPreview = pageParams.get('chest')?.trim().toLowerCase() === 'epic';
 const mobPreview = chestPreview ? null : getPreviewMob(previewName);
 const isPreview = Boolean(mobPreview || chestPreview);
 const forceOffline = pageParams.has('offline') || previewName !== null || chestPreview || itemPreview !== null;
+const tracksOfflineProgress = forceOffline && previewName === null && !chestPreview && !itemPreview;
+const offlineProgressKey = 'hack-arena.offline-progress';
+let offlineProgress = { gold: 0 };
+if (tracksOfflineProgress) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(offlineProgressKey));
+    if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+      const gold = Number.isSafeInteger(saved.gold) && saved.gold >= 0 ? saved.gold : 0;
+      offlineProgress = { ...saved, gold };
+    }
+  } catch (error) {
+    console.warn('Could not load offline progress', error);
+  }
+}
 const resetDungeonButton = document.getElementById('reset-dungeon');
 resetDungeonButton.hidden = !forceOffline;
 document.getElementById('reset-dungeon').addEventListener('click', () => {
@@ -463,14 +498,38 @@ const authState = forceOffline ? null : await fetch('/auth/me', { credentials: '
   .then(async (response) => response.ok ? response.json() : ({ authenticated: false }))
   .catch(() => ({ authenticated: false, unavailable: true }));
 
+const entryBalance = document.getElementById('entry-balance');
+function showBalance({ gold, materials }) {
+  const banked = Object.entries(materials ?? {}).flatMap(([id, count]) => {
+    const item = getMiningMaterial(id);
+    return item && Number.isSafeInteger(count) && count > 0 ? [`${count} ${item.name}`] : [];
+  });
+  entryBalance.textContent = `${gold.toLocaleString()} Gold · ${banked.length ? `Banked ${banked.join(', ')}` : 'Bank is empty'}`;
+  entryBalance.hidden = false;
+}
+if (tracksOfflineProgress) showBalance(offlineProgress);
+if (authState?.authenticated) {
+  const balanceUrl = new URL('/api/character', location.href);
+  if (pageParams.has('room')) balanceUrl.searchParams.set('room', pageParams.get('room'));
+  fetch(balanceUrl, { cache: 'no-store' }).then(async (response) => {
+    if (!response.ok) throw new Error('Could not load character balance');
+    showBalance(await response.json());
+  }).catch(() => {
+    entryBalance.textContent = 'Bank balance unavailable. Reload to try again.';
+    entryBalance.hidden = false;
+  });
+}
+
 let dungeonChat = null;
+let onCampResult = () => {};
+let stopOnDisconnect = (message) => showArenaLoadError(`${message} Reload to return to the main screen.`);
 const netClient = createNetClient({
   roomId: pageParams.get('room') ?? undefined,
   onSay(message) { dungeonChat?.receive(message); },
   onSayError(message) { dungeonChat?.reject(message); },
+  onCampResult(message) { onCampResult(message); },
   onDisconnect(message) {
-    loop.stop();
-    showArenaLoadError(`${message} Reload to rejoin.`);
+    stopOnDisconnect(message);
   },
 });
 const { playerName, netWelcome } = await new Promise((resolve) => {
@@ -525,12 +584,12 @@ const { playerName, netWelcome } = await new Promise((resolve) => {
 });
 
 const isNetworked = Boolean(netWelcome);
-const tracksOfflineProgress = !isNetworked && !isPreview && !itemPreview;
 
 // ── Seed + cave ─────────────────────────────────────────────────
 const SEED = netWelcome?.seed ?? (chestPreview && !pageParams.get('seed') ? 7 : resolveSeed().seed);
 const caveData = generateArenaCave(SEED);
 const { grid, bounds, spawns, routes, campfires } = caveData;
+const camp = isNetworked || tracksOfflineProgress ? caveData.camp : null;
 const spawn = spawns[0];
 const previewChestSite = chestPreview ? findReachableNear(grid, spawn, [72, 56, 40]) : null;
 const decorations = createDungeonDecorations({ grid, routes, spawns, campfires, seed: SEED });
@@ -640,18 +699,7 @@ if (isNetworked) {
 if (mobPreview) spawnPreviewMob(world, grid, world.get(playerId, Position), mobPreview);
 if (previewChestSite) spawnEpicChest(world, previewChestSite.x, previewChestSite.y);
 if (itemPreview) givePreviewItems(world, grid, playerId, itemPreview.items);
-const offlineProgressKey = 'hack-arena.offline-progress';
-let offlineProgress = { gold: 0 };
 if (tracksOfflineProgress) {
-  try {
-    const saved = JSON.parse(localStorage.getItem(offlineProgressKey));
-    if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
-      const gold = Number.isSafeInteger(saved.gold) && saved.gold >= 0 ? saved.gold : 0;
-      offlineProgress = { ...saved, gold };
-    }
-  } catch (error) {
-    console.warn('Could not load offline progress', error);
-  }
   world.get(playerId, Gold).count = offlineProgress.gold;
 }
 const interpolation = isNetworked
@@ -752,6 +800,7 @@ function syncHudResources() {
 syncHudResources();
 renderer = createWebGLArenaRenderer({
   canvas, overlayCanvas, cam, grid, bounds, decorations, fx, world, SEED, runtimeEvents,
+  camp,
   getMineableOre: sim.getMineableOre,
   net: isNetworked ? netClient : null, playerId,
   presentation,
@@ -780,6 +829,85 @@ renderer = createWebGLArenaRenderer({
     },
   },
 });
+
+const campControls = document.getElementById('camp-controls');
+const depositButton = document.getElementById('camp-deposit');
+const exitButton = document.getElementById('camp-exit');
+const campStatus = document.getElementById('camp-status');
+let campRequest = null;
+let campStatusTimer;
+
+function showCampStatus(message) {
+  delete campStatus.dataset.confirmed;
+  campStatus.textContent = message;
+  clearTimeout(campStatusTimer);
+  if (message) campStatusTimer = setTimeout(() => { campStatus.textContent = ''; }, 4500);
+}
+
+function syncCampControls() {
+  if (!camp) return;
+  const position = world.get(playerId, Position);
+  const health = world.get(playerId, Health);
+  const dead = health.dead || health.hp <= 0;
+  depositButton.hidden = dead || !inCampReach(grid, position, camp.bank);
+  exitButton.hidden = !dead && !inCampReach(grid, position, camp.portal);
+  exitButton.textContent = dead ? 'Return to main screen' : 'Take exit portal';
+  depositButton.disabled = exitButton.disabled = campRequest !== null;
+  campControls.hidden = depositButton.hidden && exitButton.hidden && !campStatus.textContent;
+}
+
+onCampResult = ({ action, error, deposited }) => {
+  campRequest = null;
+  if (error) {
+    showCampStatus(error);
+  } else if (action === CampAction.EXIT) {
+    loop.stop();
+    netClient.destroy();
+    location.reload();
+  } else if (action === CampAction.DEPOSIT) {
+    const total = Object.values(deposited).reduce((sum, count) => sum + count, 0);
+    const message = `Banked ${total} ${total === 1 ? 'material' : 'materials'}`;
+    renderer.showCampDeposit(message);
+    showCampStatus(message);
+    campStatus.dataset.confirmed = '';
+  }
+};
+
+function requestCampAction(action) {
+  if (campRequest !== null) return;
+  if (isNetworked) {
+    if (netClient.campAction(action)) {
+      campRequest = action;
+      if (action === CampAction.DEPOSIT) showCampStatus('Saving deposit…');
+    } else {
+      showCampStatus('Connection lost. Reload to return to the main screen.');
+    }
+    return;
+  }
+  const error = checkCampAction({ world, player: playerId, grid, camp, action });
+  if (error || action === CampAction.EXIT) {
+    onCampResult({ action, error });
+    return;
+  }
+  const stacks = world.get(playerId, MaterialStacks);
+  const deposited = stacks.counts;
+  const materials = { ...offlineProgress.materials };
+  for (const [id, count] of Object.entries(deposited)) materials[id] = (materials[id] ?? 0) + count;
+  const updated = { ...offlineProgress, materials };
+  try {
+    localStorage.setItem(offlineProgressKey, JSON.stringify(updated));
+  } catch (error) {
+    console.warn('Could not save offline bank', error);
+    showCampStatus('Could not save your deposit. Try again.');
+    return;
+  }
+  offlineProgress = updated;
+  stacks.counts = {};
+  onCampResult({ action, deposited });
+}
+
+depositButton.addEventListener('click', () => requestCampAction(CampAction.DEPOSIT));
+exitButton.addEventListener('click', () => requestCampAction(CampAction.EXIT));
 
 // ── Game loop (fixed tick + render) ─────────────────────────────
 const ZOOM_MIN = 0.3, ZOOM_MAX = 6.0, ZOOM_STEP = 0.15;
@@ -839,6 +967,7 @@ const loop = createFixedTickLoop({
     // a delayed first frame must not leave resource bars at their placeholders.
     syncHudResources();
     renderer.renderFrame();
+    syncCampControls();
     const sb = world.get(playerId, Spellbook);
     arenaAudio.updateLocalCast(sb);
     syncCastBar(sb);
@@ -875,6 +1004,10 @@ const loop = createFixedTickLoop({
   },
 });
 
+stopOnDisconnect = (message) => {
+  loop.stop();
+  showArenaLoadError(`${message} Reload to return to the main screen.`);
+};
 loop.start();
 console.log(`Cave: seed=${SEED.toString(16)} grid=${grid.cols}x${grid.rows} spawns=${spawns.length}`);
 

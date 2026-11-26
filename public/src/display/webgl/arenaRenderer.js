@@ -56,6 +56,7 @@ import { POTION_GLOW_FRAGMENT } from './shaders/potionGlow.frag.js';
 import { FLAME_FRAGMENT } from './shaders/flame.frag.js';
 import { BAT_FLAME_FRAGMENT } from './shaders/batFlame.frag.js';
 import { CAMPFIRE_VERTEX } from './shaders/campfire.vert.js';
+import { CAMP_PORTAL_FRAGMENT } from './shaders/campPortal.frag.js';
 import { PROP_MESH_FRAGMENT } from './shaders/propMesh.frag.js';
 import { MUSHROOM_FRAGMENT } from './shaders/mushroom.frag.js';
 import { GHOST_PIPE_VERTEX } from './shaders/ghostPipe.vert.js';
@@ -180,7 +181,7 @@ function uploadCubeMesh(device, vertices) {
 }
 
 export function createWebGLArenaRenderer(deps) {
-  const { canvas, overlayCanvas, cam, grid, bounds, decorations, getMineableOre = () => [], world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars, stepParticles, speechBubbles } = deps;
+  const { canvas, overlayCanvas, cam, grid, bounds, decorations, camp, getMineableOre = () => [], world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars, stepParticles, speechBubbles } = deps;
   const syncHudReadout = createHudReadout(hud.meta, hud.conditions, hud.materials);
   const device = createWebGLDevice(canvas);
   const { gl } = device;
@@ -213,6 +214,8 @@ export function createWebGLArenaRenderer(deps) {
   glyph.color = uniform(gl, glyph.program, 'u_color');
   const solid = worldProgram(device, SOLID_FRAGMENT);
   solid.color = uniform(gl, solid.program, 'u_color');
+  const portal = worldProgram(device, CAMP_PORTAL_FRAGMENT);
+  portal.time = uniform(gl, portal.program, 'u_time');
   const lighting = worldProgram(device, createLightFragment(MAX_DYNAMIC_LIGHTS));
   lighting.count = uniform(gl, lighting.program, 'u_light_count');
   lighting.lights = uniform(gl, lighting.program, 'u_lights[0]');
@@ -414,6 +417,7 @@ export function createWebGLArenaRenderer(deps) {
   const gore = createGorePass({ grid, seed: SEED, reducedMotion: () => motionPreference.matches });
   const nextBleedDrip = new Map();
   const combatNumbers = createFloatTextPass();
+  let campDeposit = null;
   const meleeImpact = createMeleeImpact({
     playerId,
     reducedMotion: () => motionPreference.matches,
@@ -547,6 +551,16 @@ export function createWebGLArenaRenderer(deps) {
     gl.bindVertexArray(quadVao);
     setWorld(solid, x, y, width, height);
     gl.uniform4fv(solid.color, color);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  function drawCampPortal({ x, y }, now) {
+    if (!inView(x, y, 55)) return;
+    drawDisc(x, y + 4, 24, [0.03, 0.08, 0.15, 0.65], [0.13, 0.32, 0.39, 0.58]);
+    gl.useProgram(portal.program);
+    gl.bindVertexArray(quadVao);
+    setWorld(portal, x, y - 18, 58, 72);
+    gl.uniform1f(portal.time, motionPreference.matches ? 0 : now);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
@@ -693,7 +707,7 @@ export function createWebGLArenaRenderer(deps) {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  function drawLootModel({ model, id, shown, info, effect, airborne, material }, now) {
+  function drawLootModel({ model, id, shown, info, effect, airborne, material, bank }, now) {
     const still = material && (!airborne || motionPreference.matches);
     const angle = (still ? 0 : now * (material ? 9 : 0.85)) + id * 1.7;
     const bob = material ? 0 : Math.sin(now * 2.8 + id) * 1.5;
@@ -717,9 +731,9 @@ export function createWebGLArenaRenderer(deps) {
       else gl.uniform3f(loot.trim, 0.77, 0.9, 0.94);
       gl.uniform3f(loot.detail, 0.57, 0.31, 0.16);
     } else if (model === 'chest') {
-      gl.uniform3f(loot.body, 0.37, 0.17, 0.48);
-      gl.uniform3f(loot.trim, 0.96, 0.71, 0.28);
-      gl.uniform3f(loot.detail, 0.14, 0.07, 0.18);
+      gl.uniform3fv(loot.body, bank ? [0.38, 0.23, 0.12] : [0.37, 0.17, 0.48]);
+      gl.uniform3fv(loot.trim, bank ? [0.44, 0.83, 0.9] : [0.96, 0.71, 0.28]);
+      gl.uniform3fv(loot.detail, bank ? [0.10, 0.16, 0.18] : [0.14, 0.07, 0.18]);
     } else {
       const [r, g, b] = rarityColor(info.rarity);
       if (model === 'sword') gl.uniform3f(loot.body, r, g, b);
@@ -873,6 +887,9 @@ export function createWebGLArenaRenderer(deps) {
           r: 1, g: 0.38 + 0.07 * intensity, b: 0.14 + 0.06 * intensity,
         });
       }
+    }
+    if (camp && inView(camp.portal.x, camp.portal.y, 95)) {
+      candidates.push({ ...camp.portal, radius: 95, intensity: 1.3, r: 0.23, g: 0.72, b: 1 });
     }
     for (const prop of bioluminescentProps) {
       const glow = biolum(now, prop.phase);
@@ -1451,6 +1468,7 @@ export function createWebGLArenaRenderer(deps) {
 
     drawSpeechBubbles(width, height, ratio);
     combatNumbers.render(overlay, { view, width, height, ratio, reducedMotion: motionPreference.matches });
+    if (camp) drawCampLabels(width, height, ratio);
     const size = Math.round(128 * ratio);
     const pad = Math.round(15 * ratio);
     const left = width - size - pad;
@@ -1473,6 +1491,34 @@ export function createWebGLArenaRenderer(deps) {
     overlay.textAlign = 'left'; overlay.textBaseline = 'bottom'; overlay.font = `800 ${Math.round(9 * ratio)}px ui-monospace,monospace`;
     overlay.fillStyle = 'rgba(210,240,255,.68)'; overlay.fillText('THE DEEP', left + 7 * ratio, top - 4 * ratio);
     updateNearbyItemTooltip(width, height, shownPlayer, oreSites);
+  }
+
+  function drawCampLabels(width, height, ratio) {
+    overlay.save();
+    overlay.textAlign = 'center';
+    overlay.textBaseline = 'top';
+    overlay.font = `700 ${Math.round(12 * ratio)}px system-ui, sans-serif`;
+    overlay.lineWidth = 4 * ratio;
+    overlay.strokeStyle = '#07101a';
+    label(camp.bank, 'Bank Chest', '#ffe0a2', 17);
+    label(camp.portal, 'Exit Portal', '#a6f4ff', 19);
+    if (campDeposit) {
+      const progress = campDeposit.age / 2.1;
+      const rise = motionPreference.matches ? 0 : 35 * (1 - (1 - progress) ** 2);
+      overlay.font = `800 ${Math.round(16 * ratio)}px system-ui, sans-serif`;
+      overlay.globalAlpha = Math.min(1, (1 - progress) * 4);
+      label(camp.bank, campDeposit.message, '#adffd0', -42 - rise);
+    }
+    overlay.restore();
+
+    function label(site, text, color, offset) {
+      if (!inView(site.x, site.y, 70)) return;
+      const x = ((site.x - view[0]) / view[2] + 0.5) * width;
+      const y = ((site.y - view[1]) / view[3] + 0.5) * height + offset * ratio;
+      overlay.strokeText(text, x, y);
+      overlay.fillStyle = color;
+      overlay.fillText(text, x, y);
+    }
   }
 
   function updateNearbyItemTooltip(width, height, shownPlayer, oreSites) {
@@ -1548,6 +1594,10 @@ export function createWebGLArenaRenderer(deps) {
     const now = performance.now() * 0.001;
     const renderDt = Math.min(0.05, Math.max(0, now - lastFrameTime));
     lastFrameTime = now;
+    if (campDeposit) {
+      campDeposit.age += renderDt;
+      if (campDeposit.age >= 2.1) campDeposit = null;
+    }
     batEmberAccumulator += renderDt;
     const emberTick = batEmberAccumulator >= 0.035;
     if (emberTick) batEmberAccumulator %= 0.035;
@@ -1599,6 +1649,7 @@ export function createWebGLArenaRenderer(deps) {
     const oreSites = getMineableOre();
     drawOre(view, inView, oreSites, motionPreference.matches ? null : now);
     drawDungeonDecorations(now, renderDt, campfires);
+    if (camp) drawCampPortal(camp.portal, now);
 
     presentBleeding();
     goreRenderer.drawFloor(gore, view, inView);
@@ -1617,6 +1668,9 @@ export function createWebGLArenaRenderer(deps) {
     const batShrieks = [];
     const batFlames = [];
     const models = [];
+    if (camp && inView(camp.bank.x, camp.bank.y, 45)) {
+      models.push({ model: 'chest', id: 0, shown: camp.bank, bank: true });
+    }
     const books = [];
     const wraithCasts = new Map();
     const castTail = SHADOW_BOLT_LIFETIME - 0.32;
@@ -2039,6 +2093,7 @@ export function createWebGLArenaRenderer(deps) {
       conditions: world.get(playerId, Conditions),
       casts: runtimeEvents.casts,
       connection: net?.getStatusText(),
+      camp,
     });
     document.body.classList.toggle('player-dead', Boolean(hp?.dead));
     hud.zoomReadout.textContent = `zoom: ${cam.scale.toFixed(2)}x  particles:${fx.pool.count}`;
@@ -2050,6 +2105,7 @@ export function createWebGLArenaRenderer(deps) {
   return Object.freeze({
     renderFrame,
     pickUnit,
+    showCampDeposit(message) { campDeposit = { message, age: 0 }; },
     terrainChanged() { fieldDirty = true; },
     dispose() { if (!disposed) { disposed = true; overlay?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height); device.dispose(); } },
   });

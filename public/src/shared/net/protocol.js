@@ -7,6 +7,8 @@ export const MESSAGE = Object.freeze({
   SNAPSHOT: 'snapshot',
   SAY: 'say',
   SAY_ERROR: 'say.error',
+  CAMP_ACTION: 'camp.action',
+  CAMP_RESULT: 'camp.result',
   PEER_JOINED: 'peer.joined',
   PEER_LEFT: 'peer.left',
   PING: 'ping',

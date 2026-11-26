@@ -12,7 +12,8 @@ import {
   normalizeSayText,
 } from '../public/src/shared/net/protocol.js';
 import { generateArenaCave } from '../public/src/rules/geometry/caveGen.js';
-import { Gold } from '../public/src/rules/components/index.js';
+import { Gold, MaterialStacks } from '../public/src/rules/components/index.js';
+import { CampAction, checkCampAction } from '../public/src/rules/camp.js';
 import { SIM_DT, SIM_TICK_HZ } from '../public/src/rules/sim/arenaSim.js';
 import { createArenaDungeonSimulation } from '../public/src/rules/sim/arenaDungeon.js';
 import {
@@ -36,7 +37,8 @@ const SERVER_TICK_MS = 1000 / SIM_TICK_HZ;
 const SNAPSHOT_EVERY_TICKS = Math.max(1, Math.round(SIM_TICK_HZ / SNAPSHOT_HZ));
 const SAY_COOLDOWN_MS = 900;
 const PENDING_GOLD_PREFIX = 'pending-character-gold:';
-const GOLD_RETRY_MS = 2000;
+const PENDING_MATERIALS_PREFIX = 'pending-character-materials:';
+const CREDIT_RETRY_MS = 2000;
 
 export default {
   async fetch(request, env) {
@@ -73,6 +75,13 @@ export default {
       });
     }
 
+    if (url.pathname === '/api/character' && request.method === 'GET') {
+      const session = await readSession(request, env);
+      if (!session) return json({ ok: false, error: 'login required' }, { status: 401 });
+      const roomId = normalizeRoomId(url.searchParams.get('room') ?? DEFAULT_ROOM_ID);
+      return json(await env.GAME_ROOM.getByName(roomId).readCharacterProgress(session.sub));
+    }
+
     const roomPath = /^\/ws\/([a-z0-9_-]{1,48})$/.exec(url.pathname);
     if (roomPath) {
       const roomId = normalizeRoomId(roomPath[1]);
@@ -94,6 +103,7 @@ export class GameRoom {
     this.env = env;
     this.sessions = new Map();
     this.goldFlushes = new Map();
+    this.materialFlushes = new Map();
     this.createdAt = Date.now();
     this.roomId = state.id.name ?? DEFAULT_ROOM_ID;
     this.seed = makeRoomSeed(this.roomId);
@@ -137,7 +147,7 @@ export class GameRoom {
     const { userId } = identity;
     const alreadyPlaying = () => [...this.sessions.values()].some((session) => session.userId === userId);
     if (alreadyPlaying()) return false;
-    const gold = await this.loadCharacterGold(userId);
+    const { gold } = await this.readCharacterProgress(userId);
     if (alreadyPlaying()) return false;
     socket.accept();
 
@@ -234,6 +244,10 @@ export class GameRoom {
       return;
     }
 
+    if (msg.type === MESSAGE.CAMP_ACTION) {
+      return this.handleCampAction(session, msg.action);
+    }
+
     this.send(socket, MESSAGE.ERROR, { error: `unsupported message type: ${msg.type}` });
   }
 
@@ -261,14 +275,81 @@ export class GameRoom {
     return this.state.storage.kv.get(`player-progress:${userId}`)?.gold ?? 0;
   }
 
-  async loadCharacterGold(userId) {
-    await this.flushGold(userId);
+  async readCharacterProgress(userId) {
+    await Promise.all([this.flushGold(userId), this.flushMaterials(userId)]);
     const character = this.env.CHARACTER.getByName(userId);
     const existing = await character.read();
-    if (existing) return existing.gold;
+    if (existing) return existing;
     const legacyGold = this.roomId === DEFAULT_ROOM_ID ? this.legacyGold(userId)
       : await this.env.GAME_ROOM.getByName(DEFAULT_ROOM_ID).legacyGold(userId);
-    return (await character.initialize(legacyGold)).gold;
+    return character.initialize(legacyGold);
+  }
+
+  handleCampAction(session, action) {
+    const { userId, socket } = session;
+    const { grid, camp } = this.ensureCave();
+    const sim = this.ensureSim();
+    const player = sim.getPlayerEntity(session.id);
+    const pendingKey = PENDING_MATERIALS_PREFIX + userId;
+    const { storage } = this.state;
+    const pending = storage.kv.get(pendingKey) !== undefined;
+    const error = checkCampAction({ world: sim.world, player, grid, camp, action, pending });
+    if (error) {
+      this.send(socket, MESSAGE.CAMP_RESULT, { action, error, pending });
+      return;
+    }
+    if (action === CampAction.EXIT) {
+      this.leave(socket);
+      this.send(socket, MESSAGE.CAMP_RESULT, { action });
+      return;
+    }
+
+    const stacks = sim.world.get(player, MaterialStacks);
+    const deposited = stacks.counts;
+    const earnedKey = `character-materials-earned:${userId}`;
+    this.state.waitUntil(storage.setAlarm(Date.now() + CREDIT_RETRY_MS));
+    try {
+      storage.transactionSync(() => {
+        const earned = storage.kv.get(earnedKey) ?? {};
+        for (const [id, count] of Object.entries(deposited)) {
+          const total = (earned[id] ?? 0) + count;
+          if (!Number.isSafeInteger(total)) throw new Error('Room material credit exceeds the safe integer limit');
+          earned[id] = total;
+        }
+        storage.kv.put(earnedKey, earned);
+        storage.kv.put(pendingKey, { earned, deposited });
+      });
+    } catch (error) {
+      console.error('Could not queue material deposit', error);
+      this.send(socket, MESSAGE.CAMP_RESULT, { action, error: 'Could not save your deposit. Try again.' });
+      return;
+    }
+    stacks.counts = {};
+    const flush = this.flushMaterials(userId).catch((error) => {
+      console.error('Character material credit deferred', error);
+      this.send(socket, MESSAGE.CAMP_RESULT, { action, error: 'Deposit is saving. Try the portal again shortly.', pending: true });
+    });
+    this.state.waitUntil(flush);
+    return flush;
+  }
+
+  flushMaterials(userId) {
+    const inFlight = this.materialFlushes.get(userId);
+    if (inFlight) return inFlight;
+    const key = PENDING_MATERIALS_PREFIX + userId;
+    const { kv } = this.state.storage;
+    const pending = kv.get(key);
+    if (!pending) return Promise.resolve();
+    const flush = Promise.resolve().then(async () => {
+      await this.env.CHARACTER.getByName(userId).creditMaterials(this.state.id.toString(), pending.earned);
+      kv.delete(key);
+      const session = [...this.sessions.values()].find((player) => player.userId === userId);
+      if (session) {
+        this.send(session.socket, MESSAGE.CAMP_RESULT, { action: CampAction.DEPOSIT, deposited: pending.deposited });
+      }
+    }).finally(() => this.materialFlushes.delete(userId));
+    this.materialFlushes.set(userId, flush);
+    return flush;
   }
 
   queueGold(userId, amount) {
@@ -278,7 +359,7 @@ export class GameRoom {
     // Schedule recovery before publishing the durable credit. The alarm also
     // runs if the room loses its sockets while an RPC is in flight.
     if (storage.kv.get(pendingKey) === undefined) {
-      this.state.waitUntil(storage.setAlarm(Date.now() + GOLD_RETRY_MS));
+      this.state.waitUntil(storage.setAlarm(Date.now() + CREDIT_RETRY_MS));
     }
     storage.transactionSync(() => {
       const earned = (storage.kv.get(earnedKey) ?? 0) + amount;
@@ -314,11 +395,15 @@ export class GameRoom {
 
   async alarm() {
     const { storage } = this.state;
-    const pending = [...storage.kv.list({ prefix: PENDING_GOLD_PREFIX })];
+    const gold = [...storage.kv.list({ prefix: PENDING_GOLD_PREFIX })];
+    const materials = [...storage.kv.list({ prefix: PENDING_MATERIALS_PREFIX })];
     // Keep a retry scheduled until every pending credit is acknowledged.
-    if (pending.length === 0) return;
-    await storage.setAlarm(Date.now() + GOLD_RETRY_MS);
-    await Promise.all(pending.map(([key]) => this.flushGold(key.slice(PENDING_GOLD_PREFIX.length))));
+    if (gold.length === 0 && materials.length === 0) return;
+    await storage.setAlarm(Date.now() + CREDIT_RETRY_MS);
+    await Promise.all([
+      ...gold.map(([key]) => this.flushGold(key.slice(PENDING_GOLD_PREFIX.length))),
+      ...materials.map(([key]) => this.flushMaterials(key.slice(PENDING_MATERIALS_PREFIX.length))),
+    ]);
   }
 
   leave(socket) {

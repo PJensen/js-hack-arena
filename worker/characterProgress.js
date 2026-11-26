@@ -1,3 +1,5 @@
+import { miningMaterialIds } from '../public/src/rules/data/miningMaterials.js';
+
 const CHARACTER_KEY = 'character';
 
 // The account owns this record. Room checkpoints make cumulative credits
@@ -34,6 +36,33 @@ export class CharacterProgress {
       this.storage.kv.put(CHARACTER_KEY, { ...character, gold });
       this.storage.kv.put(key, earned);
       return gold;
+    });
+  }
+
+  creditMaterials(roomId, earned) {
+    const key = `materials-checkpoint:${roomId}`;
+    return this.storage.transactionSync(() => {
+      const character = this.read();
+      if (!character) throw new Error('Character must be initialized before banking materials');
+      const credited = this.storage.kv.get(key) ?? {};
+      const materials = { ...character.materials };
+      let changed = false;
+      for (const id of miningMaterialIds) {
+        const count = earned[id] ?? 0;
+        if (!Number.isSafeInteger(count) || count < 0) throw new Error('Invalid cumulative material credit');
+        const delta = count - (credited[id] ?? 0);
+        if (delta <= 0) continue;
+        const balance = (materials[id] ?? 0) + delta;
+        if (!Number.isSafeInteger(balance)) throw new Error('Material balance exceeds the safe integer limit');
+        materials[id] = balance;
+        credited[id] = count;
+        changed = true;
+      }
+      if (changed) {
+        this.storage.kv.put(CHARACTER_KEY, { ...character, materials });
+        this.storage.kv.put(key, credited);
+      }
+      return materials;
     });
   }
 }

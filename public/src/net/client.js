@@ -20,6 +20,7 @@ export function createNetClient({
   onDisconnect = () => {},
   onSay = () => {},
   onSayError = () => {},
+  onCampResult = () => {},
 } = {}) {
   const peers = new Map();
   const minSendMs = 1000 / Math.max(1, sendHz);
@@ -171,6 +172,11 @@ export function createNetClient({
       return;
     }
 
+    if (msg.type === MESSAGE.CAMP_RESULT && welcome) {
+      onCampResult(msg);
+      return;
+    }
+
     if (msg.type === MESSAGE.PEER_JOINED) {
       applyPeerList(msg.peers);
       return;
@@ -281,6 +287,7 @@ export function createNetClient({
     needsSignIn: () => status === 'auth',
     getStatusText,
     say: (text) => Boolean(welcome) && send(MESSAGE.SAY, { text }),
+    campAction: (action) => Boolean(welcome) && send(MESSAGE.CAMP_ACTION, { action }),
     update,
   };
 }

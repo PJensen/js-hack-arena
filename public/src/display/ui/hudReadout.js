@@ -20,18 +20,18 @@ export function createHudReadout(root, conditionRow, materialReadout) {
   let shownBadges = '';
   let shownMaterials = '';
 
-  return function sync({ dead, gold, materials, powerups, conditions, casts, connection }) {
+  return function sync({ dead, gold, materials, powerups, conditions, casts, connection, camp }) {
     if (materialReadout) {
       const text = Object.entries(materials ?? {}).map(([id, count]) =>
         `${getMiningMaterial(id).name} ×${count}`).join(' · ');
       if (text !== shownMaterials) {
-        materialReadout.textContent = text;
+        materialReadout.textContent = text ? `Carrying ${text}` : '';
         materialReadout.hidden = !text;
         shownMaterials = text;
       }
     }
     if (dead) {
-      const message = 'YOU DIED · refresh to re-enter';
+      const message = camp ? 'YOU DIED' : 'YOU DIED · refresh to re-enter';
       if (shown !== message) root.textContent = message;
       shown = message;
       conditionRow.hidden = true;

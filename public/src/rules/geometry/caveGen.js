@@ -2,7 +2,7 @@
 // Natural cave generation: grow a connected, branching cave skeleton, then
 // erode its chambers and passages with coherent noise before baking clearance.
 
-import { findOpen } from './landmarks.js';
+import { findOpen, findReachableNear } from './landmarks.js';
 import { createChamberField } from './chamberField.js';
 import { placeArenaOre } from './oreSites.js';
 import { sweepMaxFree } from './sweep.js';
@@ -394,12 +394,18 @@ export function generateArenaCave(seed) {
   const hearth = findOpen(cave.grid, start.x, start.y - 76, 24, 38) ??
     findOpen(cave.grid, start.x, start.y + 76, 24, 38);
   const campfires = hearth ? [hearth] : [];
+  const bank = findReachableNear(cave.grid, start, [66, 54, 42, 30],
+    (point) => !hearth || pointDistance(point, hearth) >= 48) ?? start;
+  const portal = findReachableNear(cave.grid, start, [76, 64, 52, 40, 28],
+    (point) => pointDistance(point, bank) >= 58 && (!hearth || pointDistance(point, hearth) >= 48)) ??
+    findReachableNear(cave.grid, start, [42, 30, 18], (point) => pointDistance(point, bank) >= 24) ?? start;
   const chestSites = placeArenaChests(cave, seed);
   return {
     ...cave,
     campfires,
+    camp: { bank, portal },
     encounterSites: placeArenaEncounters(cave),
     chestSites,
-    oreSites: placeArenaOre(cave, [...campfires, ...chestSites]),
+    oreSites: placeArenaOre(cave, [...campfires, bank, portal, ...chestSites]),
   };
 }

@@ -1,6 +1,6 @@
 import { assert, assertAlmostEquals, assertEquals, assertRejects } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { timingSafeEqual } from 'node:crypto';
-import { AI, Actor, Conditions, Health, Position, Projectile, Ring, Spellbook } from '../public/src/rules/components/index.js';
+import { AI, Actor, Conditions, Health, MaterialStacks, Position, Projectile, Ring, Spellbook } from '../public/src/rules/components/index.js';
 import { MINING_SECONDS } from '../public/src/rules/components/Mining.js';
 import { SIM_DT, SIM_MODE } from '../public/src/rules/sim/arenaSim.js';
 import { createArenaDungeonSimulation } from '../public/src/rules/sim/arenaDungeon.js';
@@ -10,6 +10,7 @@ import { generateArenaCave } from '../public/src/rules/geometry/caveGen.js';
 import { canMineOre } from '../public/src/rules/geometry/oreSites.js';
 import { sweepMaxFree } from '../public/src/rules/geometry/sweep.js';
 import { applyDamage } from '../public/src/rules/effects.js';
+import { CampAction } from '../public/src/rules/camp.js';
 import { spawnGold, spawnItem, spawnMelee, spawnRing } from '../public/src/rules/spawner.js';
 import { MESSAGE, decodeMessage, encodeMessage, makeRoomSeed } from '../public/src/shared/net/protocol.js';
 import { createRoomHandoff, verifyRoomHandoff } from '../worker/auth.js';
@@ -723,4 +724,92 @@ Deno.test('character: initialization and cumulative credits merge once per room'
   assertEquals(second.creditGold('lobby', 2), 20);
   assertEquals(second.creditGold('lobby', 7), 22);
   assertEquals(first.initialize(12), { gold: 22 });
+});
+
+Deno.test('game room: bank ore and gems at camp, then exit without removing the other player', async () => {
+  const env = makeEnv();
+  const room = new GameRoom(makeRoomState(), env);
+  const miner = new FakeSocket();
+  const teammate = new FakeSocket();
+  const back = new FakeSocket();
+  const minerIdentity = { userId: 'miner', displayName: 'Miner' };
+  const request = (action) => room.handleMessage(miner, encodeMessage(MESSAGE.CAMP_ACTION, {
+    action, deposited: { gold_ore: 999 }, // The room takes counts from the player entity.
+  }));
+  const lastResult = () => miner.sent.filter(({ type }) => type === MESSAGE.CAMP_RESULT).at(-1);
+  await room.accept(miner, minerIdentity);
+  await room.accept(teammate, { userId: 'teammate', displayName: 'Teammate' });
+  try {
+    const sim = room.ensureSim();
+    const player = sim.getPlayerEntity(miner.sent[0].peerId);
+    const pos = sim.world.get(player, Position);
+    const pack = sim.world.get(player, MaterialStacks);
+    const { bank, portal } = room.ensureCave().camp;
+    pack.counts = { copper_ore: 3, aquamarine: 1 };
+
+    Object.assign(pos, portal);
+    await request(CampAction.DEPOSIT);
+    assert(lastResult().error.includes('camp chest'));
+    await request(CampAction.EXIT);
+    assert(lastResult().error.includes('first'));
+    assertEquals(pack.counts, { copper_ore: 3, aquamarine: 1 });
+
+    Object.assign(pos, bank);
+    await request(CampAction.EXIT);
+    assert(lastResult().error.includes('camp portal'));
+    const saving = request(CampAction.DEPOSIT);
+    await request(CampAction.DEPOSIT);
+    await saving;
+    assertEquals(lastResult().deposited, { copper_ore: 3, aquamarine: 1 });
+    assertEquals(pack.counts, {});
+    assertEquals(await room.readCharacterProgress('miner'), { gold: 0, materials: { copper_ore: 3, aquamarine: 1 } });
+    assertEquals(await room.readCharacterProgress('teammate'), { gold: 0 });
+
+    Object.assign(pos, portal);
+    await request(CampAction.EXIT);
+    assertEquals(lastResult().action, CampAction.EXIT);
+    assertEquals(lastResult().error, undefined);
+    assertEquals(latestSnapshot(teammate).entities.filter(({ kind }) => kind === 'player').length, 1);
+    assertEquals(room.ensureSim(), sim);
+    await room.accept(back, minerIdentity);
+    assertEquals(latestSnapshot(back).entities.find(({ owner }) => owner === back.sent[0].peerId).state.materials, {});
+    assertEquals(await room.readCharacterProgress('miner'), { gold: 0, materials: { copper_ore: 3, aquamarine: 1 } });
+  } finally {
+    room.leave(miner);
+    room.leave(teammate);
+    room.leave(back);
+  }
+});
+
+Deno.test('game room: a disconnected deposit is recovered once after an ambiguous credit response', async () => {
+  const state = makeRoomState();
+  const env = makeEnv(state);
+  const character = env.CHARACTER.getByName('miner');
+  const credit = character.creditMaterials.bind(character);
+  character.creditMaterials = (roomId, earned) => {
+    credit(roomId, earned);
+    throw new Error('response lost after bank commit');
+  };
+  const room = new GameRoom(state, env);
+  const socket = new FakeSocket();
+  await room.accept(socket, { userId: 'miner', displayName: 'Miner' });
+  try {
+    const sim = room.ensureSim();
+    const player = sim.getPlayerEntity(socket.sent[0].peerId);
+    sim.world.get(player, MaterialStacks).counts = { tin_ore: 3 };
+    Object.assign(sim.world.get(player, Position), room.ensureCave().camp.bank);
+    const flush = room.handleMessage(socket, encodeMessage(MESSAGE.CAMP_ACTION, { action: CampAction.DEPOSIT }));
+    Object.assign(sim.world.get(player, Position), room.ensureCave().camp.portal);
+    room.handleMessage(socket, encodeMessage(MESSAGE.CAMP_ACTION, { action: CampAction.EXIT }));
+    assert(socket.sent.at(-1).error.includes('finish saving'));
+    room.leave(socket);
+    await flush;
+  } finally {
+    room.leave(socket);
+  }
+  character.creditMaterials = credit;
+  const restarted = new GameRoom(state, env);
+  await restarted.alarm();
+  assertEquals(await restarted.readCharacterProgress('miner'), { gold: 0, materials: { tin_ore: 3 } });
+  assertEquals([...state.storage.kv.list({ prefix: 'pending-character-materials:' })], []);
 });

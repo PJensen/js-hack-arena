@@ -1,6 +1,6 @@
 import { sweepMaxFree } from './sweep.js';
 
-export function findReachableNear(grid, { x, y }, distances) {
+export function findReachableNear(grid, { x, y }, distances, accepts = () => true) {
   for (const distance of distances) {
     for (let direction = 0; direction < 16; direction++) {
       const angle = direction * Math.PI / 8;
@@ -8,7 +8,8 @@ export function findReachableNear(grid, { x, y }, distances) {
       const ty = y + Math.sin(angle) * distance;
       if (grid.distanceMove(tx, ty) < 20) continue;
       if (sweepMaxFree(grid, x, y, tx, ty, 18) < 1) continue;
-      return { x: tx, y: ty };
+      const point = { x: tx, y: ty };
+      if (accepts(point)) return point;
     }
   }
   return null;

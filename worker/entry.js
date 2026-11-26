@@ -13,6 +13,7 @@ export class GameRoom extends DurableObject {
   fetch(request) { return this.room.fetch(request); }
   alarm() { return this.room.alarm(); }
   legacyGold(userId) { return this.room.legacyGold(userId); }
+  readCharacterProgress(userId) { return this.room.readCharacterProgress(userId); }
 }
 
 export class Character extends DurableObject {
@@ -24,4 +25,5 @@ export class Character extends DurableObject {
   read() { return this.progress.read(); }
   initialize(legacyGold) { return this.progress.initialize(legacyGold); }
   creditGold(roomId, earned) { return this.progress.creditGold(roomId, earned); }
+  creditMaterials(roomId, earned) { return this.progress.creditMaterials(roomId, earned); }
 }
