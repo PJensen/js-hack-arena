@@ -1,5 +1,7 @@
 import { miningMaterialIds } from '../public/src/rules/data/miningMaterials.js';
 
+import { enqueueCraft, reconcileCrafting } from '../public/src/rules/crafting.js';
+
 const CHARACTER_KEY = 'character';
 
 // The account owns this record. Room checkpoints make cumulative credits
@@ -9,13 +11,48 @@ export class CharacterProgress {
     this.storage = storage;
   }
 
-  read() {
+  readRaw() {
     return this.storage.kv.get(CHARACTER_KEY) ?? null;
+  }
+
+  read(now = Date.now()) {
+    const character = this.readRaw();
+    if (!character || !(character.craftingJobs ?? []).some(job => job.completedAt == null && job.completesAt <= now)) return character;
+    return this.storage.transactionSync(() => {
+      const current = this.readRaw();
+      const updated = reconcileCrafting(current, now);
+      if (updated !== current) this.storage.kv.put(CHARACTER_KEY, updated);
+      return updated;
+    });
+  }
+
+  enqueueCraft({ recipeId, requestId, quantity = 1 }, now = Date.now()) {
+    if (typeof requestId !== 'string' || !/^[0-9a-f-]{36}$/i.test(requestId)) return { error: 'Invalid request ID' };
+    return this.storage.transactionSync(() => {
+      const current = this.readRaw();
+      if (!current) return { error: 'Character not initialized' };
+      const key = 'craft-request:' + requestId;
+      const previous = this.storage.kv.get(key);
+      if (previous !== undefined) {
+        const matches = typeof previous === 'string'
+          ? previous === recipeId && quantity === 1
+          : previous.recipeId === recipeId && previous.quantity === quantity;
+        if (!matches) return { error: 'Request ID already used for a different craft' };
+        const updated = reconcileCrafting(current, now);
+        if (updated !== current) this.storage.kv.put(CHARACTER_KEY, updated);
+        return { character: updated };
+      }
+      const result = enqueueCraft(current, { recipeId, requestId, quantity }, now);
+      if (result.error) return result;
+      this.storage.kv.put(CHARACTER_KEY, result.character);
+      this.storage.kv.put(key, { recipeId, quantity });
+      return result;
+    });
   }
 
   initialize(legacyGold) {
     return this.storage.transactionSync(() => {
-      const existing = this.read();
+      const existing = this.readRaw();
       if (existing) return existing;
       const character = { gold: Number.isSafeInteger(legacyGold) && legacyGold >= 0 ? legacyGold : 0 };
       this.storage.kv.put(CHARACTER_KEY, character);
@@ -27,7 +64,7 @@ export class CharacterProgress {
     if (!Number.isSafeInteger(earned) || earned <= 0) throw new Error('Invalid cumulative gold credit');
     const key = `gold-checkpoint:${roomId}`;
     return this.storage.transactionSync(() => {
-      const character = this.read();
+      const character = this.readRaw();
       if (!character) throw new Error('Character must be initialized before crediting gold');
       const credited = this.storage.kv.get(key) ?? 0;
       if (earned <= credited) return character.gold;
@@ -42,7 +79,7 @@ export class CharacterProgress {
   creditMaterials(roomId, earned) {
     const key = `materials-checkpoint:${roomId}`;
     return this.storage.transactionSync(() => {
-      const character = this.read();
+      const character = this.readRaw();
       if (!character) throw new Error('Character must be initialized before banking materials');
       const credited = this.storage.kv.get(key) ?? {};
       const materials = { ...character.materials };
