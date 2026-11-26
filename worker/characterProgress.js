@@ -1,3 +1,4 @@
+import { readGearKey } from '../public/src/rules/gear.js';
 import { miningMaterialIds } from '../public/src/rules/data/miningMaterials.js';
 
 import { enqueueCraft, reconcileCrafting } from '../public/src/rules/crafting.js';
@@ -83,20 +84,24 @@ export class CharacterProgress {
       if (!character) throw new Error('Character must be initialized before banking materials');
       const credited = this.storage.kv.get(key) ?? {};
       const materials = { ...character.materials };
+      const gear = { ...character.gear };
       let changed = false;
-      for (const id of miningMaterialIds) {
+      for (const id of Object.keys(earned)) {
+        const isGear = !!readGearKey(id);
+        if (!isGear && !miningMaterialIds.includes(id)) continue;
+        const inventory = isGear ? gear : materials;
         const count = earned[id] ?? 0;
         if (!Number.isSafeInteger(count) || count < 0) throw new Error('Invalid cumulative material credit');
         const delta = count - (credited[id] ?? 0);
         if (delta <= 0) continue;
-        const balance = (materials[id] ?? 0) + delta;
+        const balance = (inventory[id] ?? 0) + delta;
         if (!Number.isSafeInteger(balance)) throw new Error('Material balance exceeds the safe integer limit');
-        materials[id] = balance;
+        inventory[id] = balance;
         credited[id] = count;
         changed = true;
       }
       if (changed) {
-        this.storage.kv.put(CHARACTER_KEY, { ...character, materials });
+        this.storage.kv.put(CHARACTER_KEY, { ...character, materials, ...(Object.keys(gear).length ? { gear } : {}) });
         this.storage.kv.put(key, credited);
       }
       return materials;
