@@ -114,3 +114,13 @@ Deno.test('a different profession does not block smelting and its outstanding jo
   assertEquals(character.read(finish).materials.test_potion, 1);
   assertEquals(character.read(finish + 1).materials.copper_ingot, 1);
 });
+
+Deno.test('all queued units reconcile on the first read after a long absence', () => {
+  const { character, storage } = fixture();
+  character.enqueueCraft({ ...request, quantity: 3 }, start);
+  const restarted = new CharacterProgress(storage);
+  const after = restarted.read(start + 86400000);
+  assertEquals(after.materials, { copper_ore: 0, copper_ingot: 3 });
+  assertEquals(after.craftingJobs.map(job => job.completedAt), [finish, start + 1200000, start + 1800000]);
+  assertEquals(restarted.read(start + 86400001), after);
+});
