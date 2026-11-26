@@ -1,5 +1,16 @@
 import { getMiningMaterial, miningMaterialIds } from '../src/rules/data/miningMaterials.js';
 
+import { getRecipe } from '../src/rules/data/craftingRecipes.js';
+
+const copperRecipe = getRecipe('smelt_copper');
+const oreCost = copperRecipe.inputs.copper_ore;
+let character = null;
+let clockOffset = 0;
+let loading = false;
+let submitting = false;
+let requestId = null;
+let statusMessage = '';
+
 const modes = [
   { name: 'Smelting', icon: 'ingot copper', description: 'Refine ore into ingots', view: 'smelting' },
   { name: 'Smithing', icon: 'hammer', description: 'Craft and upgrade gear' },
@@ -9,9 +20,9 @@ const modes = [
 ];
 
 const recipes = [
-  { kind: 'copper', minutes: 10 },
-  { kind: 'tin', minutes: 15 },
-  { kind: 'bronze', minutes: 20 },
+  { kind: 'copper', minutes: copperRecipe.workMs / 60_000 },
+  { kind: 'tin', minutes: 15, locked: true },
+  { kind: 'bronze', minutes: 20, locked: true },
   { kind: 'gold', minutes: 45, locked: true },
 ];
 
@@ -27,15 +38,12 @@ const party = [
   { name: 'Nyx', role: 'mage', status: 'Ready' },
 ];
 
-const jobs = [
-  { kind: 'tin', quantity: 3, minutes: 12, progress: 60 },
-  { kind: 'bronze', quantity: 2, minutes: 30, progress: 25 },
-];
-const completedJobs = [
-  { kind: 'copper', quantity: 4 },
-  { kind: 'tin', quantity: 2 },
-  { kind: 'bronze', quantity: 1 },
-];
+function activeJobs() { return (character?.craftingJobs ?? []).filter(job => job.completedAt == null); }
+function completedJobs() { return (character?.craftingJobs ?? []).filter(job => job.completedAt != null).reverse(); }
+function jobProgress(job) {
+  return Math.max(0, Math.min(100, Math.floor(100 * (Date.now() + clockOffset - job.startsAt) / (job.completesAt - job.startsAt))));
+}
+function remainingSeconds(job) { return Math.max(0, Math.ceil((job.completesAt - Date.now() - clockOffset) / 1000)); }
 
 const params = new URLSearchParams(location.search);
 const requestedView = params.get('view');
@@ -84,16 +92,20 @@ function materialIcon(id, { shape, color }) {
 }
 
 function bankedStacks(materials) {
-  return miningMaterialIds.flatMap((id) => {
+  return [...miningMaterialIds, 'copper_ingot'].flatMap((id) => {
     const count = materials?.[id];
     if (!Number.isSafeInteger(count) || count <= 0) return [];
+    if (id === 'copper_ingot') return [{ name: copperRecipe.name, count: count.toLocaleString(), glyph: icon('ingot copper') }];
     const material = getMiningMaterial(id);
     return [{ name: material.name, count: count.toLocaleString(), glyph: materialIcon(id, material) }];
   });
 }
 
-function renderBalance({ gold, materials }) {
+function renderBalance(state) {
+  const { gold, materials } = state;
   if (!Number.isSafeInteger(gold) || gold < 0) throw new Error('Invalid character balance');
+  character = state;
+  if (Number.isFinite(state.serverNow)) clockOffset = state.serverNow - Date.now();
   const stacks = bankedStacks(materials);
   const header = document.querySelector('.balances');
   header.innerHTML = `${stacks.slice(0, 5).map(({ name, count, glyph }) => `
@@ -104,10 +116,11 @@ function renderBalance({ gold, materials }) {
   const copper = document.querySelector('#copper-balance');
   if (copper) {
     const count = Number.isSafeInteger(materials?.copper_ore) && materials.copper_ore > 0 ? materials.copper_ore : 0;
-    copper.textContent = `${count.toLocaleString()} / 3`;
-    copper.classList.toggle('good', count >= 3);
+    copper.textContent = `${count.toLocaleString()} / ${oreCost}`;
+    copper.classList.toggle('good', count >= oreCost);
   }
 
+  updateCrafting();
   const bank = document.querySelector('#bank-content');
   if (!bank) return;
   document.querySelector('#bank-gold').textContent = `${gold.toLocaleString()} Gold`;
@@ -117,6 +130,8 @@ function renderBalance({ gold, materials }) {
 }
 
 async function loadBalance() {
+  if (loading) return;
+  loading = true;
   const bank = document.querySelector('#bank-content');
   try {
     if (offline) {
@@ -128,6 +143,8 @@ async function loadBalance() {
     if (params.has('room')) endpoint.searchParams.set('room', params.get('room'));
     const response = await fetch(endpoint, { credentials: 'same-origin', cache: 'no-store' });
     if (response.status === 401) {
+      statusMessage = 'Sign in to craft.';
+      updateCrafting();
       if (bank) {
         const returnTo = encodeURIComponent(location.pathname + location.search);
         bank.innerHTML = `<p class="bank-message">Sign in to see your banked materials and gold.</p>
@@ -138,8 +155,10 @@ async function loadBalance() {
     if (!response.ok) throw new Error('Could not load character balance');
     renderBalance(await response.json());
   } catch {
+    statusMessage = 'Character balance unavailable. Reload to try again.';
+    updateCrafting();
     if (bank) bank.innerHTML = '<p class="bank-message">Bank balance unavailable. Reload to try again.</p>';
-  }
+  } finally { loading = false; }
 }
 
 function back(screen, label) {
@@ -200,7 +219,7 @@ function queueLink() {
       <h2>Crafting Queue</h2>
       <div class="queue-link-content">
         ${icon('ingot copper')}
-        <div class="row-copy">2 jobs in progress ${progress(55, 'Sample queue progress')}</div>
+        <div class="row-copy">${activeJobs().length} jobs in progress ${progress(activeJobs()[0] ? jobProgress(activeJobs()[0]) : 0, 'Crafting queue progress')}</div>
         <span class="chevron" aria-hidden="true"></span>
       </div>
     </a>`;
@@ -244,25 +263,27 @@ function recipeDetails() {
       </header>
       <div class="detail-group">
         <h3>Requirements <span>(per craft)</span></h3>
-        <div class="row material">${icon('ore')} <span>Copper Ore</span><strong id="copper-balance">— / 3</strong></div>
+        <div class="row material">${icon('ore')} <span>Copper Ore</span><strong id="copper-balance">— / ${oreCost}</strong></div>
+        <div class="row material">${icon('coin')} <span>Gold</span><strong id="craft-gold">— / ${copperRecipe.goldCost}</strong></div>
       </div>
       <div class="detail-group">
         <h3>Output <span>(per craft)</span></h3>
         <div class="row material">${icon('ingot copper')} <span>Copper Ingot ×1</span></div>
       </div>
-      <div class="craft-time"><span>${icon('clock')} Time (per craft)</span><strong>10 min</strong></div>
+      <div class="craft-time"><span>${icon('clock')} Time (per craft)</span><strong>${copperRecipe.workMs / 60_000} min</strong></div>
       <div class="craft-quantity">
         <div>
           <h3>Quantity</h3>
           <div class="stepper">
             <button type="button" aria-label="Decrease quantity" disabled>−</button>
-            <span aria-label="Quantity">4</span>
+            <span aria-label="Quantity">1</span>
             <button type="button" aria-label="Increase quantity" disabled>+</button>
           </div>
         </div>
-        <div class="total-time"><h3>Total Time</h3><span>${icon('clock')} 40 min</span></div>
+        <div class="total-time"><h3>Total Time</h3><span>${icon('clock')} ${copperRecipe.workMs / 60_000} min</span></div>
       </div>
-      <button type="button" class="primary" disabled>${icon('hammer')} Queue Craft</button>
+      <button id="queue-craft" type="button" class="primary" disabled>${icon('hammer')} Queue Craft</button>
+      <p id="craft-status" role="status"></p>
     </section>`;
 }
 
@@ -275,13 +296,13 @@ function progress(value, label) {
 function queueTabs(screen) {
   return `
     <nav class="queue-tabs" aria-label="Crafting queue status">
-      <a href="${href(screen, 'active')}" ${completed ? '' : 'aria-current="page"'}>Active (2)</a>
-      <a href="${href(screen, 'completed')}" ${completed ? 'aria-current="page"' : ''}>Completed (3)</a>
+      <a href="${href(screen, 'active')}" ${completed ? '' : 'aria-current="page"'}>Active (${activeJobs().length})</a>
+      <a href="${href(screen, 'completed')}" ${completed ? 'aria-current="page"' : ''}>Completed (${completedJobs().length})</a>
     </nav>`;
 }
 
 function queueJob({ kind, quantity, minutes, progress: value, queued = false }) {
-  const status = queued ? `⌛ Queued · ${minutes} min` : value == null ? '✓ Complete' : `${minutes} min remaining`;
+  const status = queued ? `⌛ Queued · ${minutes} min` : value == null ? '✓ Complete' : `${Math.ceil(minutes * 60)} sec remaining`;
   return `
     <li class="row job">
       ${icon(`ingot ${kind}`)}
@@ -295,16 +316,14 @@ function queueJob({ kind, quantity, minutes, progress: value, queued = false }) 
 }
 
 function queue(screen) {
+  const entries = completed ? completedJobs() : activeJobs();
   return `
-    <section class="panel queue-panel" aria-label="Crafting Queue">
+    <section class="panel queue-panel" aria-label="Crafting Queue" data-queue-screen="${screen}">
       ${screen === 'smelting' ? '<h2>Crafting Queue</h2>' : ''}
       ${queueTabs(screen)}
-      <ul class="jobs">${(completed ? completedJobs : jobs).map(queueJob).join('')}</ul>
-      ${completed ? '' : `
-        <section class="panel queued">
-          <h3>Queued (1)</h3>
-          <ul>${queueJob({ kind: 'copper', quantity: 2, minutes: 40, queued: true })}</ul>
-        </section>`}
+      <ul class="jobs">${entries.map(job => queueJob({ kind: 'copper', quantity: job.quantity,
+        minutes: remainingSeconds(job) / 60, progress: job.completedAt == null ? jobProgress(job) : undefined })).join('')}</ul>
+      ${entries.length ? '' : '<p class="bank-message">No crafting jobs.</p>'}
     </section>`;
 }
 
@@ -358,4 +377,56 @@ document.querySelector('#preview').innerHTML = `
     ${navigation()}
   </nav>
   <main class="screen screen-${view}">${screens[view]()}</main>`;
+function updateCrafting() {
+  const button = document.querySelector('#queue-craft');
+  const status = document.querySelector('#craft-status');
+  const gold = document.querySelector('#craft-gold');
+  if (gold && character) {
+    gold.textContent = character.gold + ' / ' + copperRecipe.goldCost;
+    gold.classList.toggle('good', character.gold >= copperRecipe.goldCost);
+  }
+  const active = activeJobs().length > 0;
+  const affordable = !!character && character.gold >= copperRecipe.goldCost &&
+    (character.materials?.copper_ore ?? 0) >= oreCost;
+  if (button) button.disabled = offline || submitting || active || !affordable;
+  if (status) status.textContent = statusMessage || (offline ? 'Crafting requires an online character.' :
+    !character ? 'Loading character…' : active ? 'Smelting in progress.' : !affordable ? 'Not enough materials or gold.' : '');
+  document.querySelectorAll('.queue-link').forEach(element => { element.outerHTML = queueLink(); });
+  document.querySelectorAll('[data-queue-screen]').forEach(element => { element.outerHTML = queue(element.dataset.queueScreen); });
+}
+
+document.querySelector('#queue-craft')?.addEventListener('click', async () => {
+  if (submitting || offline) return;
+  submitting = true;
+  statusMessage = '';
+  requestId ??= crypto.randomUUID();
+  updateCrafting();
+  try {
+    const endpoint = new URL('/api/character/crafting', location.href);
+    if (params.has('room')) endpoint.searchParams.set('room', params.get('room'));
+    const response = await fetch(endpoint, { method: 'POST', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ recipeId: copperRecipe.id, requestId }) });
+    const result = await response.json();
+    if (!response.ok) {
+      if (response.status < 500) requestId = null;
+      throw new Error(result.error || 'Could not queue craft');
+    }
+    requestId = null;
+    renderBalance(result);
+  } catch (error) {
+    statusMessage = error.message || 'Could not queue craft. Try again.';
+  } finally {
+    submitting = false;
+    updateCrafting();
+  }
+});
+
 loadBalance();
+setInterval(() => {
+  const job = activeJobs()[0];
+  if (!job) return;
+  if (remainingSeconds(job) === 0 && !loading) loadBalance();
+  updateCrafting();
+}, 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !offline) loadBalance(); });
