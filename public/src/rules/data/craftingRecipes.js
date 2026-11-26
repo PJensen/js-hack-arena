@@ -7,7 +7,7 @@ export const recipes = Object.freeze({
     inputs: Object.freeze({ copper_ore: 2 }),
     outputs: Object.freeze({ copper_ingot: 1 }),
     goldCost: 1,
-    workMs: 60_000,
+    workMs: 600_000,
   }),
 });
 
