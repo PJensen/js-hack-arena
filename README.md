@@ -74,7 +74,7 @@ Open `/interface-preview/` to review the Run, Crafting, Smelting, and Crafting
 Queue screens with sample data. The preview supports navigation between screens
 and queue tabs. Party controls and run selection are static. Signed-in characters can smelt
 one Copper Ingot from two banked Copper Ore and one Gold. The first recipe
-uses a 60-second base duration for testing, with one active job at a time.
+uses a 10-minute base duration, with one active job at a time.
 Crafting inputs and the job are committed atomically; completed outputs are
 credited on character access, even after the player has been away. The queue
 and inventory show actual character data. Local-only offline characters cannot
