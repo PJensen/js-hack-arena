@@ -1,0 +1,282 @@
+const modes = [
+  { name: 'Smelting', icon: 'ingot copper', description: 'Refine ore into ingots', view: 'smelting' },
+  { name: 'Smithing', icon: 'hammer', description: 'Craft and upgrade gear' },
+  { name: 'Jewelry', icon: 'jewel', description: 'Cut gems and craft trinkets' },
+  { name: 'Alchemy', icon: 'flask', description: 'Brew potions and elixirs' },
+  { name: 'Enchanting', icon: 'spark', description: 'Imbue gear with power' },
+];
+
+const recipes = [
+  { kind: 'copper', minutes: 10 },
+  { kind: 'tin', minutes: 15 },
+  { kind: 'bronze', minutes: 20 },
+  { kind: 'gold', minutes: 45, locked: true },
+];
+
+const runs = [
+  { name: 'The Quarry', levels: '8–14', icon: 'crystal blue' },
+  { name: 'Gloomroot Caverns', levels: '12–18', icon: 'crystal violet' },
+  { name: 'Irondeep Mine', levels: '16–22', icon: 'flame' },
+];
+
+const party = [
+  { name: 'Ssera', role: 'leader', status: 'Lv 12' },
+  { name: 'Vale', role: 'scout', status: 'Ready' },
+  { name: 'Nyx', role: 'mage', status: 'Ready' },
+];
+
+const jobs = [
+  { kind: 'tin', quantity: 3, minutes: 12, progress: 60 },
+  { kind: 'bronze', quantity: 2, minutes: 30, progress: 25 },
+];
+const completedJobs = [
+  { kind: 'copper', quantity: 4 },
+  { kind: 'tin', quantity: 2 },
+  { kind: 'bronze', quantity: 1 },
+];
+
+const params = new URLSearchParams(location.search);
+const requestedView = params.get('view');
+const view = ['craft', 'smelting', 'queue'].includes(requestedView) ? requestedView : 'run';
+const completed = params.get('status') === 'completed';
+const title = { run: 'Select a Run', craft: 'Crafting', smelting: 'Smelting', queue: 'Crafting Queue' };
+
+function icon(name) {
+  const symbols = {
+    run: '⚔', hammer: '⚒', spark: '✦', jewel: '◇', menu: '☰', party: '♟', clock: '◷',
+    plus: '+', coin: '●', crown: '♛',
+  };
+  return `<span class="icon ${name}" aria-hidden="true">${symbols[name] ?? ''}</span>`;
+}
+
+function href(screen, status = '') {
+  return `?view=${screen}${status ? `&amp;status=${status}` : ''}`;
+}
+
+function navigation() {
+  const tabs = [
+    ['Run', 'run', 'run'], ['Craft', 'craft', 'craft'],
+    ['Character', 'helmet'], ['Inventory', 'pack'],
+  ];
+  const section = view === 'run' ? 'run' : 'craft';
+  return tabs.map(([label, glyph, screen]) => {
+    const content = `${icon(glyph)}<span>${label}</span>`;
+    return screen
+      ? `<a class="nav-item" href="${href(screen)}" ${section === screen ? 'aria-current="true"' : ''}>${content}</a>`
+      : `<button class="nav-item" type="button" disabled>${content}</button>`;
+  }).join('');
+}
+
+function balances() {
+  const materials = [
+    ['ore', 'Copper Ore', '18'], ['ore tin', 'Tin Ore', '8'],
+    ['ore gold', 'Gold Ore', '1'], ['crystal violet', 'Amethyst', '2'],
+    ['crystal amber', 'Amber', '3'], ['coin', 'Gold', '1,427'],
+  ];
+  return `<ul class="balances" aria-label="Sample materials and gold">${materials.map(([glyph, name, amount]) =>
+    `<li aria-label="${amount} ${name}" title="${name}">${icon(glyph)} ${amount}</li>`
+  ).join('')}</ul>`;
+}
+
+function back(screen, label) {
+  return `<a class="back" href="${href(screen)}" aria-label="${label}"></a>`;
+}
+
+function runScreen() {
+  return `
+    <div class="run-hero" role="img" aria-label="A fire and tent inside the cave camp"></div>
+    <div class="run-panels">
+      <section aria-labelledby="party-title">
+        <div class="section-heading">
+          <h2 id="party-title">${icon('party')} Party</h2><span>3 / 4</span>
+        </div>
+        <div class="panel party-card">
+          ${party.map(({ name, role, status }) => `
+            <div class="party-row">
+              <span class="avatar ${role}" aria-hidden="true">${name[0]}</span>
+              <strong>${role === 'leader' ? `${icon('crown')} ${name} <small>(You)</small>` : name}</strong>
+              <span class="${status === 'Ready' ? 'good' : ''}">${status === 'Ready' ? '✓ ' : ''}${status}</span>
+            </div>`).join('')}
+          <button type="button" class="invite" disabled>${icon('plus')} Invite Player</button>
+        </div>
+      </section>
+      <section aria-labelledby="run-title">
+        <div class="section-heading"><h1 id="run-title">${icon('run')} Select a Run</h1></div>
+        <ul class="run-list">
+          ${runs.map(({ name, levels, icon: glyph }, index) => `
+            <li class="row run-card ${index === 0 ? 'selected' : ''}">
+              ${icon(glyph)}
+              <span class="row-copy">
+                <strong>${name}</strong><small>Lv ${levels} ${icon('party')}</small>
+              </span>
+              ${index === 0 ? '<span class="sr-only">Selected</span>' : ''}
+              <span class="chevron" aria-hidden="true"></span>
+            </li>`).join('')}
+        </ul>
+        <button type="button" class="primary start-run" disabled>${icon('run')} Start Run</button>
+      </section>
+    </div>`;
+}
+
+function craftModes(compact = false) {
+  return `<div class="craft-modes ${compact ? 'compact' : ''}">${modes.map(({ name, icon: glyph, description, view: screen }) => {
+    const content = `
+      ${icon(glyph)}
+      <span class="row-copy"><strong>${name}</strong>${compact ? '' : `<small>${description}</small>`}</span>
+      ${compact ? '' : '<span class="chevron" aria-hidden="true"></span>'}`;
+    return screen
+      ? `<a class="row ${compact ? 'selected' : ''}" href="${href(screen)}" ${compact ? 'aria-current="page"' : ''}>${content}</a>`
+      : `<button class="row" type="button" disabled>${content}</button>`;
+  }).join('')}</div>`;
+}
+
+function queueLink() {
+  return `
+    <a class="panel queue-link" href="${href('queue')}">
+      <h2>Crafting Queue</h2>
+      <div class="queue-link-content">
+        ${icon('ingot copper')}
+        <div class="row-copy">2 jobs in progress ${progress(55, 'Sample queue progress')}</div>
+        <span class="chevron" aria-hidden="true"></span>
+      </div>
+    </a>`;
+}
+
+function craftingScreen() {
+  return `
+    <div class="craft-hero">
+      <h1>Crafting</h1>
+      <p>Refine, craft, brew and enhance equipment from materials gathered on your runs.</p>
+    </div>
+    <div class="craft-overview">
+      ${craftModes()}
+      ${queueLink()}
+    </div>`;
+}
+
+function recipeList() {
+  return `
+    <section class="panel recipe-list" aria-label="Smelting recipes">
+      <h2 class="wide-only">Recipes</h2>
+      <ul>${recipes.map(({ kind, minutes, locked }) => `
+        <li class="row recipe ${kind === 'copper' ? 'selected' : ''}">
+          ${icon(`ingot ${kind}`)}
+          <span class="row-copy">
+            <strong class="item-name">${kind} Ingot</strong>
+            <small class="wide-only">${icon('clock')} ${minutes} min</small>
+          </span>
+          <span class="wide-only ${locked ? 'lock' : 'good'}" aria-label="${locked ? 'Locked' : 'Available'}" role="img">${locked ? '' : '✓'}</span>
+          ${kind === 'copper' ? '<span class="sr-only">Selected recipe</span>' : ''}
+        </li>`).join('')}</ul>
+    </section>`;
+}
+
+function recipeDetails() {
+  return `
+    <section class="panel recipe-details" aria-labelledby="recipe-title">
+      <header class="recipe-header">
+        ${icon('ingot copper')}
+        <div><h2 id="recipe-title">Copper Ingot</h2><p>Refined copper for forging and crafting.</p></div>
+      </header>
+      <div class="detail-group">
+        <h3>Requirements <span>(per craft)</span></h3>
+        <div class="row material">${icon('ore')} <span>Copper Ore</span><strong class="good">18 / 3</strong></div>
+      </div>
+      <div class="detail-group">
+        <h3>Output <span>(per craft)</span></h3>
+        <div class="row material">${icon('ingot copper')} <span>Copper Ingot ×1</span></div>
+      </div>
+      <div class="craft-time"><span>${icon('clock')} Time (per craft)</span><strong>10 min</strong></div>
+      <div class="craft-quantity">
+        <div>
+          <h3>Quantity</h3>
+          <div class="stepper">
+            <button type="button" aria-label="Decrease quantity" disabled>−</button>
+            <span aria-label="Quantity">4</span>
+            <button type="button" aria-label="Increase quantity" disabled>+</button>
+          </div>
+        </div>
+        <div class="total-time"><h3>Total Time</h3><span>${icon('clock')} 40 min</span></div>
+      </div>
+      <button type="button" class="primary" disabled>${icon('hammer')} Queue Craft</button>
+    </section>`;
+}
+
+function progress(value, label) {
+  return `<div class="progress" role="progressbar" aria-label="${label}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${value}">
+    <span style="--progress: ${value}%"></span>
+  </div>`;
+}
+
+function queueTabs(screen) {
+  return `
+    <nav class="queue-tabs" aria-label="Crafting queue status">
+      <a href="${href(screen, 'active')}" ${completed ? '' : 'aria-current="page"'}>Active (2)</a>
+      <a href="${href(screen, 'completed')}" ${completed ? 'aria-current="page"' : ''}>Completed (3)</a>
+    </nav>`;
+}
+
+function queueJob({ kind, quantity, minutes, progress: value, queued = false }) {
+  const status = queued ? `⌛ Queued · ${minutes} min` : value == null ? '✓ Complete' : `${minutes} min remaining`;
+  return `
+    <li class="row job">
+      ${icon(`ingot ${kind}`)}
+      <div class="row-copy">
+        <strong class="item-name">${kind} Ingot ×${quantity}</strong>
+        <small>${status}</small>
+        ${value == null ? '' : `<div class="job-progress">${progress(value, `${kind} ingot progress`)}<span>${value}%</span></div>`}
+      </div>
+      <button class="job-menu" type="button" aria-label="${kind} ingot job options" disabled>⋮</button>
+    </li>`;
+}
+
+function queue(screen) {
+  return `
+    <section class="panel queue-panel" aria-label="Crafting Queue">
+      ${screen === 'smelting' ? '<h2>Crafting Queue</h2>' : ''}
+      ${queueTabs(screen)}
+      <ul class="jobs">${(completed ? completedJobs : jobs).map(queueJob).join('')}</ul>
+      ${completed ? '' : `
+        <section class="panel queued">
+          <h3>Queued (1)</h3>
+          <ul>${queueJob({ kind: 'copper', quantity: 2, minutes: 40, queued: true })}</ul>
+        </section>`}
+    </section>`;
+}
+
+function smeltingScreen() {
+  return `
+    <div class="screen-heading smelting-heading">
+      ${back('craft', 'Back to Crafting')}
+      <h1><span class="narrow-only">Smelting</span><span class="wide-only">Crafting</span></h1>
+    </div>
+    <div class="wide-only">${craftModes(true)}</div>
+    <div class="workbench">
+      ${recipeList()}
+      ${recipeDetails()}
+      <div class="wide-only">${queue('smelting')}</div>
+      <div class="narrow-only">${queueLink()}</div>
+    </div>`;
+}
+
+function queueScreen() {
+  return `
+    <div class="screen-heading">
+      ${back('smelting', 'Back to Smelting')}<h1>Crafting Queue</h1>
+    </div>
+    ${queue('queue')}`;
+}
+
+const screens = { run: runScreen, craft: craftingScreen, smelting: smeltingScreen, queue: queueScreen };
+document.title = `${title[view]} | Hack Arena Preview`;
+document.querySelector('#preview').innerHTML = `
+  <header class="topbar">
+    <button class="top-action" type="button" aria-label="Menu" disabled>${icon('menu')}</button>
+    <span class="brand" aria-label="Hack Arena">HACK<span>//ARENA</span></span>
+    ${balances()}
+    <button class="top-action notifications" type="button" aria-label="Notifications" disabled>${icon('bell')}</button>
+  </header>
+  <nav class="primary-nav ${view === 'smelting' || view === 'queue' ? 'subscreen' : ''}" aria-label="Arena sections">
+    ${navigation()}
+  </nav>
+  <main class="screen screen-${view}">${screens[view]()}</main>`;

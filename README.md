@@ -70,6 +70,11 @@ the application entry point no longer imports them.
 The client should remain deployable as static assets. Worker code owns server
 routes such as `/api/*` and `/ws/*`, then falls back to static asset serving.
 
+Open `/interface-preview/` to review the Run, Crafting, Smelting, and Crafting
+Queue screens with sample data. The preview supports navigation between screens
+and queue tabs. Crafting actions, party controls, and run selection are static.
+On wider screens the Smelting view shows recipes, details, and the queue together.
+
 Copper, tin, and gold deposits form along chamber walls. Some are buried in
 solid rock and become visible when the terrain is carved away. The dungeon
 seed determines their positions.
