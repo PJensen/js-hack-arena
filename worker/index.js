@@ -93,7 +93,7 @@ export default {
       if (!body || typeof body.recipeId !== 'string' || typeof body.requestId !== 'string') return json({ error: 'Invalid request' }, { status: 400 });
       const roomId = normalizeRoomId(url.searchParams.get('room') ?? DEFAULT_ROOM_ID);
       await env.GAME_ROOM.getByName(roomId).readCharacterProgress(session.sub);
-      const result = await env.CHARACTER.getByName(session.sub).enqueueCraft({ recipeId: body.recipeId, requestId: body.requestId });
+      const result = await env.CHARACTER.getByName(session.sub).enqueueCraft({ recipeId: body.recipeId, requestId: body.requestId, quantity: body.quantity === undefined ? 1 : body.quantity });
       if (result.error) return json({ error: result.error }, { status: 409 });
       return json({ ...result.character, serverNow: Date.now() });
     }
