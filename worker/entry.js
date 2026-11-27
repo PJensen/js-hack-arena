@@ -19,6 +19,7 @@ export class GameRoom extends DurableObject {
   }
 
   fetch(request) { return this.room.fetch(request); }
+  prepareDungeon() { return this.room.prepareDungeon(); }
   alarm() { return this.room.alarm(); }
   legacyGold(userId) { return this.room.legacyGold(userId); }
   readCharacterProgress(userId) { return this.room.readCharacterProgress(userId); }

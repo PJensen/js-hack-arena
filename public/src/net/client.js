@@ -16,6 +16,7 @@ const JOIN_FAILED = 'Could not join the shared dungeon. Check your connection an
 
 export function createNetClient({
   roomId = DEFAULT_ROOM_ID,
+  dungeonId = null,
   sendHz = 20,
   onDisconnect = () => {},
   onSay = () => {},
@@ -61,12 +62,20 @@ export function createNetClient({
     try {
       const url = new URL('/api/rooms/default', location.href);
       url.searchParams.set('room', room);
+      if (dungeonId !== null) url.searchParams.set('dungeon', dungeonId);
       const response = await fetch(url, { signal });
       if (response.status === 401) {
         setStatus('auth', 'Your sign-in expired. Sign in again to join.');
         return null;
       }
-      if (!response.ok) throw new Error(`room lookup failed: ${response.status}`);
+      if (!response.ok) {
+        if (dungeonId !== null && [400, 404, 409, 503].includes(response.status)) {
+          const { error } = await response.json();
+          setStatus('offline', error || JOIN_FAILED);
+          return null;
+        }
+        throw new Error(`room lookup failed: ${response.status}`);
+      }
       const info = await response.json();
       signal.throwIfAborted();
       const socketUrl = new URL(info.ws);
@@ -141,14 +150,19 @@ export function createNetClient({
     }
 
     if (msg.type === MESSAGE.WELCOME) {
+      if (dungeonId !== null && msg.dungeonLayout?.id !== dungeonId) {
+        setStatus('offline', 'The server did not load the selected dungeon. Try again.');
+        destroy();
+        return;
+      }
       peerId = msg.peerId;
       welcome = {
         ...msg,
         seed: normalizeSeed(msg.seed),
-        roomId: normalizeRoomId(msg.roomId || room),
+        roomId: dungeonId !== null ? msg.roomId : normalizeRoomId(msg.roomId || room),
         snapshot: acceptSnapshot(msg.snapshot),
       };
-      room = welcome.roomId;
+      if (dungeonId === null) room = welcome.roomId;
       applyPeerList(msg.peers);
       setStatus('connected', room);
       resolveWelcome(welcome);

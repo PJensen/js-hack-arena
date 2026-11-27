@@ -1,7 +1,7 @@
 import { assertEquals } from 'https://deno.land/std@0.220.0/assert/mod.ts';
 import { timingSafeEqual } from 'node:crypto';
-import app from '../worker/index.js';
-import { isDungeonEditor } from '../worker/auth.js';
+import app, { GameRoom } from '../worker/index.js';
+import { isDungeonEditor, verifyRoomHandoff } from '../worker/auth.js';
 
 if (!crypto.subtle.timingSafeEqual) crypto.subtle.timingSafeEqual = timingSafeEqual;
 
@@ -120,4 +120,29 @@ Deno.test('dungeon editor API stores and loads normalized layouts for the author
   assertEquals((await app.fetch(request('/api/dungeons'), env)).status, 401);
   assertEquals((await app.fetch(request('/api/dungeons', { method: 'PUT', cookie }), env)).status, 405);
   assertEquals((await app.fetch(request('/api/editor/dungeons/test-cave', { cookie: unauthorizedCookie }), env)).status, 403);
+
+  const room = new GameRoom({ id: { name: 'dungeon:test-cave' } }, env);
+  env.GAME_ROOM = {
+    getByName(name) {
+      assertEquals(name, room.roomId);
+      return {
+        prepareDungeon: () => room.prepareDungeon(),
+        async fetch(forwarded) {
+          const handoff = forwarded.headers.get('x-arena-room-auth');
+          assertEquals((await verifyRoomHandoff(handoff, room.roomId, env)).userId, 'other-sub');
+          assertEquals(await verifyRoomHandoff(handoff, 'test-cave', env), null);
+          return new Response(null, { status: 204 });
+        },
+      };
+    },
+  };
+  const launchPath = '/api/rooms/default?room=quarry&dungeon=test-cave';
+  assertEquals((await app.fetch(request(launchPath), env)).status, 401);
+  const launch = await app.fetch(request(launchPath, { cookie: unauthorizedCookie }), env);
+  assertEquals(await launch.json(), {
+    roomId: room.roomId, seed: room.seed, ws: 'wss://arena.hairylogic.com/ws/dungeons/test-cave',
+  });
+  assertEquals((await app.fetch(request('/ws/dungeons/test-cave', { cookie: unauthorizedCookie }), env)).status, 204);
+  const quarry = await app.fetch(request('/api/rooms/default?room=quarry', { cookie: unauthorizedCookie }), env);
+  assertEquals((await quarry.json()).ws, 'wss://arena.hairylogic.com/ws/quarry');
 });

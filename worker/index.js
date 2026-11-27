@@ -10,13 +10,14 @@ import {
   normalizePlayerName,
   normalizeRoomId,
   normalizeSayText,
+  seedFromString,
 } from '../public/src/shared/net/protocol.js';
 import { generateArenaCave } from '../public/src/rules/geometry/caveGen.js';
 import { Gold, MaterialStacks } from '../public/src/rules/components/index.js';
 import { CampAction, checkCampAction } from '../public/src/rules/camp.js';
 import { SIM_DT, SIM_TICK_HZ } from '../public/src/rules/sim/arenaSim.js';
 import { createArenaDungeonSimulation } from '../public/src/rules/sim/arenaDungeon.js';
-import { normalizeHandCarvedDungeon } from '../public/src/rules/geometry/handCarvedDungeon.js';
+import { createHandCarvedCave, normalizeHandCarvedDungeon } from '../public/src/rules/geometry/handCarvedDungeon.js';
 import {
   authCallback,
   authConfigStatus,
@@ -41,6 +42,8 @@ const SAY_COOLDOWN_MS = 900;
 const PENDING_GOLD_PREFIX = 'pending-character-gold:';
 const PENDING_MATERIALS_PREFIX = 'pending-character-materials:';
 const CREDIT_RETRY_MS = 2000;
+const DUNGEON_ID = /^[a-z0-9][a-z0-9_-]{0,47}$/;
+const DUNGEON_ROOM_PREFIX = 'dungeon:';
 
 export default {
   async fetch(request, env, editorFiles) {
@@ -143,6 +146,14 @@ export default {
     if (url.pathname === '/api/rooms/default') {
       const session = await readSession(request, env);
       if (!session) return json({ ok: false, error: 'login required' }, { status: 401 });
+      const dungeonId = url.searchParams.get('dungeon');
+      if (dungeonId !== null) {
+        if (!DUNGEON_ID.test(dungeonId)) return json({ error: 'Invalid dungeon ID.' }, { status: 400 });
+        const roomId = DUNGEON_ROOM_PREFIX + dungeonId;
+        const failure = await env.GAME_ROOM.getByName(roomId).prepareDungeon();
+        if (failure) return json({ error: failure.error }, { status: failure.status });
+        return json({ roomId, seed: seedFromString(`room:${roomId}`), ws: websocketUrl(request, `/ws/dungeons/${dungeonId}`) });
+      }
       const roomId = normalizeRoomId(url.searchParams.get('room') ?? DEFAULT_ROOM_ID);
       return json({
         roomId,
@@ -174,9 +185,10 @@ export default {
       return json({ ...result.character, serverNow: Date.now() });
     }
 
+    const dungeonPath = /^\/ws\/dungeons\/([a-z0-9][a-z0-9_-]{0,47})$/.exec(url.pathname);
     const roomPath = /^\/ws\/([a-z0-9_-]{1,48})$/.exec(url.pathname);
-    if (roomPath) {
-      const roomId = normalizeRoomId(roomPath[1]);
+    if (dungeonPath || roomPath) {
+      const roomId = dungeonPath ? DUNGEON_ROOM_PREFIX + dungeonPath[1] : normalizeRoomId(roomPath[1]);
       const session = await readSession(request, env);
       if (!session) return json({ ok: false, error: 'login required' }, { status: 401 });
       const handoff = await createRoomHandoff(session, roomId, url.searchParams.get('characterName'), env);
@@ -221,7 +233,10 @@ export class GameRoom {
     this.materialFlushes = new Map();
     this.createdAt = Date.now();
     this.roomId = state.id.name ?? DEFAULT_ROOM_ID;
-    this.seed = makeRoomSeed(this.roomId);
+    this.dungeonId = this.roomId.startsWith(DUNGEON_ROOM_PREFIX) ? this.roomId.slice(DUNGEON_ROOM_PREFIX.length) : null;
+    this.seed = this.dungeonId ? seedFromString(`room:${this.roomId}`) : makeRoomSeed(this.roomId);
+    this.dungeonLayout = null;
+    this.preparingDungeon = null;
     this.caveData = null;
     this.sim = null;
     this.tickTimer = null;
@@ -243,6 +258,8 @@ export class GameRoom {
 
     const identity = await verifyRoomHandoff(request.headers.get('x-arena-room-auth'), this.roomId, this.env);
     if (!identity) return json({ ok: false, error: 'room authentication required' }, { status: 401 });
+    const failure = await this.prepareDungeon();
+    if (failure) return json({ error: failure.error }, { status: failure.status });
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
@@ -284,15 +301,7 @@ export class GameRoom {
     sim.world.get(player, Gold).count = gold;
     this.sessions.set(socket, session);
     this.startTicking();
-    this.send(socket, MESSAGE.WELCOME, {
-      peerId,
-      roomId: this.roomId,
-      seed: this.seed,
-      tickHz: SIM_TICK_HZ,
-      snapshotHz: SNAPSHOT_HZ,
-      peers: this.peerList(),
-      snapshot: this.ensureSim().captureSnapshot(),
-    });
+    this.sendWelcome(socket, peerId);
     this.broadcast(MESSAGE.PEER_JOINED, { peerId, peers: this.peerList() }, socket);
     this.broadcastSnapshot();
 
@@ -328,15 +337,7 @@ export class GameRoom {
     }
 
     if (msg.type === MESSAGE.HELLO) {
-      this.send(socket, MESSAGE.WELCOME, {
-        peerId: session.id,
-        roomId: this.roomId,
-        seed: this.seed,
-        tickHz: SIM_TICK_HZ,
-        snapshotHz: SNAPSHOT_HZ,
-        peers: this.peerList(),
-        snapshot: this.ensureSim().captureSnapshot(),
-      });
+      this.sendWelcome(socket, session.id);
       return;
     }
 
@@ -549,8 +550,44 @@ export class GameRoom {
     });
   }
 
+  sendWelcome(socket, peerId) {
+    this.send(socket, MESSAGE.WELCOME, {
+      peerId,
+      roomId: this.roomId,
+      seed: this.seed,
+      ...(this.dungeonLayout ? { dungeonLayout: this.dungeonLayout } : {}),
+      tickHz: SIM_TICK_HZ,
+      snapshotHz: SNAPSHOT_HZ,
+      peers: this.peerList(),
+      snapshot: this.ensureSim().captureSnapshot(),
+    });
+  }
+
+  async prepareDungeon() {
+    if (!this.dungeonId || this.dungeonLayout) return null;
+    this.preparingDungeon ??= this.loadDungeon().finally(() => { this.preparingDungeon = null; });
+    return await this.preparingDungeon;
+  }
+
+  async loadDungeon() {
+    if (!this.env.DUNGEONS) return { status: 503, error: 'Dungeon storage is unavailable.' };
+    const saved = await this.env.DUNGEONS.get(`hand-carved:${this.dungeonId}`, 'json');
+    if (!saved) return { status: 404, error: 'This dungeon could not be found.' };
+    let layout;
+    try {
+      layout = normalizeHandCarvedDungeon(saved, this.dungeonId);
+    } catch {
+      return { status: 409, error: 'This dungeon layout is invalid.' };
+    }
+    if (!layout.start) return { status: 409, error: 'This dungeon needs a player start in the Dungeon Editor.' };
+    this.caveData = createHandCarvedCave(layout, this.seed);
+    this.dungeonLayout = layout;
+    return null;
+  }
+
   ensureCave() {
     if (!this.caveData) {
+      if (this.dungeonId) throw new Error('Prepare the saved dungeon before starting its simulation');
       this.caveData = generateArenaCave(this.seed);
     }
     return this.caveData;

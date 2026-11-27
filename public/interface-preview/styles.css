@@ -118,6 +118,7 @@ a:hover { border-color: #74c9dd; }
 
 .nav-item[aria-current],
 .selected,
+.run-card:has(input:checked),
 .queue-tabs a[aria-current] {
   border-color: var(--selected);
   background: linear-gradient(145deg, #0e3542, #09232f 66%);
@@ -189,7 +190,9 @@ a:hover { border-color: #74c9dd; }
 .row-copy strong { font-size: .95rem; line-height: 1.2; }
 .row-copy small { margin-top: 2px; }
 .run-list, .craft-modes, .jobs { display: grid; gap: 6px; }
-.run-card { min-height: 56px; }
+.run-card { min-height: 56px; cursor: pointer; }
+.run-card input { margin-inline-start: auto; flex: none; accent-color: var(--selected); }
+.run-card:has(input:focus-visible) { outline: 2px solid var(--selected); outline-offset: 2px; }
 .dungeon-name { overflow-wrap: anywhere; }
 .dungeon-status { margin-top: 6px; font-size: .875rem; }
 .dungeon-status:empty { display: none; }

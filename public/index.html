@@ -573,6 +573,7 @@ let onCampResult = () => {};
 let stopOnDisconnect = (message) => showArenaLoadError(`${message} Reload to return to the main screen.`);
 const netClient = createNetClient({
   roomId: pageParams.get('room') ?? undefined,
+  dungeonId: pageParams.get('dungeon'),
   onSay(message) { dungeonChat?.receive(message); },
   onSayError(message) { dungeonChat?.reject(message); },
   onCampResult(message) { onCampResult(message); },
@@ -649,13 +650,14 @@ const isNetworked = Boolean(netWelcome);
 
 // ── Seed + cave ─────────────────────────────────────────────────
 const SEED = netWelcome?.seed ?? (chestPreview && !pageParams.get('seed') ? 7 : resolveSeed().seed);
-const caveData = playtestLayout ? createHandCarvedCave(playtestLayout, SEED) : generateArenaCave(SEED);
+const dungeonLayout = netWelcome?.dungeonLayout ?? playtestLayout;
+const caveData = dungeonLayout ? createHandCarvedCave(dungeonLayout, SEED) : generateArenaCave(SEED);
 const { grid, bounds, spawns, routes, campfires } = caveData;
 const camp = isNetworked || tracksOfflineProgress || playtestLayout ? caveData.camp : null;
 const spawn = spawns[0];
 const previewChestSite = chestPreview ? findReachableNear(grid, spawn, [72, 56, 40]) : null;
-const decorations = playtestLayout ? caveData.decorations : createDungeonDecorations({ grid, routes, spawns, campfires, seed: SEED });
-if (caveData.placementWarnings?.length) {
+const decorations = dungeonLayout ? caveData.decorations : createDungeonDecorations({ grid, routes, spawns, campfires, seed: SEED });
+if (isAuthoredPlaytest && caveData.placementWarnings?.length) {
   const warning = document.getElementById('playtest-warning');
   warning.textContent = caveData.placementWarnings.join(' ');
   warning.hidden = false;

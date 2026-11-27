@@ -198,10 +198,15 @@ function back(screen, label) {
   return `<a class="back" href="${href(screen)}" aria-label="${label}"></a>`;
 }
 
-function runScreen() {
+function runLaunchParams(dungeonId) {
   const launchParams = new URLSearchParams(gameParams);
   if (!launchParams.has('room')) launchParams.set('room', 'quarry');
+  if (dungeonId) launchParams.set('dungeon', dungeonId);
   launchParams.set('startRun', '');
+  return launchParams;
+}
+
+function runScreen() {
   return `
     <div class="run-hero" role="img" aria-label="A fire and tent inside the cave camp"></div>
     <div class="run-panels">
@@ -222,14 +227,16 @@ function runScreen() {
       <section aria-labelledby="run-title">
         <div class="section-heading"><h1 id="run-title">${icon('run')} Dungeons</h1></div>
         <ul class="run-list" id="run-list">
-          <li class="row run-card selected">
-            ${icon('crystal blue')}
-            <span class="row-copy"><strong>The Quarry</strong></span>
-            <span class="sr-only">Selected</span>
+          <li>
+            <label class="row run-card">
+              ${icon('crystal blue')}
+              <span class="row-copy"><strong>The Quarry</strong></span>
+              <input type="radio" name="dungeon" value="" checked>
+            </label>
           </li>
         </ul>
         <p class="dungeon-status" id="dungeon-status" role="status">${offline ? '' : 'Loading saved dungeons…'}</p>
-        <a class="primary start-run" href="${gameHref(launchParams)}">${icon('run')} Start Run</a>
+        <a class="primary start-run" href="${gameHref(runLaunchParams())}">${icon('run')} Start Run</a>
       </section>
     </div>`;
 }
@@ -248,15 +255,17 @@ async function loadDungeons() {
     }
     if (!response.ok) throw new Error('Could not load saved dungeons');
     const { dungeons } = await response.json();
-    for (const { name } of dungeons) {
+    for (const { id, name } of dungeons) {
       const row = document.createElement('li');
-      row.className = 'row run-card';
-      const label = document.createElement('span');
-      label.className = 'row-copy dungeon-name';
-      const title = document.createElement('strong');
-      title.textContent = name;
-      label.append(title);
-      row.innerHTML = icon('crystal violet');
+      const label = document.createElement('label');
+      label.className = 'row run-card';
+      label.innerHTML = `${icon('crystal violet')}<span class="row-copy dungeon-name"><strong></strong></span>`;
+      label.querySelector('strong').textContent = name;
+      const option = document.createElement('input');
+      option.type = 'radio';
+      option.name = 'dungeon';
+      option.value = id;
+      label.append(option);
       row.append(label);
       list.append(row);
     }
@@ -519,6 +528,10 @@ document.querySelector('#queue-craft')?.addEventListener('click', async () => {
     submitting = false;
     updateCrafting();
   }
+});
+
+document.querySelector('#run-list')?.addEventListener('change', (event) => {
+  document.querySelector('.start-run').href = `/?${runLaunchParams(event.target.value)}`;
 });
 
 loadBalance();

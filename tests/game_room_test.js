@@ -7,7 +7,6 @@ import { SIM_DT, SIM_MODE } from '../public/src/rules/sim/arenaSim.js';
 import { createArenaDungeonSimulation } from '../public/src/rules/sim/arenaDungeon.js';
 import { GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
 import { getMiningMaterial } from '../public/src/rules/data/miningMaterials.js';
-import { createHandCarvedCave } from '../public/src/rules/geometry/handCarvedDungeon.js';
 import { generateArenaCave } from '../public/src/rules/geometry/caveGen.js';
 import { canMineOre } from '../public/src/rules/geometry/oreSites.js';
 import { sweepMaxFree } from '../public/src/rules/geometry/sweep.js';
@@ -210,22 +209,39 @@ Deno.test('game room: Regeneration uses the selected ally from the socket input'
 });
 
 Deno.test('game room: authored lava burns on contact, lingers on exit, and can kill', async () => {
-  const room = new GameRoom(makeRoomState(), makeEnv());
-  room.caveData = createHandCarvedCave({
+  const env = makeEnv();
+  const room = new GameRoom(makeRoomState(undefined, 'dungeon:lava-test'), env);
+  const layout = {
     schema: 'hack-arena.hand-carved-dungeon', version: 1, id: 'lava-test', name: 'Lava Test',
-    width: 1000, height: 1000, start: { x: 500, y: 500 },
+    width: 1000, height: 1000, cellSize: 8, start: { x: 500, y: 500 },
     strokes: [
       { id: 'room', type: 'rect', x: 200, y: 200, w: 600, h: 600 },
       { id: 'pool', type: 'rect', x: 520, y: 420, w: 200, h: 160, floor: 'lava' },
     ],
-  });
+  };
+  let saved;
+  let reads = 0;
+  env.DUNGEONS = { async get(key, type) {
+    assertEquals([key, type], ['hand-carved:lava-test', 'json']);
+    reads++;
+    return structuredClone(saved);
+  } };
+  assertEquals((await room.prepareDungeon()).status, 404);
+  saved = { ...layout, start: undefined };
+  assertEquals((await room.prepareDungeon()).status, 409);
+  saved = layout;
+  assertEquals(await Promise.all([room.prepareDungeon(), room.prepareDungeon()]), [null, null]);
+  assertEquals(reads, 3);
   const socket = new FakeSocket();
   await room.accept(socket, { userId: 'user-1', displayName: 'First' });
   try {
-    const { peerId } = socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    const { peerId, dungeonLayout, roomId } = socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    assertEquals(dungeonLayout, layout);
+    assertEquals(roomId, 'dungeon:lava-test');
     const sim = room.ensureSim();
     const player = sim.getPlayerEntity(peerId);
     const position = sim.world.get(player, Position);
+    assertEquals({ x: position.x, y: position.y }, layout.start);
     const snapshot = () => sim.getPlayerSnapshot(peerId).state;
     const isBurning = () => snapshot().conditions.some(({ id }) => id === 'burning');
 
