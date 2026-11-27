@@ -873,6 +873,7 @@ renderer = createWebGLArenaRenderer({
   presentation,
   speechBubbles: () => dungeonChat?.getBubbles(),
   stepParticles: projectileFx.step,
+  showPlayerSight: !isPreview && !itemPreview,
   itemTooltip,
   resourceBars: { health: healthBar, mana: manaBar },
   hud: {

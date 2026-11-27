@@ -1,6 +1,6 @@
 import {
   Actor, ActorKind, BowWeapon, Conditions, AuraEmitter, Collider,
-  Consumable, Facing, Gold, GroundItem, Health, Input, ItemInfo, ItemSlot, Lifetime, LootToss, Mana, MaterialStacks, MeleeWeapon,
+  Consumable, Facing, FOV, Gold, GroundItem, Health, Input, ItemInfo, ItemSlot, Lifetime, LootToss, Mana, MaterialStacks, MeleeWeapon,
   Mining, PickupLock, PlayerTag, PointLight, Position, Powerups, Projectile, Ring, Spellbook,
   Velocity, WeaponPickup,
 } from '../../rules/components/index.js';
@@ -18,6 +18,7 @@ import { createGorePass } from '../passes/gore.js';
 import { createHudReadout } from '../ui/hudReadout.js';
 import { compareDirection, ringTooltipRows } from '../ui/itemTooltip.js';
 import { getConditionFrame, conditionCellSize, conditionSheetUrl } from '../ui/conditionIcon.js';
+import { createPlayerSight } from '../playerSight.js';
 import { spellCastProgress } from '../spellCastProgress.js';
 import { biolum, emberLight, fireFlicker, torchLight } from '../lightPatterns.js';
 import { createWebGLDevice, uniform } from './device.js';
@@ -51,6 +52,7 @@ import { PARTICLE_VERTEX } from './shaders/particle.vert.js';
 import { PARTICLE_FRAGMENT } from './shaders/particle.frag.js';
 import { LINE_VERTEX } from './shaders/line.vert.js';
 import { SOLID_FRAGMENT } from './shaders/solid.frag.js';
+import { PLAYER_SIGHT_FRAGMENT } from './shaders/playerSight.frag.js';
 import { createLightFragment } from './shaders/light.frag.js';
 import { ELEMENT_FRAGMENT } from './shaders/element.frag.js';
 import { POTION_GLOW_FRAGMENT } from './shaders/potionGlow.frag.js';
@@ -182,7 +184,7 @@ function uploadCubeMesh(device, vertices) {
 }
 
 export function createWebGLArenaRenderer(deps) {
-  const { canvas, overlayCanvas, cam, grid, bounds, decorations, camp, getMineableOre = () => [], world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars, stepParticles, speechBubbles } = deps;
+  const { canvas, overlayCanvas, cam, grid, bounds, decorations, camp, getMineableOre = () => [], world, fx, playerId, presentation, hud, input, net, SEED, runtimeEvents, itemTooltip, resourceBars, stepParticles, speechBubbles, showPlayerSight = true } = deps;
   const syncHudReadout = createHudReadout(hud.meta, hud.conditions, hud.materials);
   const device = createWebGLDevice(canvas);
   const { gl } = device;
@@ -227,6 +229,24 @@ export function createWebGLArenaRenderer(deps) {
   lighting.colors = uniform(gl, lighting.program, 'u_light_colors[0]');
   lighting.lava = uniform(gl, lighting.program, 'u_lava');
   lighting.cellSize = uniform(gl, lighting.program, 'u_cell_size');
+  const sight = showPlayerSight ? createPlayerSight(grid) : null;
+  const sightShader = sight ? worldProgram(device, PLAYER_SIGHT_FRAGMENT) : null;
+  let sightTexture;
+  if (sightShader) {
+    sightShader.distances = uniform(gl, sightShader.program, 'u_distances');
+    sightShader.eye = uniform(gl, sightShader.program, 'u_eye');
+    sightShader.cone = uniform(gl, sightShader.program, 'u_cone');
+    sightShader.ranges = uniform(gl, sightShader.program, 'u_ranges');
+    sightShader.distance = uniform(gl, sightShader.program, 'u_distance');
+    sightTexture = device.texture2D({
+      width: sight.distances.length,
+      height: 1,
+      data: sight.distances,
+      internalFormat: gl.R32F,
+      format: gl.RED,
+      type: gl.FLOAT,
+    });
+  }
   const element = worldProgram(device, ELEMENT_FRAGMENT);
   element.theme = uniform(gl, element.program, 'u_theme');
   element.time = uniform(gl, element.program, 'u_time');
@@ -488,7 +508,7 @@ export function createWebGLArenaRenderer(deps) {
     combatNumbers.add({
       ...event,
       target: event.target ?? event.targetNetworkId,
-      x: anchor.x, y: anchor.y - radius - 16,
+      x: anchor.x, y: anchor.y - radius - 16, groundY: anchor.y,
       incoming: event.target === playerId,
     });
   }
@@ -994,6 +1014,24 @@ export function createWebGLArenaRenderer(deps) {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
+  function isVisible(x, y) {
+    return !sight || sight.contains(x, y);
+  }
+
+  function drawSightMask(distance) {
+    gl.useProgram(sightShader.program);
+    gl.bindVertexArray(quadVao);
+    setWorld(sightShader, view[0], view[1], view[2], view[3]);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, sightTexture);
+    gl.uniform1i(sightShader.distances, 0);
+    gl.uniform4fv(sightShader.eye, sight.eye);
+    gl.uniform2fv(sightShader.cone, sight.cone);
+    gl.uniform4fv(sightShader.ranges, sight.ranges);
+    gl.uniform1f(sightShader.distance, distance);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
   function drawLavaDroplets(now) {
     const { lavaGrid, cellSize, cols, rows, moveGrid } = grid;
     if (!lavaGrid || motionPreference.matches) return;
@@ -1239,7 +1277,7 @@ export function createWebGLArenaRenderer(deps) {
     for (const [id, position, collider, actor] of world.query(Position, Collider, Actor)) {
       if (!canPick(id)) continue;
       const shown = displayPosition(id, position);
-      if (!inView(shown.x, shown.y, collider.radius)) continue;
+      if (!inView(shown.x, shown.y, collider.radius) || !isVisible(shown.x, shown.y)) continue;
       // Tall sprites extend upward from their collider in the top-down view.
       const lift = (statusBarPadding(actor) - 9) * 0.5;
       const dx = (x - shown.x) / collider.radius;
@@ -1462,7 +1500,7 @@ export function createWebGLArenaRenderer(deps) {
       const collider = world.get(id, Collider);
       if (!position || !collider) continue;
       const shown = displayPosition(id, position);
-      if (!inView(shown.x, shown.y, 0)) continue;
+      if (!inView(shown.x, shown.y, 0) || !isVisible(shown.x, shown.y)) continue;
       const sx = ((shown.x - view[0]) / view[2] + 0.5) * width;
       const sy = ((shown.y - view[1]) / view[3] + 0.5) * height;
       const radius = collider.radius * width / view[2];
@@ -1515,7 +1553,7 @@ export function createWebGLArenaRenderer(deps) {
     for (const [id, position, collider, actor] of world.query(Position, Collider, Actor)) {
       if (world.get(id, AI)?.mimicClosed) continue;
       const shown = displayPosition(id, position);
-      if (!inView(shown.x, shown.y, 30)) continue;
+      if (!inView(shown.x, shown.y, 30) || !isVisible(shown.x, shown.y)) continue;
       const sx = ((shown.x - view[0]) / view[2] + 0.5) * width;
       const sy = ((shown.y - view[1]) / view[3] + 0.5) * height;
       const barOffset = collider.radius + statusBarPadding(actor);
@@ -1534,7 +1572,7 @@ export function createWebGLArenaRenderer(deps) {
     }
 
     drawSpeechBubbles(width, height, ratio);
-    combatNumbers.render(overlay, { view, width, height, ratio, reducedMotion: motionPreference.matches });
+    combatNumbers.render(overlay, { view, width, height, ratio, reducedMotion: motionPreference.matches, isVisible });
     if (camp) drawCampLabels(width, height, ratio);
     const size = Math.round(128 * ratio);
     const pad = Math.round(15 * ratio);
@@ -1544,14 +1582,21 @@ export function createWebGLArenaRenderer(deps) {
     overlay.strokeStyle = 'rgba(112,230,255,.34)'; overlay.lineWidth = ratio; overlay.strokeRect(left, top, size, size);
     const mapPoint = (x, y) => [left + 7 * ratio + x / bounds.w * (size - 14 * ratio), top + 7 * ratio + y / bounds.h * (size - 14 * ratio)];
     overlay.fillStyle = 'rgba(255,151,48,.75)';
-    for (const torch of decorations?.torches || []) { const [x, y] = mapPoint(torch.x, torch.y); overlay.fillRect(x - ratio, y - ratio, ratio * 2, ratio * 2); }
+    for (const torch of decorations?.torches || []) {
+      if (!isVisible(torch.x, torch.y)) continue;
+      const [x, y] = mapPoint(torch.x, torch.y);
+      overlay.fillRect(x - ratio, y - ratio, ratio * 2, ratio * 2);
+    }
     for (const campfire of campfires) {
+      if (!isVisible(campfire.x, campfire.y)) continue;
       const [x, y] = mapPoint(campfire.x, campfire.y);
       overlay.fillStyle = 'rgba(255,190,72,.95)';
       overlay.fillRect(x - 2 * ratio, y - 2 * ratio, ratio * 4, ratio * 4);
     }
     for (const [id, position, actor] of world.query(Position, Actor)) {
-      const [x, y] = mapPoint(position.x, position.y);
+      const shown = displayPosition(id, position);
+      if (id !== playerId && !isVisible(shown.x, shown.y)) continue;
+      const [x, y] = mapPoint(shown.x, shown.y);
       overlay.beginPath(); overlay.arc(x, y, (id === playerId ? 3.2 : 2) * ratio, 0, Math.PI * 2);
       overlay.fillStyle = id === playerId ? '#7df4ff' : actor.kind === ActorKind.PLAYER ? '#ffffff' : actor.rare ? '#ffd65a' : '#d25b79'; overlay.fill();
     }
@@ -1579,7 +1624,7 @@ export function createWebGLArenaRenderer(deps) {
     overlay.restore();
 
     function label(site, text, color, offset) {
-      if (!inView(site.x, site.y, 70)) return;
+      if (!inView(site.x, site.y, 70) || !isVisible(site.x, site.y)) return;
       const x = ((site.x - view[0]) / view[2] + 0.5) * width;
       const y = ((site.y - view[1]) / view[3] + 0.5) * height + offset * ratio;
       overlay.strokeText(text, x, y);
@@ -1603,11 +1648,11 @@ export function createWebGLArenaRenderer(deps) {
       const lock = world.get(id, PickupLock);
       if (lock?.owner === playerId && lock.remaining > 0) continue;
       const distance = Math.hypot(position.x - shownPlayer.x, position.y - shownPlayer.y);
-      if (distance > previewRadius || !inView(position.x, position.y, 20)) continue;
+      if (distance > previewRadius || !inView(position.x, position.y, 20) || !isVisible(position.x, position.y)) continue;
       if (!candidate || distance < candidate.distance) candidate = { position, info, pickup, ring, distance };
     }
     for (const site of oreSites) {
-      if (!inView(site.x, site.y, 20) || !canMineOre(grid, shownPlayer, site)) continue;
+      if (!inView(site.x, site.y, 20) || !isVisible(site.x, site.y) || !canMineOre(grid, shownPlayer, site)) continue;
       const distance = Math.hypot(site.x - shownPlayer.x, site.y - shownPlayer.y);
       if (candidate && distance >= candidate.distance) continue;
       const info = getMiningMaterial(oreMaterialId(site.kind));
@@ -1677,6 +1722,13 @@ export function createWebGLArenaRenderer(deps) {
     const punch = meleeImpact.cameraResponse();
     const renderScale = cam.scale * punch.zoom;
     const shownPlayer = displayPosition(playerId, playerPosition);
+    const facing = world.get(playerId, Facing)?.angle ?? 0;
+    const fov = world.get(playerId, FOV) ?? FOV.defaults;
+    if (sight?.update(shownPlayer, facing, fov)) {
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, sightTexture);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, sight.distances.length, 1, gl.RED, gl.FLOAT, sight.distances);
+    }
     const { width, height, ratio } = device.resize();
     view[0] = cam.x - cam.shakeX + punch.x;
     view[1] = cam.y - cam.shakeY + punch.y;
@@ -1736,6 +1788,7 @@ export function createWebGLArenaRenderer(deps) {
     for (const [id, _playerTag, position, collider] of world.query(PlayerTag, Position, Collider)) {
       const shown = displayPosition(id, position);
       const local = id === playerId;
+      if (!local && !isVisible(shown.x, shown.y)) continue;
       drawDisc(shown.x, shown.y, collider.radius, local ? [0.10, 0.20, 0.28, 1] : [0.12, 0.31, 0.47, 0.82], local ? [0.4, 1, 0.86, 1] : [0.51, 0.86, 1, 1]);
       const dead = world.get(id, Health)?.dead;
       drawGlyph(dead ? '☠' : '@', shown.x, shown.y + 1, collider.radius * 1.55, dead ? [0.8, 0.18, 0.18, 1] : (local ? [0.81, 0.91, 1, 1] : [0.84, 0.96, 1, 1]));
@@ -1761,6 +1814,7 @@ export function createWebGLArenaRenderer(deps) {
     for (const [id, position, collider, actor] of world.query(Position, Collider, Actor)) {
       if (actor.kind !== ActorKind.MOB) continue;
       const shown = displayPosition(id, position);
+      if (!isVisible(shown.x, shown.y)) continue;
       const velocity = world.get(id, Velocity);
       const speed = Math.hypot(velocity?.vx || 0, velocity?.vy || 0);
       const facing = world.get(id, Facing)?.angle ?? 0;
@@ -1969,6 +2023,7 @@ export function createWebGLArenaRenderer(deps) {
       const consumable = world.get(id, Consumable);
       if (['mana_regen', 'haste', 'fury', 'ward'].includes(consumable?.effect)) continue;
       const ground = displayPosition(id, position);
+      if (!isVisible(ground.x, ground.y)) continue;
       const toss = world.get(id, LootToss);
       const height = presentation?.lootHeight?.(id) ?? toss?.height ?? 0;
       const airborne = Boolean(toss) || height > 0;
@@ -2042,6 +2097,7 @@ export function createWebGLArenaRenderer(deps) {
       const effect = world.get(id, Consumable)?.effect;
       if (!['mana_regen', 'haste', 'fury', 'ward'].includes(effect)) continue;
       const shown = displayPosition(id, position);
+      if (!isVisible(shown.x, shown.y)) continue;
       const height = presentation?.lootHeight?.(id) ?? world.get(id, LootToss)?.height ?? 0;
       const bob = Math.sin(now * 3 + id) * 2.5;
       const pulse = 0.5 + 0.5 * Math.sin(now * 4.5 + id);
@@ -2071,6 +2127,7 @@ export function createWebGLArenaRenderer(deps) {
     for (const [id, position, collider, health] of world.query(Position, Collider, Health)) {
       if (world.get(id, AI)?.mimicClosed) continue;
       const shown = displayPosition(id, position);
+      if (!isVisible(shown.x, shown.y)) continue;
       const padding = statusBarPadding(world.get(id, Actor));
       const barWidth = Math.max(25, collider.radius * 2.35);
       const y = shown.y - collider.radius - padding;
@@ -2149,6 +2206,8 @@ export function createWebGLArenaRenderer(deps) {
         punch.rend ? [1, 0.20, 0.31, punch.flash] : [1, 0.79 - 0.56 * heat, 0.48 - 0.26 * heat, punch.flash]);
     }
 
+    if (sight) drawSightMask(fov.distance);
+
     const hp = world.get(playerId, Health);
     if (hp?.dead) {
       drawRect(view[0], view[1], view[2], view[3], [0.22, 0.005, 0.012, 0.52]);
@@ -2187,7 +2246,10 @@ export function createWebGLArenaRenderer(deps) {
     pickUnit,
     worldToClient,
     showCampDeposit(message) { campDeposit = { message, age: 0 }; },
-    terrainChanged() { fieldDirty = true; },
+    terrainChanged() {
+      fieldDirty = true;
+      sight?.invalidate();
+    },
     dispose() { if (!disposed) { disposed = true; overlay?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height); device.dispose(); } },
   });
 }

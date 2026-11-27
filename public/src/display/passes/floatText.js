@@ -6,7 +6,7 @@ const LANES = [0, -1, 1, -2, 2];
 export function createFloatTextPass() {
   const numbers = [];
 
-  function add({ x, y, target, amount, incoming = false, periodic = false, killed = false, critical = false }) {
+  function add({ x, y, groundY = y, target, amount, incoming = false, periodic = false, killed = false, critical = false }) {
     if (!Number.isFinite(amount) || amount === 0 || !Number.isFinite(x) || !Number.isFinite(y)) return;
 
     const healing = amount < 0;
@@ -24,7 +24,7 @@ export function createFloatTextPass() {
 
     const lane = LANES.find((lane) => !nearby.some((number) => number.lane === lane && number.age < 0.4)) ?? 0;
     numbers.push({
-      x, y, target, lane, healing, incoming, periodic, killed, critical,
+      x, y, groundY, target, lane, healing, incoming, periodic, killed, critical,
       amount: Math.abs(amount), age: 0, batchAge: 0,
       lifetime: healing ? 1.05 : periodic ? 0.72 : 0.92,
     });
@@ -40,13 +40,14 @@ export function createFloatTextPass() {
     }
   }
 
-  function render(ctx, { view, width, height, ratio, reducedMotion = false }) {
+  function render(ctx, { view, width, height, ratio, reducedMotion = false, isVisible = () => true }) {
     if (!numbers.length) return;
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
     for (const number of numbers) {
+      if (!number.incoming && !isVisible(number.x, number.groundY)) continue;
       const progress = number.age / number.lifetime;
       const rise = number.healing ? 36 * progress : 42 * (1 - (1 - progress) ** 3);
       const drift = number.lane * (18 + (reducedMotion ? 0 : progress * 7));

@@ -5,6 +5,7 @@ import { MAX_DYNAMIC_LIGHTS } from '../public/src/display/webgl/arenaRenderer.js
 import { itemTooltipIconId, weaponTooltipName } from '../public/src/display/ui/itemTooltip.js';
 import { icons } from '../public/assets/icons/manifest.js';
 import { createMeleeImpact } from '../public/src/display/passes/meleeImpact.js';
+import { createPlayerSight } from '../public/src/display/playerSight.js';
 import { createFloatTextPass } from '../public/src/display/passes/floatText.js';
 import { createGorePass, GORE_LIMITS } from '../public/src/display/passes/gore.js';
 import { writeSpiderPose } from '../public/src/display/webgl/spiderMesh.js';
@@ -13,6 +14,32 @@ import { createDungeonDecorations } from '../public/src/display/worldDecorations
 import { biolum, emberLight, fireFlicker, torchLight } from '../public/src/display/lightPatterns.js';
 import { generateArenaCave, generateCave } from '../public/src/rules/geometry/caveGen.js';
 import { sweepMaxFree } from '../public/src/rules/geometry/sweep.js';
+
+Deno.test('player sight turns in place, limits rear awareness, and stops at walls', () => {
+  let wall = true;
+  const sight = createPlayerSight({
+    cellSize: 8,
+    distanceMove: (x) => wall && x >= 80 && x <= 96 ? 0 : 20,
+  });
+  const origin = { x: 0, y: 0 };
+  const fov = { angle: 1.4, distance: 220 };
+  assert(sight.update(origin, 0, fov));
+  assert(sight.contains(65, 0));
+  assert(!sight.contains(120, 0));
+  assert(sight.contains(-40, 0));
+  assert(!sight.contains(-100, 0));
+  assert(!sight.update(origin, Math.PI, fov));
+  assert(sight.contains(-100, 0));
+  assert(!sight.contains(65, 0));
+  assert(!sight.contains(-240, 0));
+
+  wall = false;
+  sight.invalidate();
+  assert(sight.update(origin, 0, fov));
+  assert(sight.contains(120, 0));
+  assert(sight.update({ x: 16, y: 0 }, 0, fov));
+  assert(sight.contains(208, 0));
+});
 
 Deno.test('weapon tooltip: authored names take precedence over weapon type fallbacks', () => {
   assertEquals(weaponTooltipName({ name: 'Shadow Longbow', slot: 'ranged' }), 'Shadow Longbow');
