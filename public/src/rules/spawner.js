@@ -543,6 +543,12 @@ const itemSpawners = new Map([
 
 export const itemIds = Object.freeze([...itemSpawners.keys()].sort());
 
+export const mobSpawners = Object.freeze({
+  spider: spawnSpider, goblin: spawnMelee, loot_goblin: spawnLootGoblin,
+  wraith: spawnCaster, cube: spawnTank, floating_eye: spawnFloatingEye,
+  gas_spore: spawnGasSpore, bat: spawnBat, flaming_bat: spawnFlamingBat, mimic: spawnMimic,
+});
+
 export function spawnItem(world, x, y, item) {
   const spawn = itemSpawners.get(item?.type);
   return spawn ? spawn(world, x, y, item) : null;

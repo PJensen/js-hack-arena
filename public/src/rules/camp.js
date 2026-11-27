@@ -23,7 +23,7 @@ export function checkCampAction({ world, player, grid, camp, action, pending }) 
   } else if (action === CampAction.EXIT) {
     if (!dead && !inCampReach(grid, position, camp.portal)) return 'Walk up to the camp portal to leave.';
     if (pending) return 'Wait for your deposit to finish saving.';
-    if (!dead && carrying) return 'Deposit your loot in the camp chest first.';
+    if (!dead && carrying && camp.bank) return 'Deposit your loot in the camp chest first.';
   } else {
     return 'Unknown camp action.';
   }

@@ -7,6 +7,8 @@ export function createArenaDungeonSimulation({ seed, cave, mode, preview = false
     spawns: cave.spawns,
     campfires: cave.campfires,
     chestSites: preview ? [] : cave.chestSites,
+    itemSites: preview ? [] : cave.itemSites,
+    authoredMobSites: preview ? [] : cave.authoredMobSites,
     mode,
     collectGear: !preview,
     enemyGroupSize: 3,

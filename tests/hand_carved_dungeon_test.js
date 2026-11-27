@@ -8,6 +8,8 @@ import {
   PLAYER_COLLIDER_RADIUS,
 } from '../public/src/rules/geometry/handCarvedDungeon.js';
 import { astar } from '../public/src/rules/ai/pathfind.js';
+import { AI, Actor, Health } from '../public/src/rules/components/index.js';
+import { createArenaDungeonSimulation } from '../public/src/rules/sim/arenaDungeon.js';
 
 const layout = {
   schema: 'hack-arena.hand-carved-dungeon', version: 1, id: 'test-cave',
@@ -111,6 +113,50 @@ Deno.test('playtest uses the authored start, bounds, and floor', () => {
   assert(cave.grid.distanceMove(start.x, start.y) >= PLAYER_COLLIDER_RADIUS);
   assertEquals(cave.grid.distanceMove(100, 100), 0);
   assertThrows(() => createHandCarvedCave(layout), Error, 'Set a player start');
+});
+
+Deno.test('authored placement runs through the arena simulation and encounters stay cleared', () => {
+  const start = { x: 260, y: 504 };
+  const draft = normalizeHandCarvedDungeon({
+    ...layout, start, width: 2000, height: 2000,
+    strokes: [{ id: 'hall', type: 'rect', x: 120, y: 240, w: 1760, h: 1360 }],
+    placements: [
+      { id: 'torch', kind: 'decoration', variant: 'torch', x: 340, y: 500 },
+      { id: 'props', kind: 'dressing', variant: 'mushroom', x: 520, y: 500, radius: 140, count: 2 },
+      { id: 'chest', kind: 'chest', variant: 'fixed', item: 'void_reaver', ...start },
+      { id: 'item', kind: 'item', variant: 'arrows', x: 420, y: 500 },
+      { id: 'spider', kind: 'mob', variant: 'spider', x: 800, y: 504, patrol: [{ x: 800, y: 570 }] },
+      { id: 'pack', kind: 'mob_zone', variant: 'cave_pack', x: 1120, y: 800, radius: 240, count: 3 },
+      { id: 'hearth', kind: 'campfire', x: 280, y: 420 },
+      { id: 'bank', kind: 'bank', x: 270, y: 320 },
+      { id: 'exit', kind: 'exit', x: 1600, y: 500 },
+      { id: 'ore', kind: 'ore', variant: 'copper', x: 142, y: 660 },
+      { id: 'ore-zone', kind: 'ore_zone', variant: 'tin', x: 170, y: 1170, radius: 160, count: 2 },
+    ],
+  });
+  const cave = createHandCarvedCave(draft, 42);
+  assertEquals(cave.placementWarnings, []);
+  assertEquals(cave.authoredMobSites, createHandCarvedCave(draft, 42).authoredMobSites);
+  assertEquals(cave.decorations.torches.length, 1);
+  assertEquals(cave.decorations.mushrooms.length, 2);
+  assertEquals(cave.camp, { bank: { x: 270, y: 320 }, portal: { x: 1600, y: 500 } });
+  const sim = createArenaDungeonSimulation({ seed: 42, cave });
+  sim.addPlayer('designer');
+  const mobs = () => [...sim.world.query(Actor, AI)];
+  assertEquals(mobs().length, 4);
+  const [id, , ai] = mobs()[0];
+  assertEquals(ai.patrolPoints, [{ x: 800, y: 570 }]);
+  assertEquals(ai.target, null);
+  assertEquals(sim.getMineableOre().map(({ kind }) => kind), ['copper', 'tin', 'tin']);
+  sim.world.get(id, Health).hp = 0;
+  sim.step();
+  assertEquals(mobs().length, 3);
+  const itemNames = sim.captureSnapshot().entities.filter(({ kind }) => kind === 'item').map(({ state }) => state.name);
+  assert(itemNames.includes('Void Reaver'));
+  assert(itemNames.includes('Arrows (5)'));
+  sim.addPlayer('second-designer');
+  sim.step();
+  assertEquals(mobs().length, 3);
 });
 
 Deno.test('hand-carved passages are traversable by the enemy A* pathfinder', () => {

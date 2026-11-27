@@ -28,6 +28,12 @@
     .view-tools { display:flex; align-items:center; flex-wrap:wrap; gap:5px; }
     .view-tools label { display:inline-flex; align-items:center; gap:4px; }
     #fitStatus { color:#c5d2c8; min-height:1.4em; text-align:center; }
+    #placements { padding:8px clamp(10px,3vw,26px); border-bottom:1px solid #323d36; }
+    #placements summary { cursor:pointer; color:var(--accent); }
+    .placement-controls { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:7px; }
+    .placement-controls label { display:inline-flex; align-items:center; gap:4px; }
+    .placement-controls label[hidden] { display:none; }
+    .placement-controls input[type=number] { width:78px; }
     main { display:grid; justify-items:center; gap:8px; padding:10px; }
     #map { --aspect:1; display:block; width:min(100%, max(280px, (100dvh - 155px) * var(--aspect))); aspect-ratio:var(--aspect); border:1px solid #415044; background:#1b231e; touch-action:none; cursor:crosshair; }
     #status { margin:0; min-height:1.4em; color:#bac7bd; text-align:center; }
@@ -54,6 +60,7 @@
       <button type="button" data-brush="ellipse" aria-pressed="false">Oval</button>
       <button type="button" data-brush="fit" aria-pressed="false">Player Fit</button>
       <button type="button" data-brush="start" aria-pressed="false">Set Start</button>
+      <button type="button" data-brush="place" aria-pressed="false">Place Content</button>
       <button id="clearStart" type="button" disabled>Clear Start</button>
     </div>
     <label class="size" for="brushSize">Width <input id="brushSize" type="range" min="16" max="2000" step="4" value="480"><output id="sizeLabel" for="brushSize">480</output></label>
@@ -76,6 +83,28 @@
       </select>
     </div>
   </div>
+  <details id="placements">
+    <summary>Placements</summary>
+    <div class="placement-controls">
+      <select id="placementKind" aria-label="Placement type"></select>
+      <select id="placementVariant" aria-label="Placement choice"></select>
+      <label id="placementItemField" hidden>Item <select id="placementItem"></select></label>
+      <label id="placementMimicField" hidden><input id="placementMimic" type="checkbox">Allow mimic</label>
+      <label id="placementRadiusField" hidden>Radius <input id="placementRadius" type="number" min="32" max="1200" step="1" value="160"></label>
+      <label id="placementCountField" hidden>Count <input id="placementCount" type="number" min="1" max="12" value="3"></label>
+      <select id="placementAction" aria-label="Canvas placement action">
+        <option value="add">Add on map</option>
+        <option value="move">Move selected on map</option>
+        <option value="patrol">Add patrol waypoint</option>
+      </select>
+    </div>
+    <div class="placement-controls">
+      <select id="placedMarkers" aria-label="Placed markers"><option value="">Select a placed marker</option></select>
+      <button id="updateMarker" type="button" disabled>Apply Settings</button>
+      <button id="clearPatrol" type="button" disabled>Clear Patrol</button>
+      <button id="removeMarker" type="button" disabled>Remove Marker</button>
+    </div>
+  </details>
   <main>
     <canvas id="map" aria-label="Dungeon drawing canvas"></canvas>
     <div id="fitStatus"></div>

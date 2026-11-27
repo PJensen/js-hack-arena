@@ -241,6 +241,8 @@
                      color:rgba(220,255,242,.82); font:11px ui-monospace,monospace; letter-spacing:.04em;
                      cursor:pointer; }
     #reset-dungeon:hover { background:rgba(22,58,58,.9); color:#fff; }
+    #playtest-warning { position:fixed; top:55px; left:12px; z-index:52; max-width:min(420px,85vw);
+                        padding:7px 10px; margin:0; background:#302517; color:#ffdfa9; border-radius:6px; pointer-events:none; }
     #dungeon-chat { position:fixed; left:max(12px,env(safe-area-inset-left));
                     bottom:var(--chat-bottom);
                     width:min(320px,calc(100vw - 24px)); z-index:55; pointer-events:none;
@@ -292,6 +294,7 @@
   <canvas id="game"></canvas>
   <canvas id="world-overlay"></canvas>
   <div id="arena-ui" aria-live="polite"></div>
+  <p id="playtest-warning" role="status" hidden></p>
   <div id="entry-gate">
     <form id="entry-card">
       <h1>HACK//ARENA</h1>
@@ -646,12 +649,17 @@ const isNetworked = Boolean(netWelcome);
 
 // ── Seed + cave ─────────────────────────────────────────────────
 const SEED = netWelcome?.seed ?? (chestPreview && !pageParams.get('seed') ? 7 : resolveSeed().seed);
-const caveData = playtestLayout ? createHandCarvedCave(playtestLayout) : generateArenaCave(SEED);
+const caveData = playtestLayout ? createHandCarvedCave(playtestLayout, SEED) : generateArenaCave(SEED);
 const { grid, bounds, spawns, routes, campfires } = caveData;
-const camp = isNetworked || tracksOfflineProgress ? caveData.camp : null;
+const camp = isNetworked || tracksOfflineProgress || playtestLayout ? caveData.camp : null;
 const spawn = spawns[0];
 const previewChestSite = chestPreview ? findReachableNear(grid, spawn, [72, 56, 40]) : null;
-const decorations = playtestLayout ? {} : createDungeonDecorations({ grid, routes, spawns, campfires, seed: SEED });
+const decorations = playtestLayout ? caveData.decorations : createDungeonDecorations({ grid, routes, spawns, campfires, seed: SEED });
+if (caveData.placementWarnings?.length) {
+  const warning = document.getElementById('playtest-warning');
+  warning.textContent = caveData.placementWarnings.join(' ');
+  warning.hidden = false;
+}
 
 const carve = createGridCarver(grid);
 
@@ -938,7 +946,9 @@ onCampResult = ({ action, error, deposited }) => {
   } else if (action === CampAction.EXIT) {
     loop.stop();
     netClient.destroy();
-    if (startRun) {
+    if (isAuthoredPlaytest) {
+      location.assign('/tools/dungeon-editor/?resume=1');
+    } else if (startRun) {
       const previewUrl = new URL('/interface-preview/', location.href);
       if (pageParams.has('room')) previewUrl.searchParams.set('room', pageParams.get('room'));
       if (tracksOfflineProgress) previewUrl.searchParams.set('offline', '');
@@ -973,6 +983,11 @@ function requestCampAction(action) {
   }
   const stacks = world.get(playerId, MaterialStacks);
   const deposited = stacks.counts;
+  if (isAuthoredPlaytest) {
+    stacks.counts = {};
+    onCampResult({ action, deposited });
+    return;
+  }
   const materials = { ...offlineProgress.materials };
   const gear = { ...offlineProgress.gear };
   for (const [id, count] of Object.entries(deposited)) {

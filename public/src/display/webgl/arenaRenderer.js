@@ -235,7 +235,9 @@ export function createWebGLArenaRenderer(deps) {
   const mushroom = worldProgram(device, MUSHROOM_FRAGMENT);
   mushroom.glow = uniform(gl, mushroom.program, 'u_glow');
   mushroom.intensity = uniform(gl, mushroom.program, 'u_intensity');
-  const bioluminescentProps = [decorations?.mushroom, decorations?.ghostPipe].filter(Boolean);
+  const mushrooms = decorations?.mushrooms ?? [decorations?.mushroom].filter(Boolean);
+  const ghostPipes = decorations?.ghostPipes ?? [decorations?.ghostPipe].filter(Boolean);
+  const bioluminescentProps = [...mushrooms, ...ghostPipes];
   const ghostPipeProgram = device.program(GHOST_PIPE_VERTEX, PROP_MESH_FRAGMENT);
   const ghostPipeLocations = {
     view: uniform(gl, ghostPipeProgram, 'u_view'),
@@ -888,7 +890,7 @@ export function createWebGLArenaRenderer(deps) {
         });
       }
     }
-    if (camp && inView(camp.portal.x, camp.portal.y, 95)) {
+    if (camp?.portal && inView(camp.portal.x, camp.portal.y, 95)) {
       candidates.push({ ...camp.portal, radius: 95, intensity: 1.3, r: 0.23, g: 0.72, b: 1 });
     }
     for (const prop of bioluminescentProps) {
@@ -1340,8 +1342,8 @@ export function createWebGLArenaRenderer(deps) {
       drawFlame(torch.x, torch.y + 7 - height * 0.5, 28 + intensity * 6, height, (still ? 0 : now) + torch.phase, 0.83 * intensity);
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    const fungus = decorations?.mushroom;
-    if (fungus && inView(fungus.x, fungus.y, 26)) {
+    for (const fungus of mushrooms) {
+      if (!inView(fungus.x, fungus.y, 26)) continue;
       const glow = biolum(now, fungus.phase);
       gl.useProgram(mushroom.program);
       gl.bindVertexArray(quadVao);
@@ -1350,8 +1352,8 @@ export function createWebGLArenaRenderer(deps) {
       gl.uniform1f(mushroom.intensity, glow.intensity);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
-    const ghostPipe = decorations?.ghostPipe;
-    if (ghostPipe && inView(ghostPipe.x, ghostPipe.y, 36)) {
+    for (const ghostPipe of ghostPipes) {
+      if (!inView(ghostPipe.x, ghostPipe.y, 36)) continue;
       const glow = biolum(now, ghostPipe.phase);
       gl.useProgram(ghostPipeProgram);
       gl.uniform4fv(ghostPipeLocations.view, view);
@@ -1508,8 +1510,8 @@ export function createWebGLArenaRenderer(deps) {
     overlay.font = `700 ${Math.round(12 * ratio)}px system-ui, sans-serif`;
     overlay.lineWidth = 4 * ratio;
     overlay.strokeStyle = '#07101a';
-    label(camp.bank, 'Bank Chest', '#ffe0a2', 17);
-    label(camp.portal, 'Exit Portal', '#a6f4ff', 19);
+    if (camp.bank) label(camp.bank, 'Bank Chest', '#ffe0a2', 17);
+    if (camp.portal) label(camp.portal, 'Exit Portal', '#a6f4ff', 19);
     if (campDeposit) {
       const progress = campDeposit.age / 2.1;
       const rise = motionPreference.matches ? 0 : 35 * (1 - (1 - progress) ** 2);
@@ -1657,7 +1659,7 @@ export function createWebGLArenaRenderer(deps) {
     const oreSites = getMineableOre();
     drawOre(view, inView, oreSites, motionPreference.matches ? null : now);
     drawDungeonDecorations(now, renderDt, campfires);
-    if (camp) drawCampPortal(camp.portal, now);
+    if (camp?.portal) drawCampPortal(camp.portal, now);
 
     presentBleeding();
     goreRenderer.drawFloor(gore, view, inView);
@@ -1676,7 +1678,7 @@ export function createWebGLArenaRenderer(deps) {
     const batShrieks = [];
     const batFlames = [];
     const models = [];
-    if (camp && inView(camp.bank.x, camp.bank.y, 45)) {
+    if (camp?.bank && inView(camp.bank.x, camp.bank.y, 45)) {
       models.push({ model: 'chest', id: 0, shown: camp.bank, bank: true });
     }
     const books = [];

@@ -21,6 +21,18 @@ Choose Playtest after placing a start to walk through the draft with the Arena
 renderer. Back to Editor restores your draft in the same tab. Playtest is a
 solo run with no character or bank progression.
 
+Choose **Place Content** to add markers. Place individual props, mobs, chests,
+loose items, campfires, a bank, an exit, or ore. Drag to draw a zone, or set its
+radius and click. Set a count to place an encounter pack, scatter props, or
+distribute ore on nearby walls.
+Select a marker from the list to move it, change its settings, or add patrol
+waypoints to a mob or mob zone. Grid snapping applies to marker coordinates.
+
+Chests can use the epic chest table, the mob loot table, or a fixed item.
+Only chests marked **Allow mimic** can roll a mimic. Playtest reports markers
+that the map cannot place, such as ore away from a wall or a mob too close to
+the entrance.
+
 **Save** and **Load** use the authenticated Worker API and the `DUNGEONS` KV
 namespace. Name a dungeon before saving. To reopen one, choose it from the saved
 dungeon list and select Load. Only the configured `DUNGEON_EDITOR_USER_ID` can

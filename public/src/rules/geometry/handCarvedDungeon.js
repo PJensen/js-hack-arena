@@ -1,4 +1,6 @@
 import { PLAYER_COLLIDER_RADIUS } from '../playerDimensions.js';
+import { normalizeDungeonPlacements } from '../data/dungeonPlacements.js';
+import { compileAuthoredContent } from './authoredContent.js';
 
 export { PLAYER_COLLIDER_RADIUS };
 export const HAND_CARVED_DUNGEON_SCHEMA = 'hack-arena.hand-carved-dungeon';
@@ -79,6 +81,8 @@ export function normalizeHandCarvedDungeon(value, expectedId = null) {
     strokes,
   };
   if (roughness) result.roughness = roughness;
+  const placements = normalizeDungeonPlacements(value.placements, result);
+  if (placements.length) result.placements = placements;
   if (value.start != null) {
     const { x, y } = value.start;
     if (!finite(x) || !finite(y) || !handCarvedPlayerFits(result, x, y)) {
@@ -152,17 +156,16 @@ export function handCarvedPlayerFits(layout, x, y) {
   return wallClearance(layout, x, y, base, amplitude) >= PLAYER_COLLIDER_RADIUS;
 }
 
-export function createHandCarvedCave(layout) {
+export function createHandCarvedCave(layout, seed = 1) {
   if (!layout.start) throw new Error('Set a player start before playtesting.');
+  const grid = bakeHandCarvedGrid(layout);
   return {
-    grid: bakeHandCarvedGrid(layout),
+    grid,
     bounds: { w: layout.width, h: layout.height },
     spawns: [layout.start],
     routes: [],
-    campfires: [],
-    chestSites: [],
     encounterSites: [],
-    oreSites: [],
+    ...compileAuthoredContent(layout.placements ?? [], grid, layout.start, seed),
   };
 }
 

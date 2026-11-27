@@ -8,6 +8,9 @@ import {
   handCarvedPlayerFits,
   normalizeHandCarvedDungeon,
 } from '../../public/src/rules/geometry/handCarvedDungeon.js';
+import {
+  dungeonPlacementTypes, dungeonItemIds, normalizeDungeonPlacements, PLACEMENT_LIMIT,
+} from '../../public/src/rules/data/dungeonPlacements.js';
 
 const byId = (id) => document.getElementById(id);
 const [map, name, newButton, save, savedLayouts, load, size, sizeLabel, undo, redo, status] = [
@@ -19,7 +22,17 @@ const [roughness, roughnessLabel, fitStatus, clearStart, zoomIn, zoomOut, zoomLe
 ].map(byId);
 const [showGrid, snapGrid, gridSize] = ['showGrid', 'snapGrid', 'gridSize'].map(byId);
 const playtest = byId('playtest');
-const gridTools = ['circle', 'corridor', 'rect', 'ellipse', 'start'];
+const gridTools = ['circle', 'corridor', 'rect', 'ellipse', 'start', 'place'];
+const [
+  placementPanel, placementKind, placementVariant, placementItem, placementMimic, placementRadius,
+  placementCount, placementAction, placedMarkers, updateMarker, clearPatrol, removeMarker,
+] = [
+  'placements', 'placementKind', 'placementVariant', 'placementItem', 'placementMimic', 'placementRadius',
+  'placementCount', 'placementAction', 'placedMarkers', 'updateMarker', 'clearPatrol', 'removeMarker',
+].map(byId);
+const placementInputs = [placementKind, placementVariant, placementItem, placementMimic, placementRadius, placementCount, placementAction, placedMarkers];
+let selectedMarkerId = '';
+let shownPlacements;
 const committed = document.createElement('canvas');
 const roughMap = document.createElement('canvas');
 const ctx = map.getContext('2d');
@@ -119,7 +132,7 @@ function requestDraw() {
     }
     ctx.scale(map.width / layout.width, map.height / layout.height);
     if (!layout.roughness && zoom !== 1) for (const stroke of layout.strokes) paint(ctx, stroke);
-    if (gesture && gesture.type !== 'pan') {
+    if (gesture && !['pan', 'placement-zone'].includes(gesture.type)) {
       const preview = strokeForGesture(gesture);
       if (preview) paint(ctx, preview, '#c0e9c3');
     }
@@ -142,6 +155,7 @@ function requestDraw() {
       ctx.fill();
     }
     if (layout.start) drawPlayer(layout.start, unit, true);
+    drawPlacements(unit);
     let fitText = `${layout.width.toLocaleString()} × ${layout.height.toLocaleString()} units · Player diameter ${PLAYER_COLLIDER_RADIUS * 2} units`;
     if (cursor && ['fit', 'start'].includes(activeTool) && !busy) {
       fitText += drawPlayer(cursor, unit) ? ' · Player fits here' : ' · Player does not fit here';
@@ -267,6 +281,16 @@ map.addEventListener('pointerdown', (event) => {
     requestDraw();
     return;
   }
+  if (brush === 'place') {
+    if (placementAction.value === 'add' && dungeonPlacementTypes[placementKind.value].zone) {
+      gesture = { pointerId: event.pointerId, type: 'placement-zone', start: cursor, end: cursor, spacing };
+      map.setPointerCapture(event.pointerId);
+      requestDraw();
+      return;
+    }
+    placeAt(cursor);
+    return;
+  }
   if (brush === 'start') {
     if (handCarvedPlayerFits(layout, cursor.x, cursor.y)) {
       edit({ start: cursor }, false);
@@ -324,6 +348,14 @@ map.addEventListener('pointermove', (event) => movePointer(event));
 map.addEventListener('pointerup', (event) => {
   if (gesture?.pointerId !== event.pointerId) return;
   movePointer(event, true);
+  if (gesture.type === 'placement-zone') {
+    const { start } = gesture;
+    placementRadius.value = zoneRadius(gesture);
+    gesture = null;
+    if (event.pointerType !== 'mouse') cursor = pointer = null;
+    placeAt(start);
+    return;
+  }
   const stroke = gesture.type === 'pan' ? null : strokeForGesture(gesture);
   gesture = null;
   if (event.pointerType !== 'mouse') cursor = pointer = null;
@@ -377,6 +409,7 @@ for (const control of [showGrid, snapGrid, gridSize]) {
 for (const button of brushes) {
   button.addEventListener('click', () => {
     brush = button.dataset.brush;
+    if (brush === 'place') placementPanel.open = true;
     updateCursor();
     for (const item of brushes) item.setAttribute('aria-pressed', String(item === button));
     map.style.cursor = brush === 'pan' ? 'grab' : 'crosshair';
@@ -387,6 +420,7 @@ for (const button of brushes) {
       corridor: 'Hold Shift to snap to 45° angles.',
       rect: 'Hold Shift to draw a square.',
       ellipse: 'Hold Shift to draw a circle.',
+      place: 'Choose a placement type, then click the map.',
     };
     status.textContent = instructions[brush] ?? 'Drag on the canvas to carve a dungeon.';
     updateButtons();
@@ -408,11 +442,12 @@ function hasChanges() {
   return !savedVersion || layout.name !== savedVersion.name
     || (layout.roughness ?? 0) !== (savedVersion.roughness ?? 0)
     || layout.start !== savedVersion.start
+    || layout.placements !== savedVersion.placements
     || layout.strokes !== savedVersion.strokes;
 }
 
 function geometry() {
-  return { strokes: layout.strokes, roughness: layout.roughness, start: layout.start };
+  return { strokes: layout.strokes, roughness: layout.roughness, start: layout.start, placements: layout.placements };
 }
 function edit(changes, rebuild = true) {
   history.push(geometry());
@@ -436,6 +471,7 @@ function updateButtons() {
   redo.disabled = busy || !undone.length;
   zoomIn.disabled = view.zoom >= 24;
   zoomOut.disabled = resetView.disabled = view.zoom <= 1;
+  refreshPlacements();
 }
 function setBusy(value) {
   busy = value;
@@ -447,6 +483,8 @@ function setLayout(value) {
   name.value = value.name;
   history = [];
   undone = [];
+  selectedMarkerId = '';
+  placementAction.value = 'add';
   gesture = null;
   cursor = pointer = null;
   setView(0, 0, 1);
@@ -478,6 +516,160 @@ redo.addEventListener('click', () => {
   rebuildMap();
   updateButtons();
 });
+function placementLabel(value) {
+  const labels = { epic: 'Epic chest loot', mob: 'Mob loot table', fixed: 'Fixed item', cave: 'Mixed cave props' };
+  return labels[value] ?? value.replaceAll('_', ' ').replace(':', ' · ').replace(/^./, (letter) => letter.toUpperCase());
+}
+
+for (const [kind, type] of Object.entries(dungeonPlacementTypes)) placementKind.add(new Option(type.label, kind));
+for (const item of dungeonItemIds) placementItem.add(new Option(placementLabel(item), item));
+
+function syncPlacementForm(variant) {
+  const type = dungeonPlacementTypes[placementKind.value];
+  placementVariant.replaceChildren(...(type.options ?? []).map((id) => new Option(placementLabel(id), id)));
+  if (type.options?.includes(variant)) placementVariant.value = variant;
+  placementVariant.hidden = !type.options;
+  byId('placementRadiusField').hidden = byId('placementCountField').hidden = !type.zone;
+  byId('placementMimicField').hidden = placementKind.value !== 'chest';
+  byId('placementItemField').hidden = placementKind.value !== 'chest' || placementVariant.value !== 'fixed';
+}
+
+function selectedMarker() {
+  return layout.placements?.find(({ id }) => id === selectedMarkerId);
+}
+
+function refreshPlacements() {
+  const selected = selectedMarker();
+  if (shownPlacements !== layout.placements) {
+    shownPlacements = layout.placements;
+    placedMarkers.replaceChildren(new Option('Select a placed marker', ''), ...(layout.placements ?? []).map((marker, i) =>
+      new Option(`${i + 1}. ${dungeonPlacementTypes[marker.kind].label}${marker.variant ? ` · ${placementLabel(marker.variant)}` : ''}`, marker.id)));
+  }
+  placedMarkers.value = selected?.id ?? '';
+  placementAction.options[1].disabled = !selected;
+  placementAction.options[2].disabled = !dungeonPlacementTypes[selected?.kind]?.patrol;
+  if (placementAction.selectedOptions[0]?.disabled) placementAction.value = 'add';
+  for (const input of placementInputs) input.disabled = busy;
+  updateMarker.disabled = removeMarker.disabled = busy || !selected;
+  clearPatrol.disabled = busy || !selected?.patrol?.length;
+}
+
+function readPlacement(id, point, previous) {
+  const kind = placementKind.value;
+  const type = dungeonPlacementTypes[kind];
+  return {
+    id, ...point, kind, variant: placementVariant.value,
+    ...(type.zone && { radius: Number(placementRadius.value), count: Number(placementCount.value) }),
+    ...(kind === 'chest' && { item: placementItem.value, mimic: placementMimic.checked }),
+    ...(type.patrol && previous?.patrol && { patrol: previous.patrol }),
+  };
+}
+
+function changeMarker(marker, remove = false) {
+  try {
+    const markers = [...(layout.placements ?? [])];
+    const index = markers.findIndex(({ id }) => id === marker.id);
+    if (remove) markers.splice(index, 1);
+    else if (index < 0) markers.push(marker);
+    else markers[index] = marker;
+    const placements = normalizeDungeonPlacements(markers, layout);
+    selectedMarkerId = remove ? '' : marker.id;
+    edit({ placements }, false);
+    status.textContent = remove ? 'Placement removed.' : 'Placement updated.';
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+
+function placeAt(point) {
+  const selected = selectedMarker();
+  if (placementAction.value === 'move' && selected) {
+    changeMarker({ ...selected, ...point });
+  } else if (placementAction.value === 'patrol' && selected) {
+    changeMarker({ ...selected, patrol: [...(selected.patrol ?? []), point] });
+  } else if ((layout.placements?.length ?? 0) < PLACEMENT_LIMIT) {
+    changeMarker(readPlacement(newId(), point));
+  } else {
+    status.textContent = 'This dungeon has reached the placement limit.';
+  }
+}
+
+function zoneRadius(drag) {
+  const distance = Math.hypot(drag.end.x - drag.start.x, drag.end.y - drag.start.y);
+  const threshold = layout.width / (map.clientWidth * view.zoom) * 5;
+  return distance > threshold ? onScale(Math.round(distance), 32, 1200) : Number(placementRadius.value);
+}
+
+function drawPlacements(unit) {
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.lineWidth = 1.5 * unit;
+  ctx.font = `${10 * unit}px system-ui`;
+  for (const { id, x, y, radius, kind, patrol } of layout.placements ?? []) {
+    const selected = id === selectedMarkerId;
+    const color = selected ? '#ffffff' : kind.startsWith('mob') ? '#ff9c97' : '#f9d281';
+    ctx.strokeStyle = color;
+    ctx.fillStyle = '#202528';
+    ctx.beginPath();
+    ctx.arc(x, y, radius ?? 4 * unit, 0, Math.PI * 2);
+    if (!radius) ctx.fill();
+    ctx.stroke();
+    if (selected || unit < 5) {
+      ctx.fillStyle = color;
+      ctx.fillText(dungeonPlacementTypes[kind].label, x + 7 * unit, y - 4 * unit);
+    }
+    if (patrol?.length) {
+      ctx.setLineDash([3 * unit, 3 * unit]);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      for (const point of patrol) ctx.lineTo(point.x, point.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+  const drag = gesture?.type === 'placement-zone' ? gesture : null;
+  const radius = drag ? zoneRadius(drag) : Number(placementRadius.value);
+  if (brush === 'place' && cursor && placementAction.value === 'add' && dungeonPlacementTypes[placementKind.value]?.zone && radius > 0) {
+    const { x, y } = drag?.start ?? cursor;
+    ctx.strokeStyle = '#f9d28190';
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+placementKind.addEventListener('change', () => { syncPlacementForm(); requestDraw(); });
+placementVariant.addEventListener('change', () => syncPlacementForm(placementVariant.value));
+placementRadius.addEventListener('input', requestDraw);
+placementAction.addEventListener('change', requestDraw);
+placedMarkers.addEventListener('change', () => {
+  selectedMarkerId = placedMarkers.value;
+  const marker = selectedMarker();
+  placementAction.value = marker ? 'move' : 'add';
+  if (marker) {
+    placementKind.value = marker.kind;
+    syncPlacementForm(marker.variant);
+    placementMimic.checked = marker.mimic === true;
+    if (marker.item) placementItem.value = marker.item;
+    if (marker.radius) placementRadius.value = marker.radius;
+    if (marker.count) placementCount.value = marker.count;
+  }
+  refreshPlacements();
+  requestDraw();
+});
+updateMarker.addEventListener('click', () => {
+  const marker = selectedMarker();
+  if (marker) changeMarker(readPlacement(marker.id, { x: marker.x, y: marker.y }, marker));
+});
+clearPatrol.addEventListener('click', () => {
+  const marker = selectedMarker();
+  if (marker) changeMarker({ ...marker, patrol: [] });
+});
+removeMarker.addEventListener('click', () => {
+  const marker = selectedMarker();
+  if (marker) changeMarker(marker, true);
+});
+syncPlacementForm();
+
 window.addEventListener('keydown', (event) => {
   if ((!event.ctrlKey && !event.metaKey) || gesture) return;
   const key = event.key.toLowerCase();
@@ -506,7 +698,8 @@ playtest.addEventListener('click', () => {
       layout: draft, name: layout.name, dirty: hasChanges(),
     }));
     openingPlaytest = true;
-    location.assign('/?authoredPlaytest');
+    const [seed] = crypto.getRandomValues(new Uint32Array(1));
+    location.assign(`/?authoredPlaytest&seed=${seed}`);
   } catch (error) {
     status.textContent = `Could not playtest. ${error.message}`;
   }
@@ -567,7 +760,8 @@ setLayout(layout);
 if (new URLSearchParams(location.search).has('resume')) {
   try {
     const handoff = JSON.parse(sessionStorage.getItem(HAND_CARVED_PLAYTEST_KEY));
-    setLayout({ ...normalizeHandCarvedDungeon(handoff?.layout), name: handoff.name });
+    const restored = normalizeHandCarvedDungeon(handoff?.layout);
+    setLayout({ ...restored, name: typeof handoff.name === 'string' ? handoff.name : restored.name });
     if (handoff.dirty) savedVersion = null;
     status.textContent = 'Returned from playtest.';
   } catch {

@@ -73,6 +73,7 @@ Deno.test('dungeon editor API stores and loads normalized layouts for the author
     width: 1000, height: 1000, cellSize: 8,
     start: { x: 500, y: 500 },
     roughness: 35,
+    placements: [{ id: 'torch', kind: 'decoration', variant: 'torch', x: 500, y: 500 }],
     strokes: [{ id: 'room-one', type: 'circle', cx: 500, cy: 500, r: 120 }],
   };
   const unauthorizedCookie = await signedSessionCookie(env.ARENA_SESSION_SECRET, 'other-sub');
@@ -90,6 +91,7 @@ Deno.test('dungeon editor API stores and loads normalized layouts for the author
   assertEquals(savedBody.layout.cellSize, 8);
   assertEquals(savedBody.layout.start, layout.start);
   assertEquals(savedBody.layout.roughness, layout.roughness);
+  assertEquals(savedBody.layout.placements, layout.placements);
   assertEquals(typeof savedBody.updatedAt, 'string');
 
   const listed = await app.fetch(request('/api/editor/dungeons', { cookie }), env);

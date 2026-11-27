@@ -4,7 +4,7 @@ import app, { GameRoom as Room } from './index.js';
 import html from '../tools/dungeon-editor/index.html';
 import script from '../tools/dungeon-editor/editor.js';
 
-const editorFiles = { html, script: script.replace('../../public/src/', '/src/') };
+const editorFiles = { html, script: script.replaceAll('../../public/src/', '/src/') };
 
 export default {
   fetch(request, env) {

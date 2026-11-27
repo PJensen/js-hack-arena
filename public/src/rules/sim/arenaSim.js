@@ -62,6 +62,7 @@ import {
   GOLD_LIGHT,
   findOpenNear,
   LOOT_GOBLIN_LIGHT,
+  mobSpawners,
   spawnItem,
   spawnMelee,
   spawnPlayer,
@@ -128,6 +129,8 @@ export function createArenaSimulation({
   spawns = [],
   campfires = [],
   chestSites = [],
+  itemSites = [],
+  authoredMobSites = [],
   mode = SIM_MODE.AUTHORITY,
   enemyCount = 1,
   enemyGroupSize = 1,
@@ -153,6 +156,7 @@ export function createArenaSimulation({
   let lastAppliedEventSequence = -1;
   let populationStarted = false;
   const encounters = mode === SIM_MODE.AUTHORITY ? createEncounterSelector(seed) : null;
+  const authoredChestLoot = new Map();
   const mining = createOreMining({ seed, grid, sites: oreSites });
   let remoteOre = [];
   const getMineableOre = mode === SIM_MODE.AUTHORITY ? mining.available : () => remoteOre;
@@ -163,10 +167,19 @@ export function createArenaSimulation({
     world.on('loot_goblin.escaped', ({ id }) => forgetEntity(id));
     installLootRules(world);
     for (const { x, y } of campfires) spawnAuraField(world, x, y, AuraId.CAMPFIRE);
+    const hasAuthoredMimic = authoredMobSites.some(({ variant }) => variant === 'mimic');
     for (const site of chestSites) {
-      const spawn = encounters.choose('leafRoom');
+      const spawn = (!site.loot || (site.mimic && !hasAuthoredMimic)) ? encounters.choose('leafRoom') : null;
       if (spawn) placeEncounter(site, spawn);
-      else ensureNetworkId(spawnEpicChest(world, site.x, site.y), 'item');
+      else {
+        const chest = spawnEpicChest(world, site.x, site.y);
+        ensureNetworkId(chest, 'item');
+        if (site.loot) authoredChestLoot.set(chest, site);
+      }
+    }
+    for (const site of itemSites) {
+      const item = spawnItem(world, site.x, site.y, site);
+      if (item != null) ensureNetworkId(item, 'item');
     }
   }
 
@@ -205,7 +218,8 @@ export function createArenaSimulation({
           placeEncounter(findReachableNear(grid, site, [96, 72, 48]) ?? site, spawn, size);
         }
       }
-      if (sites.length) revision += 1;
+      for (const site of authoredMobSites) placeEncounter(site, mobSpawners[site.variant], 1);
+      if (sites.length || authoredMobSites.length) revision += 1;
     }
     return entityId;
   }
@@ -781,7 +795,11 @@ export function createArenaSimulation({
       revision += 1;
     });
     targetWorld.on('chest.opened', ({ entity, x, y }) => {
-      const drop = rollTable(epicChestTable, epicChestTotalWeight, targetWorld.rand);
+      const site = authoredChestLoot.get(entity);
+      authoredChestLoot.delete(entity);
+      const drop = site?.loot === 'fixed' ? { type: site.item }
+        : site?.loot === 'mob' ? rollTable(mobDropTable, mobDropTotalWeight, targetWorld.rand)
+        : rollTable(epicChestTable, epicChestTotalWeight, targetWorld.rand);
       const itemId = spawnItem(targetWorld, x, y, drop);
       if (itemId != null) {
         tossLoot(targetWorld, itemId, grid, entity);
