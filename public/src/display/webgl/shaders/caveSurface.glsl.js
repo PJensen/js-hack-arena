@@ -98,7 +98,15 @@ vec3 cryptFloor(vec2 p, float pixelSize) {
 }
 
 vec3 moltenLava(vec2 p, float pixelSize, float time) {
-  float heat = noise(p * 0.061) * 0.74 + noise(p * 0.16) * 0.26;
+  // Slowly deform the heat pattern in place. The paint mask and bubble centers stay fixed.
+  vec2 flow = p * 0.026;
+  float drift = time * 0.086;
+  vec2 displacement = vec2(
+    noise(flow + vec2(drift, 17.4)),
+    noise(flow + vec2(31.6, -drift * 0.81))
+  ) - 0.5;
+  vec2 surface = p + displacement * 7.0;
+  float heat = noise(surface * 0.061) * 0.74 + noise(surface * 0.16) * 0.26;
   vec3 color = mix(vec3(0.78, 0.105, 0.015), vec3(1.0, 0.54, 0.075), smoothstep(0.23, 0.81, heat));
   float crust = (1.0 - smoothstep(0.12, 0.32, heat));
   color = mix(color, vec3(0.30, 0.044, 0.019), crust * 0.75);
