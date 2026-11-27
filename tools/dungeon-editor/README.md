@@ -14,7 +14,8 @@ for confirmation before opening a blank draft. Saved dungeons stay available.
 
 Choose **Paint water** to add shallow, walkable water with any shape brush.
 Use **Paint stone** to restore dry floor. Both paint modes preserve the
-underlying layout, and Playtest shows the water under the dungeon lighting.
+underlying layout. In Playtest, creatures leave a wake as they move through
+water and take double damage from lightning while standing in it.
 
 Drag two fingers on the touchpad or hold the middle mouse button and drag to
 pan. Pinch, turn the mouse wheel, or use the zoom buttons to zoom. If your

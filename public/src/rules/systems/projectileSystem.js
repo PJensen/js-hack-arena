@@ -42,11 +42,11 @@ export function createProjectileSystem({ grid, carve = null }) {
         if (projectile.impacts?.length) {
           applyImpacts(world, target.id, projectile.owner, projectile.impacts, {
             x: position.x, y: position.y, damageType: projectile.style,
-            spellId: projectile.spellId, impactAngle,
+            spellId: projectile.spellId, impactAngle, grid,
           });
         } else {
           applyDamage(world, target.id, projectile.damage, {
-            sourceId: projectile.owner, x: position.x, y: position.y, damageType: projectile.style, impactAngle,
+            sourceId: projectile.owner, x: position.x, y: position.y, damageType: projectile.style, impactAngle, grid,
           });
         }
         if (projectile.recoverableAmmo && world.has(target.id, AI)) {

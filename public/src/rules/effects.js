@@ -4,6 +4,7 @@ import { drawCriticalHit } from './components/CritBag.js';
 import { conditions as conditionCatalog } from './data/conditionCatalog.js';
 import { EffectKind, EffectStat } from './data/effectCatalog.js';
 import { getStatMultiplier } from './stats.js';
+import { isStandingInWater, WATER_COMBAT } from './geometry/waterCombat.js';
 
 const TIMER_EPSILON = 1e-9;
 const CRITICAL_DAMAGE_MULTIPLIER = 2;
@@ -37,20 +38,21 @@ export function applyCondition(world, targetId, conditionId, sourceId = null, du
 
 export function applyDamage(world, targetId, rawAmount, {
   sourceId = null, damageType = null, x = null, y = null, spellId = null, periodic = false, meleeArc = false,
-  impactAngle = null, canCrit = true, onDamage,
+  impactAngle = null, canCrit = true, onDamage, grid,
 } = {}) {
   const health = world.get(targetId, Health);
   if (!health || health.dead || health.hp <= 0) return 0;
   const ward = world.get(targetId, Powerups)?.wardMultiplier || 1;
   const mitigation = getStatMultiplier(world, targetId, EffectStat.DAMAGE_TAKEN, { damageType });
-  const adjusted = rawAmount * ward * mitigation;
+  const position = world.get(targetId, Position);
+  const water = damageType === 'electric' && isStandingInWater(grid, position) ? WATER_COMBAT : null;
+  const adjusted = rawAmount * ward * mitigation * (water?.damage ?? 1);
   const normalAmount = Math.max(0, Math.round(adjusted));
   if (normalAmount <= 0) return 0;
-  const critical = canCrit && !periodic && sourceId !== targetId && drawCriticalHit(world, sourceId);
+  const critical = canCrit && !periodic && sourceId !== targetId && drawCriticalHit(world, sourceId, water?.critChance);
   const amount = critical ? Math.round(adjusted * CRITICAL_DAMAGE_MULTIPLIER) : normalAmount;
   const hpLost = Math.min(health.hp, amount);
   health.hp -= hpLost;
-  const position = world.get(targetId, Position);
   const source = world.get(sourceId, Position);
   const event = {
     target: targetId, source: sourceId, amount,

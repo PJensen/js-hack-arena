@@ -34,6 +34,7 @@ import { createCampfireMesh } from './campfireMesh.js';
 import { createGhostPipeMesh } from './ghostPipeMesh.js';
 import { createLootMeshes } from './lootMesh.js';
 import { createOreRenderer } from './oreRenderer.js';
+import { createWaterWakeRenderer } from './waterWakeRenderer.js';
 import { LOOT_VERTEX } from './shaders/loot.vert.js';
 import { LOOT_FRAGMENT } from './shaders/loot.frag.js';
 import { SPELLBOOK_FRAGMENT } from './shaders/spellbook.frag.js';
@@ -395,6 +396,7 @@ export function createWebGLArenaRenderer(deps) {
     filter: gl.LINEAR,
   });
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+  const drawWaterWakes = grid.waterGrid ? createWaterWakeRenderer(device, quadVao, waterTexture, grid) : null;
   const atlas = createGlyphAtlas(device);
 
   const particleVao = device.vertexArray();
@@ -1663,6 +1665,7 @@ export function createWebGLArenaRenderer(deps) {
     gl.activeTexture(gl.TEXTURE0);
     gl.uniform2i(caveLocations.gridSize, grid.cols, grid.rows);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
+    drawWaterWakes?.(world, view, now, inView, motionPreference.matches, displayPosition);
 
     const campfires = [];
     const batFlamePuffs = [];

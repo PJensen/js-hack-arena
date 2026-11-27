@@ -1,6 +1,8 @@
-import { Health } from './components/index.js';
+import { Health, Position } from './components/index.js';
 import { applyCondition, applyDamage, applyHealing } from './effects.js';
 import { ImpactKind } from './data/spellCatalog.js';
+import { ConditionId } from './data/conditionCatalog.js';
+import { isStandingInWater, WATER_COMBAT } from './geometry/waterCombat.js';
 
 // Resolve author-time spell impacts into a projectile/channel-safe payload.
 export function resolveImpacts(impacts, { power = 1, amountMultiplier = 1 } = {}) {
@@ -31,6 +33,7 @@ export function applyImpacts(world, targetId, sourceId, impacts, context = {}) {
         meleeArc: context.meleeArc,
         impactAngle: context.impactAngle,
         canCrit: context.canCrit,
+        grid: context.grid,
         onDamage: context.onDamage,
       }) > 0 || applied;
     } else if (impact.kind === ImpactKind.HEAL) {
@@ -38,7 +41,11 @@ export function applyImpacts(world, targetId, sourceId, impacts, context = {}) {
         sourceId, x: context.x, y: context.y, spellId: context.spellId,
       }) > 0 || applied;
     } else if (isConditionImpact(impact.kind)) {
-      applied = applyCondition(world, targetId, impact.conditionId || impact.auraId, sourceId, impact.duration) || applied;
+      const conditionId = impact.conditionId || impact.auraId;
+      const extendStun = conditionId === ConditionId.STUNNED && (impact.damageType || context.damageType) === 'electric'
+        && isStandingInWater(context.grid, world.get(targetId, Position));
+      const duration = extendStun && impact.duration != null ? impact.duration * WATER_COMBAT.stunDuration : impact.duration;
+      applied = applyCondition(world, targetId, conditionId, sourceId, duration) || applied;
     }
   }
   return applied;

@@ -7,7 +7,7 @@ export const CritBag = defineComponent('CritBag', {
 
 const BAG_SIZE = 10;
 
-export function drawCriticalHit(world, actorId) {
+export function drawCriticalHit(world, actorId, chanceMultiplier = 1) {
   const bag = world.get(actorId, CritBag);
   if (!bag) return false;
 
@@ -16,5 +16,8 @@ export function drawCriticalHit(world, actorId) {
     // With one critical result, picking its position is equivalent to shuffling the bag.
     bag.critAt = 1 + Math.floor(world.rand() * BAG_SIZE);
   }
-  return bag.remaining-- === bag.critAt;
+  if (bag.remaining-- === bag.critAt) return true;
+  // Keep the guaranteed draw per bag. An extra roll on misses raises the
+  // overall chance by the requested factor without changing the bag.
+  return chanceMultiplier > 1 && world.rand() < (chanceMultiplier - 1) / (BAG_SIZE - 1);
 }

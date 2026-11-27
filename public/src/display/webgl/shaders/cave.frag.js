@@ -77,11 +77,14 @@ vec3 dirtyFloor(vec2 p, float pixelSize) {
 }
 
 vec3 shallowWater(vec3 floorColor, vec2 p, float depth) {
-  float wave = sin(dot(p, vec2(0.053, 0.074)) - u_water_time * 1.8);
-  float crossWave = sin(dot(p, vec2(-0.092, 0.031)) + u_water_time * 1.25);
-  float caustic = pow(max(0.0, wave * 0.62 + crossWave * 0.38), 5.0);
-  vec3 color = mix(floorColor * vec3(0.46, 0.76, 0.86), vec3(0.085, 0.30, 0.37), depth);
-  color += vec3(0.11, 0.24, 0.26) * caustic;
+  float drift = noise(p * 0.026 + vec2(-u_water_time * 0.07, 12.0));
+  float wave = sin(dot(p, vec2(0.088, 0.036)) + drift * 3.1 - u_water_time * 1.3);
+  float crossWave = sin(dot(p, vec2(-0.034, 0.091)) + drift * 2.2 + u_water_time * 0.9);
+  float caustic = (1.0 - smoothstep(0.0, 0.09, abs(wave * 0.6 + crossWave * 0.4)))
+    * smoothstep(0.30, 0.72, drift);
+  vec3 color = floorColor * mix(vec3(0.63, 0.89, 0.99), vec3(0.36, 0.71, 0.82), depth)
+    + vec3(0.014, 0.073, 0.095) * depth;
+  color += vec3(0.045, 0.11, 0.13) * caustic;
   return color;
 }
 

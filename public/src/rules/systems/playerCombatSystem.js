@@ -151,7 +151,7 @@ function maintainCast(world, grid, playerId, input, book, position, dt) {
     book.charge += dt;
     const fury = world.get(playerId, Powerups)?.furyMultiplier || 1;
     const impacts = resolveImpacts(spell.impacts, { amountMultiplier: fury });
-    const targets = applyChannelTick(world, playerId, spell, impacts, book.castTargetX, book.castTargetY);
+    const targets = applyChannelTick(world, grid, playerId, spell, impacts, book.castTargetX, book.castTargetY);
     world.emit('spell.channel', {
       playerId, spellId, x: book.castTargetX, y: book.castTargetY,
       remaining: book.channelRemaining, manaCost: manaPerTick, targets,
@@ -197,7 +197,7 @@ function resolveCast(world, grid, playerId, book, position, spell, power) {
     resolved = true;
   } else if (spell.targeting.type === TargetingType.SELF) {
     resolved = applyImpacts(world, playerId, playerId, impacts, {
-      x: position.x, y: position.y, spellId, damageType: spell.element,
+      x: position.x, y: position.y, spellId, damageType: spell.element, grid,
     });
   } else if (spell.targeting.type === TargetingType.SELECTED_UNIT) {
     const target = getSelectedUnitPosition(world, grid, position, spell, book.castTargetId);
@@ -205,7 +205,7 @@ function resolveCast(world, grid, playerId, book, position, spell, power) {
       deny(world, playerId, spellId, 'target');
     } else {
       resolved = applyImpacts(world, book.castTargetId, playerId, impacts, {
-        x: target.x, y: target.y, spellId, damageType: spell.element,
+        x: target.x, y: target.y, spellId, damageType: spell.element, grid,
       });
     }
   } else if (spell.delivery.kind === DeliveryKind.PROJECTILE) {
@@ -258,7 +258,7 @@ function castChain(world, grid, playerId, position, spell, impacts) {
     hit.add(best.id);
     const chainImpacts = resolveImpacts(impacts, { amountMultiplier: Math.pow(0.7, chain) });
     applyImpacts(world, best.id, playerId, chainImpacts, {
-      x: best.position.x, y: best.position.y, spellId: spell.id, damageType: spell.element,
+      x: best.position.x, y: best.position.y, spellId: spell.id, damageType: spell.element, grid,
     });
     world.emit('spell.bolt', {
       source: playerId, target: best.id, fromX, fromY,
@@ -270,12 +270,12 @@ function castChain(world, grid, playerId, position, spell, impacts) {
   return hit.size > 0;
 }
 
-function applyChannelTick(world, playerId, spell, impacts, x, y) {
+function applyChannelTick(world, grid, playerId, spell, impacts, x, y) {
   let targets = 0;
   for (const [targetId, position, ,] of world.query(Position, Health, AI)) {
     if (Math.hypot(position.x - x, position.y - y) > spell.targeting.areaRadius) continue;
     if (applyImpacts(world, targetId, playerId, impacts, {
-      x: position.x, y: position.y, spellId: spell.id, damageType: spell.element, canCrit: false,
+      x: position.x, y: position.y, spellId: spell.id, damageType: spell.element, canCrit: false, grid,
     })) targets += 1;
   }
   return targets;
@@ -300,7 +300,7 @@ function castMeleeArc(world, grid, playerId, origin, book, spell, impacts) {
   const hits = [];
   for (const { id, position } of targets.slice(0, maxTargets ?? targets.length)) {
     applyImpacts(world, id, playerId, impacts, {
-      x: position.x, y: position.y, spellId: spell.id, damageType: spell.element, meleeArc: true,
+      x: position.x, y: position.y, spellId: spell.id, damageType: spell.element, meleeArc: true, grid,
       onDamage: ({ target, x, y, hpLost, killed, targetTheme, critical }) => hits.push({
         target, x, y, amount: hpLost, killed, targetTheme, ...(critical && { critical }),
       }),

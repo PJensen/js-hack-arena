@@ -6,10 +6,11 @@ import {
 } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { AI, Actor, Auras, Conditions, Facing, Gold, Health, Input, ItemInfo, Lifetime, Mana, PointLight, Position, Powerups, Projectile, Ring, Spellbook, Stamina, Collider } from '../public/src/rules/components/index.js';
 import { generateArenaCave, generateCave, CaveProfile } from '../public/src/rules/geometry/caveGen.js';
-import { GOLD_LIGHT, LOOT_GOBLIN_LIGHT, attachAuraEmitter, spawnAuraField, spawnBat, spawnEpicChest, spawnEpicSword, spawnFlamingBat, spawnFloatingEye, spawnFuryRune, spawnGasSpore, spawnHasteRune, spawnItem, spawnLootGoblin, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
+import { GOLD_LIGHT, LOOT_GOBLIN_LIGHT, attachAuraEmitter, spawnAuraField, spawnBat, spawnEpicChest, spawnEpicSword, spawnFlamingBat, spawnFloatingEye, spawnFuryRune, spawnGasSpore, spawnHasteRune, spawnItem, spawnLootGoblin, spawnManaPotion, spawnManaSurge, spawnMelee, spawnPotion, spawnRing, spawnSpider, spawnTank, spawnSpellbook, spawnSword, spawnWardRune } from '../public/src/rules/spawner.js';
 import { BAT_SHRIEK_WINDUP, GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
 import { applyAura, applyCondition, applyDamage } from '../public/src/rules/effects.js';
-import { CritBag } from '../public/src/rules/components/CritBag.js';
+import { CritBag, drawCriticalHit } from '../public/src/rules/components/CritBag.js';
+import { bakeHandCarvedGrid } from '../public/src/rules/geometry/handCarvedDungeon.js';
 import { getStatMultiplier } from '../public/src/rules/stats.js';
 import { ConditionId } from '../public/src/rules/data/conditionCatalog.js';
 import { EffectKind, EffectStat } from '../public/src/rules/data/effectCatalog.js';
@@ -776,6 +777,41 @@ Deno.test("arena sim: every spell uses the global cooldown and its own cooldown"
   sim.step();
   assertEquals(book.castPhase, 'idle');
   assert(sim.captureSnapshot().events.some((event) => event.type === 'spell.denied' && event.payload.reason === 'global_cooldown'));
+});
+
+Deno.test('arena sim: a Lightning chain doubles damage only on targets standing in water', () => {
+  const grid = bakeHandCarvedGrid({
+    width: 1000, height: 1000,
+    strokes: [
+      { type: 'rect', x: 56, y: 56, w: 440, h: 320 },
+      { type: 'rect', floor: 'water', x: 232, y: 64, w: 96, h: 96 },
+    ],
+  });
+  const sim = makeOpenSim(907, { grid, enemyCount: 0 });
+  const player = sim.addPlayer('peer-a');
+  const dry = spawnTank(sim.world, grid, 180, 100, null);
+  const wet = spawnTank(sim.world, grid, 264, 100, null);
+  Object.assign(sim.world.get(player, CritBag), { remaining: 10, critAt: 1 });
+  const hits = [];
+  sim.world.on('damage.dealt', (event) => { if (event.spellId === 'lightning') hits.push(event); });
+  sim.setPlayerInput('peer-a', { seq: 1, aimX: 1, fire: true, spellSlot: 1 });
+  sim.step();
+  assertEquals(hits.map(({ target, amount }) => [target, amount]), [[dry, 25], [wet, 35]]);
+  assertEquals(sim.world.get(wet, Conditions).active.find(({ id }) => id === 'stunned').duration, 0.8);
+  assertEquals(applyDamage(sim.world, wet, 10, { grid, sourceId: player, damageType: 'physical', canCrit: false }), 10);
+});
+
+Deno.test('arena sim: a crit multiplier adds a chance on misses without consuming another bag draw', () => {
+  const sim = makeOpenSim(907, { enemyCount: 0 });
+  const player = sim.addPlayer('peer-a');
+  const bag = sim.world.get(player, CritBag);
+  Object.assign(bag, { remaining: 10, critAt: 1 });
+  sim.world.rand = () => 0.10;
+  assertEquals(drawCriticalHit(sim.world, player), false);
+  assertEquals(drawCriticalHit(sim.world, player, 2), true);
+  assertEquals(bag.remaining, 8);
+  sim.world.rand = () => 0.12;
+  assertEquals(drawCriticalHit(sim.world, player, 2), false);
 });
 
 Deno.test('arena sim: ring haste changes follow-up timing and retains individual cooldowns', () => {
