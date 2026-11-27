@@ -1,7 +1,9 @@
 export const CAVE_FRAGMENT = `#version 300 es
 precision highp float;
 uniform sampler2D u_field;
+uniform sampler2D u_water;
 uniform ivec2 u_grid_size;
+uniform float u_water_time;
 in vec2 v_uv;
 in vec2 v_world;
 out vec4 out_color;
@@ -74,6 +76,15 @@ vec3 dirtyFloor(vec2 p, float pixelSize) {
   return color;
 }
 
+vec3 shallowWater(vec3 floorColor, vec2 p, float depth) {
+  float wave = sin(dot(p, vec2(0.053, 0.074)) - u_water_time * 1.8);
+  float crossWave = sin(dot(p, vec2(-0.092, 0.031)) + u_water_time * 1.25);
+  float caustic = pow(max(0.0, wave * 0.62 + crossWave * 0.38), 5.0);
+  vec3 color = mix(floorColor * vec3(0.46, 0.76, 0.86), vec3(0.085, 0.30, 0.37), depth);
+  color += vec3(0.11, 0.24, 0.26) * caustic;
+  return color;
+}
+
 void main() {
   float clearance = field_sample(v_uv);
   float pixelSize = max(fwidth(v_world.x), fwidth(v_world.y));
@@ -84,6 +95,15 @@ void main() {
   vec3 color = clearance > 10.0 ? edge : wall;
   if (clearance > 18.0) {
     color = mix(floorColor, dirtyFloor(v_world, pixelSize), smoothstep(18.0, 26.0, clearance) * 0.88);
+    vec2 waterSize = vec2(textureSize(u_water, 0));
+    if (waterSize.x > 1.0) {
+      vec2 waterUV = (clamp(v_uv, 0.0, 1.0) * (waterSize - 1.0) + 0.5) / waterSize;
+      float water = texture(u_water, waterUV).r;
+      if (water > 0.0) {
+        float coverage = smoothstep(0.25, 0.72, water) * smoothstep(18.0, 24.0, clearance);
+        color = mix(color, shallowWater(color, v_world, water), coverage);
+      }
+    }
   }
   out_color = vec4(color, 1.0);
 }`;

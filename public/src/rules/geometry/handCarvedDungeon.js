@@ -38,6 +38,10 @@ export function normalizeHandCarvedDungeon(value, expectedId = null) {
     ids.add(stroke.id);
     if (stroke.erase !== undefined && typeof stroke.erase !== 'boolean') throw new Error('Invalid brush operation');
     const operation = stroke.erase ? { erase: true } : {};
+    if (stroke.floor !== undefined) {
+      if ((stroke.floor !== 'water' && stroke.floor !== 'stone') || stroke.erase) throw new Error('Invalid floor brush');
+      operation.floor = stroke.floor;
+    }
     if (stroke.roughness !== undefined) {
       if (!Number.isInteger(stroke.roughness) || stroke.roughness < 0 || stroke.roughness > 100) throw new Error('Brush roughness must be 0–100');
       if (stroke.roughness) operation.roughness = stroke.roughness;
@@ -168,6 +172,7 @@ function wallClearance(layout, x, y, base, amplitude) {
 export function handCarvedPlayerFits(layout, x, y) {
   let base = -120;
   for (const stroke of layout.strokes) {
+    if (stroke.floor) continue;
     const clearance = handCarvedStrokeClearance(stroke, x, y);
     base = stroke.erase ? Math.min(base, -clearance) : Math.max(base, clearance);
   }
@@ -194,12 +199,28 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
   const rows = Math.ceil(layout.height / cellSize) + 1;
   const moveGrid = new Float32Array(cols * rows);
   const densityGrid = new Float32Array(cols * rows);
+  const waterGrid = layout.strokes.some(({ floor }) => floor === 'water') ? new Uint8Array(cols * rows) : null;
   const signedClearance = new Float32Array(cols * rows);
   signedClearance.fill(-120);
   const amplitude = (layout.roughness ?? 0) * MAX_ROUGH_OFFSET / 100;
   let maxClearance = 0;
   for (const stroke of layout.strokes) {
     const brushOffset = strokeRoughOffset(stroke);
+    if (stroke.floor) {
+      if (!waterGrid) continue;
+      const padding = brushOffset + cellSize * (1 + brushOffset * 0.022);
+      const bounds = strokeBounds(stroke, cellSize, layout.width, layout.height, padding);
+      for (let gy = bounds.y0; gy <= bounds.y1; gy++) {
+        for (let gx = bounds.x0; gx <= bounds.x1; gx++) {
+          const index = gy * cols + gx;
+          const coverage = Math.round(within(0.5 + strokeClearance(stroke, gx * cellSize, gy * cellSize, brushOffset) / cellSize, 0, 1) * 255);
+          waterGrid[index] = stroke.floor === 'water'
+            ? Math.max(waterGrid[index], coverage)
+            : Math.min(waterGrid[index], 255 - coverage);
+        }
+      }
+      continue;
+    }
     const padding = stroke.erase
       ? Math.max(maxClearance, 120) * (1 + brushOffset * 0.022) + brushOffset
       : amplitude * (1 + brushOffset * 0.022) + brushOffset;
@@ -224,6 +245,7 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
       const signed = wallClearance(layout, x, y, signedClearance[index], amplitude);
       moveGrid[index] = Math.max(0, signed);
       densityGrid[index] = signed / 90;
+      if (waterGrid && signed <= 0) waterGrid[index] = 0;
     }
   }
   const inverseCell = 1 / cellSize;
@@ -236,7 +258,7 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
     const bottom = moveGrid[index + cols] * (1 - tx) + moveGrid[index + cols + 1] * tx;
     return top * (1 - ty) + bottom * ty;
   }
-  return { width: layout.width, height: layout.height, cellSize, cols, rows, moveGrid, densityGrid, distanceMove };
+  return { width: layout.width, height: layout.height, cellSize, cols, rows, moveGrid, densityGrid, waterGrid, distanceMove };
 }
 
 function strokeBounds(stroke, cellSize, width, height, padding) {

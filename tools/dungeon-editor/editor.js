@@ -26,6 +26,12 @@ const [showGrid, snapGrid, gridSize] = ['showGrid', 'snapGrid', 'gridSize'].map(
 const scrollMode = byId('scrollMode');
 const playtest = byId('playtest');
 const carveFloor = byId('carveFloor'), buildRock = byId('buildRock');
+const brushModes = [
+  ['carve', carveFloor, 'Draw to carve open floor.'],
+  ['rock', buildRock, 'Draw solid rock to block movement and sight.'],
+  ['water', byId('paintWater'), 'Paint shallow water on the dungeon floor.'],
+  ['stone', byId('paintStone'), 'Paint over water to restore dry floor.'],
+];
 const shapeTools = ['path', 'erase', 'circle', 'corridor', 'rect', 'ellipse'];
 const gridTools = ['circle', 'corridor', 'rect', 'ellipse', 'start', 'place'];
 const [
@@ -39,7 +45,7 @@ const placementInputs = [placementKind, placementVariant, placementItem, placeme
 let selectedMarkerId = '';
 let shownPlacements;
 const committed = document.createElement('canvas');
-const roughMap = document.createElement('canvas');
+const mapRaster = document.createElement('canvas');
 const ctx = map.getContext('2d');
 const committedCtx = committed.getContext('2d');
 const newId = () => crypto.randomUUID();
@@ -53,7 +59,7 @@ let savedVersion = layout;
 let history = [];
 let undone = [];
 let brush = 'path';
-let buildMode = false;
+let brushMode = 'carve';
 let gesture = null;
 let cursor = null;
 let pointer = null;
@@ -68,9 +74,14 @@ let viewportTimer;
 let lastTrackpadPan = -Infinity;
 const touches = new Map();
 let pinch = null;
-let roughGeometry = null;
-let useRoughMap = false;
+let rasterGeometry = null;
+let useMapRaster = false;
 const onScale = (value, min, max) => Math.max(min, Math.min(max, value));
+const brushColors = { carve: '#c0e9c3', rock: '#c09077b8', water: '#45b5deba', stone: '#9bc99e' };
+
+function activeBrushMode() {
+  return brush === 'erase' ? 'rock' : brushMode;
+}
 
 function paint(context, stroke, color = '#9bc99e') {
   context.globalCompositeOperation = stroke.erase ? 'destination-out' : 'source-over';
@@ -102,24 +113,25 @@ function rebuildMap() {
   const box = map.getBoundingClientRect();
   map.width = Math.max(1, Math.round(box.width * devicePixelRatio));
   map.height = Math.max(1, Math.round(box.height * devicePixelRatio));
-  useRoughMap = Boolean(layout.roughness || layout.strokes.some((stroke) => stroke.roughness));
-  if (useRoughMap) {
-    if (roughGeometry?.strokes !== layout.strokes || roughGeometry?.roughness !== layout.roughness) {
-      const { cols, rows, densityGrid } = bakeHandCarvedGrid(layout, 16);
-      roughMap.width = cols;
-      roughMap.height = rows;
-      const roughCtx = roughMap.getContext('2d');
-      const pixels = roughCtx.createImageData(cols, rows);
+  useMapRaster = Boolean(layout.roughness || layout.strokes.some((stroke) => stroke.roughness || stroke.floor));
+  if (useMapRaster) {
+    if (rasterGeometry?.strokes !== layout.strokes || rasterGeometry?.roughness !== layout.roughness) {
+      const { cols, rows, densityGrid, waterGrid } = bakeHandCarvedGrid(layout, 16);
+      mapRaster.width = cols;
+      mapRaster.height = rows;
+      const rasterCtx = mapRaster.getContext('2d');
+      const pixels = rasterCtx.createImageData(cols, rows);
       for (let i = 0; i < densityGrid.length; i++) {
         // Soften the preview pixel at the wall edge.
         const pixel = i * 4;
-        pixels.data[pixel] = 155;
-        pixels.data[pixel + 1] = 201;
-        pixels.data[pixel + 2] = 158;
+        const water = (waterGrid?.[i] ?? 0) / 255;
+        pixels.data[pixel] = 155 - water * 97;
+        pixels.data[pixel + 1] = 201 - water * 44;
+        pixels.data[pixel + 2] = 158 + water * 50;
         pixels.data[pixel + 3] = onScale(0.5 + densityGrid[i] * 90 / 16, 0, 1) * 255;
       }
-      roughCtx.putImageData(pixels, 0, 0);
-      roughGeometry = { strokes: layout.strokes, roughness: layout.roughness };
+      rasterCtx.putImageData(pixels, 0, 0);
+      rasterGeometry = { strokes: layout.strokes, roughness: layout.roughness };
     }
   } else {
     committed.width = map.width;
@@ -139,24 +151,24 @@ function requestDraw() {
     ctx.clearRect(0, 0, map.width, map.height);
     const { x, y, zoom } = view;
     ctx.setTransform(zoom, 0, 0, zoom, -x * map.width * zoom, -y * map.height * zoom);
-    if (useRoughMap) {
+    if (useMapRaster) {
       const tileX = map.width * 16 / layout.width, tileY = map.height * 16 / layout.height;
-      ctx.drawImage(roughMap, -tileX / 2, -tileY / 2, tileX * roughMap.width, tileY * roughMap.height);
+      ctx.drawImage(mapRaster, -tileX / 2, -tileY / 2, tileX * mapRaster.width, tileY * mapRaster.height);
     } else if (zoom === 1) {
       ctx.drawImage(committed, 0, 0);
     }
     ctx.scale(map.width / layout.width, map.height / layout.height);
-    if (!useRoughMap && zoom !== 1) for (const stroke of layout.strokes) paint(ctx, stroke);
+    if (!useMapRaster && zoom !== 1) for (const stroke of layout.strokes) paint(ctx, stroke);
     if (gesture?.id) {
       const preview = strokeForGesture(gesture);
-      if (preview) paint(ctx, { ...preview, erase: false }, preview.erase ? '#c09077b8' : '#c0e9c3');
+      if (preview) paint(ctx, { ...preview, erase: false }, brushColors[gesture.mode]);
     }
     const unit = layout.width / (map.clientWidth * zoom);
     if (showGrid.checked) drawGrid(unit);
     const activeTool = gesture?.type ?? brush;
     if (cursor && !busy && ['path', 'erase', 'circle', 'corridor'].includes(activeTool)) {
       ctx.globalCompositeOperation = 'source-over';
-      ctx.strokeStyle = (gesture?.fillRock ?? (buildMode || brush === 'erase')) ? '#ffd5bf' : '#f3f6e8';
+      ctx.strokeStyle = brushColors[gesture?.mode ?? activeBrushMode()];
       ctx.lineWidth = 1.5 * unit;
       ctx.beginPath();
       ctx.arc(cursor.x, cursor.y, gesture?.radius ?? Number(size.value) / 2, 0, Math.PI * 2);
@@ -250,9 +262,10 @@ function updateCursor() {
   return spacing;
 }
 
-function strokeForGesture({ id, type, points, start, end, radius, constrain, spacing, fillRock, brushRoughness }) {
+function strokeForGesture({ id, type, points, start, end, radius, constrain, spacing, mode, brushRoughness }) {
   const stroke = { id };
-  if (fillRock) stroke.erase = true;
+  if (mode === 'rock') stroke.erase = true;
+  if (mode === 'water' || mode === 'stone') stroke.floor = mode;
   if (brushRoughness) stroke.roughness = brushRoughness;
   if (points) {
     if (points.length === 1) return { ...stroke, type: 'circle', cx: start.x, cy: start.y, r: radius };
@@ -350,7 +363,7 @@ map.addEventListener('pointerdown', (event) => {
     id: newId(), pointerId: event.pointerId, type: brush,
     radius: Number(size.value) / 2, start: cursor, end: cursor,
     constrain: event.shiftKey, spacing,
-    fillRock: buildMode || brush === 'erase',
+    mode: activeBrushMode(),
     brushRoughness: Number(roughness.value),
     points: brush === 'path' || brush === 'erase' ? [cursor] : null,
   };
@@ -570,20 +583,19 @@ for (const button of brushes) {
   });
 }
 size.addEventListener('input', () => { sizeLabel.value = size.value; requestDraw(); });
-function setBuildMode(value) {
+function setBrushMode(mode, message) {
   if (busy || gesture) return;
-  buildMode = value;
-  if (!shapeTools.includes(brush) || (!value && brush === 'erase')) {
+  brushMode = mode;
+  if (!shapeTools.includes(brush) || (mode !== 'rock' && brush === 'erase')) {
     brushes.find((button) => button.dataset.brush === 'path').click();
   }
-  status.textContent = value
-    ? 'Draw solid rock to block movement and sight.'
-    : 'Draw to carve open floor.';
+  status.textContent = message;
   updateButtons();
   requestDraw();
 }
-carveFloor.addEventListener('click', () => setBuildMode(false));
-buildRock.addEventListener('click', () => setBuildMode(true));
+for (const [mode, button, message] of brushModes) {
+  button.addEventListener('click', () => setBrushMode(mode, message));
+}
 roughness.addEventListener('input', () => { roughnessLabel.value = `${roughness.value}%`; });
 mapRoughness.addEventListener('input', () => { mapRoughnessLabel.value = `${mapRoughness.value}%`; });
 mapRoughness.addEventListener('change', () => {
@@ -615,10 +627,11 @@ function edit(changes, rebuild = true) {
   updateButtons();
 }
 function updateButtons() {
-  for (const input of [name, startOver, savedLayouts, carveFloor, buildRock, ...brushes]) input.disabled = busy;
-  const rock = buildMode || brush === 'erase';
-  carveFloor.setAttribute('aria-pressed', String(!rock));
-  buildRock.setAttribute('aria-pressed', String(rock));
+  for (const input of [name, startOver, savedLayouts, ...brushes]) input.disabled = busy;
+  for (const [mode, button] of brushModes) {
+    button.disabled = busy;
+    button.setAttribute('aria-pressed', String(mode === activeBrushMode()));
+  }
   save.disabled = busy || !layout.name.trim();
   playtest.disabled = busy;
   load.disabled = busy || !savedLayouts.value;

@@ -130,6 +130,20 @@ Deno.test('brush roughness changes built rock edges without opening its core', (
   assert(rough.distanceMove(320, 504) > PLAYER_COLLIDER_RADIUS);
 });
 
+Deno.test('water paint stays on the floor and dry paint clears it without changing movement', () => {
+  const room = { id: 'room', type: 'rect', x: 240, y: 240, w: 480, h: 480 };
+  const water = { id: 'water', type: 'rect', x: 100, y: 320, w: 580, h: 220, floor: 'water' };
+  const dry = { id: 'dry', type: 'circle', cx: 480, cy: 400, r: 56, floor: 'stone' };
+  const draft = normalizeHandCarvedDungeon({ ...layout, start: { x: 360, y: 400 }, strokes: [room, water, dry] });
+  assertEquals(draft.strokes, [room, water, dry]);
+  const grid = bakeHandCarvedGrid(draft);
+  const sample = (x, y) => grid.waterGrid[y / 8 * grid.cols + x / 8];
+  assertEquals(sample(360, 400), 255);
+  assertEquals(sample(480, 400), 0);
+  assertEquals(sample(128, 400), 0);
+  assertEquals(grid.moveGrid, bakeHandCarvedGrid({ ...layout, strokes: [room] }).moveGrid);
+});
+
 Deno.test('player fit checks the whole footprint and rejects an erased start', () => {
   assert(handCarvedPlayerFits(layout, 250, 500));
   assert(!handCarvedPlayerFits(layout, 250, 350));

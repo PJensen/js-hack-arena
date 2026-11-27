@@ -193,6 +193,8 @@ export function createWebGLArenaRenderer(deps) {
   const caveLocations = {
     view: uniform(gl, caveProgram, 'u_view'),
     field: uniform(gl, caveProgram, 'u_field'),
+    water: uniform(gl, caveProgram, 'u_water'),
+    waterTime: uniform(gl, caveProgram, 'u_water_time'),
     gridSize: uniform(gl, caveProgram, 'u_grid_size'),
   };
   const disc = worldProgram(device, DISC_FRAGMENT);
@@ -383,6 +385,16 @@ export function createWebGLArenaRenderer(deps) {
     format: gl.RED,
     type: gl.FLOAT,
   });
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  const waterTexture = device.texture2D({
+    width: grid.waterGrid ? grid.cols : 1,
+    height: grid.waterGrid ? grid.rows : 1,
+    data: grid.waterGrid ?? null,
+    internalFormat: gl.R8,
+    format: gl.RED,
+    filter: gl.LINEAR,
+  });
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
   const atlas = createGlyphAtlas(device);
 
   const particleVao = device.vertexArray();
@@ -1644,6 +1656,11 @@ export function createWebGLArenaRenderer(deps) {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, fieldTexture);
     gl.uniform1i(caveLocations.field, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, waterTexture);
+    gl.uniform1i(caveLocations.water, 1);
+    gl.uniform1f(caveLocations.waterTime, motionPreference.matches ? 0 : now);
+    gl.activeTexture(gl.TEXTURE0);
     gl.uniform2i(caveLocations.gridSize, grid.cols, grid.rows);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 
