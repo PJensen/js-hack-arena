@@ -12,8 +12,10 @@ starts at 128 units. Older maps with a map-wide roughness setting retain it
 under **Map roughness**. Undo and Redo work in both modes. **Start Over** asks
 for confirmation before opening a blank draft. Saved dungeons stay available.
 
-Hold the middle mouse button and drag to pan, or select Pan. Zoom with the
-wheel, pinch, or use the zoom buttons. The initial view is 3.4×. Fit Map
+Drag two fingers on the touchpad or hold the middle mouse button and drag to
+pan. Pinch, turn the mouse wheel, or use the zoom buttons to zoom. If your
+browser handles both devices the same way, set **Scroll** to Pan or Zoom.
+The initial view is 3.4×. Fit Map
 returns to the full view. Position, zoom, and grid controls are remembered
 in your browser. Player Fit shows the 28 unit player
 footprint and reports whether it fits at the cursor. Use Set Start to mark

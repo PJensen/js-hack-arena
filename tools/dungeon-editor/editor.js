@@ -23,6 +23,7 @@ const [roughness, roughnessLabel, fitStatus, clearStart, zoomIn, zoomOut, zoomLe
 const [mapRoughness, mapRoughnessLabel, mapRoughnessField] =
   ['mapRoughness', 'mapRoughnessLabel', 'mapRoughnessField'].map(byId);
 const [showGrid, snapGrid, gridSize] = ['showGrid', 'snapGrid', 'gridSize'].map(byId);
+const scrollMode = byId('scrollMode');
 const playtest = byId('playtest');
 const carveFloor = byId('carveFloor'), buildRock = byId('buildRock');
 const shapeTools = ['path', 'erase', 'circle', 'corridor', 'rect', 'ellipse'];
@@ -64,6 +65,7 @@ const defaultEdge = (1 - 1 / defaultZoom) / 2;
 const viewportKey = 'hack-arena.editor-viewport';
 let view = { x: defaultEdge, y: defaultEdge, zoom: defaultZoom };
 let viewportTimer;
+let lastTrackpadPan = -Infinity;
 const touches = new Map();
 let pinch = null;
 let roughGeometry = null;
@@ -476,6 +478,7 @@ function storeViewport() {
   try {
     localStorage.setItem(viewportKey, JSON.stringify({
       ...view, grid: showGrid.checked, snap: snapGrid.checked, spacing: gridSize.value,
+      scroll: scrollMode.value,
     }));
   } catch {
     // The editor can still run with browser storage disabled.
@@ -496,6 +499,7 @@ function restoreViewport() {
     showGrid.checked = saved.grid === true;
     snapGrid.checked = saved.snap === true;
     if ([...gridSize.options].some(({ value }) => value === saved.spacing)) gridSize.value = saved.spacing;
+    if (['auto', 'pan', 'zoom'].includes(saved.scroll)) scrollMode.value = saved.scroll;
   } catch {
     // Use the defaults if browser storage is unavailable.
   }
@@ -505,12 +509,36 @@ zoomIn.addEventListener('click', () => zoomAt(1.5));
 zoomOut.addEventListener('click', () => zoomAt(1 / 1.5));
 resetView.addEventListener('click', () => { if (!gesture && !pinch) setView(0, 0, 1); });
 map.addEventListener('wheel', (event) => {
-  if (event.metaKey || !event.deltaY) return;
+  // Read the unit first. Browsers can normalize the deltas based on this access.
+  const { deltaMode, deltaX, deltaY } = event;
+  if (event.metaKey || (!deltaX && !deltaY)) return;
   event.preventDefault();
+  if (gesture || pinch) return;
   pointer = screenPoint(event);
-  const factor = event.ctrlKey ? Math.exp(onScale(-event.deltaY * 0.015, -1, 1)) : event.deltaY < 0 ? 1.2 : 1 / 1.2;
-  zoomAt(factor, pointer);
+  if (event.ctrlKey && deltaY) {
+    zoomAt(Math.exp(onScale(-deltaY * 0.015, -1, 1)), pointer);
+    return;
+  }
+  // Both devices emit wheel events. Treat continuous pixel deltas as a
+  // touchpad gesture and keep its mode through the momentum tail.
+  const now = performance.now();
+  const wheelNotch = [53, 100, 120].some((step) => Math.abs(deltaY) >= step && Math.abs(deltaY) % step < 0.01);
+  const trackpad = deltaMode === WheelEvent.DOM_DELTA_PIXEL
+    && (deltaX !== 0 || !wheelNotch || now - lastTrackpadPan < 160);
+  if (scrollMode.value === 'pan' || (scrollMode.value === 'auto' && trackpad)) {
+    if (trackpad) lastTrackpadPan = now;
+    const box = map.getBoundingClientRect();
+    const unitX = deltaMode === WheelEvent.DOM_DELTA_PAGE ? box.width : deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : 1;
+    const unitY = deltaMode === WheelEvent.DOM_DELTA_PAGE ? box.height : unitX;
+    setView(view.x + deltaX * unitX / (box.width * view.zoom), view.y + deltaY * unitY / (box.height * view.zoom), view.zoom);
+  } else if (deltaY) {
+    zoomAt(deltaY < 0 ? 1.2 : 1 / 1.2, pointer);
+  }
 }, { passive: false });
+scrollMode.addEventListener('change', () => {
+  lastTrackpadPan = -Infinity;
+  rememberViewport();
+});
 for (const control of [showGrid, snapGrid, gridSize]) {
   control.addEventListener('change', () => {
     if (control === snapGrid && snapGrid.checked) showGrid.checked = true;
