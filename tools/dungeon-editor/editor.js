@@ -13,8 +13,8 @@ import {
 } from '../../public/src/rules/data/dungeonPlacements.js';
 
 const byId = (id) => document.getElementById(id);
-const [map, name, newButton, save, savedLayouts, load, size, sizeLabel, undo, redo, status] = [
-  'map', 'name', 'new', 'save', 'savedLayouts', 'load', 'brushSize', 'sizeLabel', 'undo', 'redo', 'status',
+const [map, name, startOver, save, savedLayouts, load, size, sizeLabel, undo, redo, status] = [
+  'map', 'name', 'startOver', 'save', 'savedLayouts', 'load', 'brushSize', 'sizeLabel', 'undo', 'redo', 'status',
 ].map(byId);
 const brushes = [...document.querySelectorAll('[data-brush]')];
 const [roughness, roughnessLabel, fitStatus, clearStart, zoomIn, zoomOut, zoomLevel, resetView] = [
@@ -476,7 +476,7 @@ function edit(changes, rebuild = true) {
   updateButtons();
 }
 function updateButtons() {
-  for (const input of [name, newButton, savedLayouts, carveFloor, buildRock, ...brushes]) input.disabled = busy;
+  for (const input of [name, startOver, savedLayouts, carveFloor, buildRock, ...brushes]) input.disabled = busy;
   const rock = buildMode || brush === 'erase';
   carveFloor.setAttribute('aria-pressed', String(!rock));
   buildRock.setAttribute('aria-pressed', String(rock));
@@ -517,8 +517,8 @@ name.addEventListener('input', () => {
   layout = { ...layout, name: name.value };
   updateButtons();
 });
-newButton.addEventListener('click', () => {
-  if (hasChanges() && !confirm('Discard unsaved changes and start a new dungeon?')) return;
+startOver.addEventListener('click', () => {
+  if (gesture || !confirm('Start over with a blank dungeon? Unsaved changes will be lost. Saved dungeons will still be available.')) return;
   setLayout(blankLayout());
   status.textContent = 'Drag on the canvas to carve a dungeon.';
   name.focus();

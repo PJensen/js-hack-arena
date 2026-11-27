@@ -7,7 +7,8 @@ to draw shapes. Hold Shift to snap a corridor or draw a square or circle.
 Choose **Build rock** to use any shape brush for solid walls and pillars
 that block movement and sight. Switch back to **Carve floor** to cut openings.
 The Eraser is a freehand rock brush. Use Wall roughness to change the shape
-of walls across the map. Undo and Redo work in both modes.
+of walls across the map. Undo and Redo work in both modes. **Start Over** asks
+for confirmation before opening a blank draft. Saved dungeons stay available.
 
 Zoom with the wheel or the zoom buttons. Select Pan to drag around a zoomed
 map. Fit Map returns to the full view. Player Fit shows the 28 unit player
