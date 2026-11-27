@@ -17,6 +17,7 @@
     button:hover:not(:disabled) { background:#2c3930; }
     button:disabled { opacity:.45; cursor:default; }
     button[aria-pressed=true], #save:not(:disabled) { border-color:var(--accent); color:var(--accent); background:#263b2d; }
+    #buildRock[aria-pressed=true], button[data-brush=erase][aria-pressed=true] { border-color:#eeb394; color:#ffd5bf; background:#432f28; }
     #name, #savedLayouts { width:min(175px,42vw); }
     .toolbar { background:#191f1b; }
     .brushes { display:flex; flex-wrap:wrap; gap:5px; }
@@ -51,6 +52,10 @@
     <button id="load" type="button" disabled>Load</button>
   </header>
   <div class="toolbar" aria-label="Drawing tools">
+    <div class="brushes" role="group" aria-label="Brush mode">
+      <button id="carveFloor" type="button" aria-pressed="true">Carve floor</button>
+      <button id="buildRock" type="button" aria-pressed="false">Build rock</button>
+    </div>
     <div class="brushes" role="group" aria-label="Brushes">
       <button type="button" data-brush="path" aria-pressed="true">Freehand</button>
       <button type="button" data-brush="erase" aria-pressed="false">Eraser</button>

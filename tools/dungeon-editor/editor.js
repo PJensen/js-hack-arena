@@ -22,6 +22,8 @@ const [roughness, roughnessLabel, fitStatus, clearStart, zoomIn, zoomOut, zoomLe
 ].map(byId);
 const [showGrid, snapGrid, gridSize] = ['showGrid', 'snapGrid', 'gridSize'].map(byId);
 const playtest = byId('playtest');
+const carveFloor = byId('carveFloor'), buildRock = byId('buildRock');
+const shapeTools = ['path', 'erase', 'circle', 'corridor', 'rect', 'ellipse'];
 const gridTools = ['circle', 'corridor', 'rect', 'ellipse', 'start', 'place'];
 const [
   placementPanel, placementKind, placementVariant, placementItem, placementMimic, placementRadius,
@@ -48,6 +50,7 @@ let savedVersion = layout;
 let history = [];
 let undone = [];
 let brush = 'path';
+let buildMode = false;
 let gesture = null;
 let cursor = null;
 let pointer = null;
@@ -134,14 +137,14 @@ function requestDraw() {
     if (!layout.roughness && zoom !== 1) for (const stroke of layout.strokes) paint(ctx, stroke);
     if (gesture && !['pan', 'placement-zone'].includes(gesture.type)) {
       const preview = strokeForGesture(gesture);
-      if (preview) paint(ctx, preview, '#c0e9c3');
+      if (preview) paint(ctx, { ...preview, erase: false }, preview.erase ? '#c09077b8' : '#c0e9c3');
     }
     const unit = layout.width / (map.clientWidth * zoom);
     if (showGrid.checked) drawGrid(unit);
     const activeTool = gesture?.type ?? brush;
     if (cursor && !busy && ['path', 'erase', 'circle', 'corridor'].includes(activeTool)) {
       ctx.globalCompositeOperation = 'source-over';
-      ctx.strokeStyle = '#f3f6e8';
+      ctx.strokeStyle = (gesture?.fillRock ?? (buildMode || brush === 'erase')) ? '#ffd5bf' : '#f3f6e8';
       ctx.lineWidth = 1.5 * unit;
       ctx.beginPath();
       ctx.arc(cursor.x, cursor.y, gesture?.radius ?? Number(size.value) / 2, 0, Math.PI * 2);
@@ -235,14 +238,14 @@ function updateCursor() {
   return spacing;
 }
 
-function strokeForGesture({ id, type, points, start, end, radius, constrain, spacing }) {
-  const operation = type === 'erase' ? { erase: true } : {};
+function strokeForGesture({ id, type, points, start, end, radius, constrain, spacing, fillRock }) {
+  const stroke = fillRock ? { id, erase: true } : { id };
   if (points) {
-    if (points.length === 1) return { ...operation, id, type: 'circle', cx: start.x, cy: start.y, r: radius };
-    return { ...operation, id, type: 'path', points, r: radius };
+    if (points.length === 1) return { ...stroke, type: 'circle', cx: start.x, cy: start.y, r: radius };
+    return { ...stroke, type: 'path', points, r: radius };
   }
   if (type === 'circle') {
-    return { id, type: 'circle', cx: start.x, cy: start.y, r: radius };
+    return { ...stroke, type: 'circle', cx: start.x, cy: start.y, r: radius };
   }
   if (type === 'corridor') {
     if (constrain) {
@@ -257,8 +260,8 @@ function strokeForGesture({ id, type, points, start, end, radius, constrain, spa
       const distance = onScale(Math.round(projected / step), 0, Math.floor(Math.min(maxX, maxY) / step)) * step;
       end = { x: start.x + ux * distance, y: start.y + uy * distance };
     }
-    if (start.x === end.x && start.y === end.y) return { id, type: 'circle', cx: start.x, cy: start.y, r: radius };
-    return { id, type, ax: start.x, ay: start.y, bx: end.x, by: end.y, r: radius };
+    if (start.x === end.x && start.y === end.y) return { ...stroke, type: 'circle', cx: start.x, cy: start.y, r: radius };
+    return { ...stroke, type, ax: start.x, ay: start.y, bx: end.x, by: end.y, r: radius };
   }
   if (constrain) {
     const dx = end.x - start.x, dy = end.y - start.y;
@@ -270,7 +273,7 @@ function strokeForGesture({ id, type, points, start, end, radius, constrain, spa
   }
   const w = Math.abs(end.x - start.x), h = Math.abs(end.y - start.y);
   if (w < 8 || h < 8) return null;
-  return { id, type, x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), w, h };
+  return { ...stroke, type, x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), w, h };
 }
 
 map.addEventListener('pointerdown', (event) => {
@@ -314,6 +317,7 @@ map.addEventListener('pointerdown', (event) => {
     id: newId(), pointerId: event.pointerId, type: brush,
     radius: Number(size.value) / 2, start: cursor, end: cursor,
     constrain: event.shiftKey, spacing,
+    fillRock: buildMode || brush === 'erase',
     points: brush === 'path' || brush === 'erase' ? [cursor] : null,
   };
   map.setPointerCapture(event.pointerId);
@@ -428,6 +432,20 @@ for (const button of brushes) {
   });
 }
 size.addEventListener('input', () => { sizeLabel.value = size.value; requestDraw(); });
+function setBuildMode(value) {
+  if (busy || gesture) return;
+  buildMode = value;
+  if (!shapeTools.includes(brush) || (!value && brush === 'erase')) {
+    brushes.find((button) => button.dataset.brush === 'path').click();
+  }
+  status.textContent = value
+    ? 'Draw solid rock to block movement and sight.'
+    : 'Draw to carve open floor.';
+  updateButtons();
+  requestDraw();
+}
+carveFloor.addEventListener('click', () => setBuildMode(false));
+buildRock.addEventListener('click', () => setBuildMode(true));
 roughness.addEventListener('input', () => { roughnessLabel.value = `${roughness.value}%`; });
 roughness.addEventListener('change', () => {
   const amount = Number(roughness.value);
@@ -458,7 +476,10 @@ function edit(changes, rebuild = true) {
   updateButtons();
 }
 function updateButtons() {
-  for (const input of [name, newButton, savedLayouts, ...brushes]) input.disabled = busy;
+  for (const input of [name, newButton, savedLayouts, carveFloor, buildRock, ...brushes]) input.disabled = busy;
+  const rock = buildMode || brush === 'erase';
+  carveFloor.setAttribute('aria-pressed', String(!rock));
+  buildRock.setAttribute('aria-pressed', String(rock));
   save.disabled = busy || !layout.name.trim();
   playtest.disabled = busy;
   load.disabled = busy || !savedLayouts.value;

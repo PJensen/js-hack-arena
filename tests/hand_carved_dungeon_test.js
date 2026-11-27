@@ -95,6 +95,29 @@ Deno.test('wall roughness bakes deterministically and preserves a valid player s
   assertThrows(() => normalizeHandCarvedDungeon({ ...layout, roughness: 101 }), Error, 'Roughness');
 });
 
+Deno.test('a built rock wall blocks mob sight and can be carved open again', () => {
+  const start = { x: 440, y: 504 };
+  const room = { id: 'room', type: 'rect', x: 320, y: 280, w: 620, h: 450 };
+  const wall = { id: 'wall', type: 'rect', erase: true, x: 580, y: 420, w: 64, h: 160 };
+  const door = { id: 'door', type: 'corridor', ax: 530, ay: 504, bx: 686, by: 504, r: 24 };
+  function goblinTarget(strokes) {
+    const draft = normalizeHandCarvedDungeon({
+      ...layout, start, strokes,
+      placements: [{ id: 'goblin', kind: 'mob', variant: 'goblin', x: 768, y: 504 }],
+    });
+    const seed = 42;
+    const sim = createArenaDungeonSimulation({ seed, cave: createHandCarvedCave(draft, seed) });
+    const player = sim.addPlayer('designer');
+    sim.step();
+    const targets = [...sim.world.query(AI)].map(([, ai]) => ai.target);
+    assertEquals(targets.length, 1);
+    return targets[0] === player;
+  }
+  assert(goblinTarget([room]));
+  assert(!goblinTarget([room, wall]));
+  assert(goblinTarget([room, wall, door]));
+});
+
 Deno.test('player fit checks the whole footprint and rejects an erased start', () => {
   assert(handCarvedPlayerFits(layout, 250, 500));
   assert(!handCarvedPlayerFits(layout, 250, 350));
