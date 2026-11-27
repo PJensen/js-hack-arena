@@ -127,7 +127,8 @@ it stops and vanishes in a golden flash pays out the rest of the sack. Try
 `/?spawn=loot_goblin&seed=42` for an isolated chase.
 
 Open `/?spawn=wraith&seed=42` for the same preview with the floating Wraith and
-its shadow bolts.
+its shadow bolts. A bolt deals 6 shadow damage on impact and applies Shadowburn,
+which deals 2 shadow damage every 0.45 seconds for three ticks.
 
 To test starting items, open `/?give=haste_ring,godslayer,sunfire_longbow`.
 Use `/?give=list` to see every item ID on the entry screen. Separate IDs with

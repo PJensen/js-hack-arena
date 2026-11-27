@@ -12,6 +12,7 @@ export const ConditionId = Object.freeze({
   POISONED: 'poisoned',
   BLEEDING: 'bleeding',
   BURNING: 'burning',
+  SHADOWBURN: 'shadowburn',
   ICE_ARMOR: 'ice_armor',
   REGENERATION: 'regeneration',
   AGONY: 'agony',
@@ -28,6 +29,17 @@ export const conditions = Object.freeze({
     visual: 'burning',
     effects: Object.freeze([
       Object.freeze({ kind: EffectKind.PERIODIC_DAMAGE, amount: 2, interval: 0.5, damageType: 'fire' }),
+    ]),
+  }),
+  [ConditionId.SHADOWBURN]: Object.freeze({
+    id: ConditionId.SHADOWBURN,
+    name: 'Shadowburn',
+    glyph: '◆',
+    duration: 1.5,
+    disposition: 'harmful',
+    visual: 'agony',
+    effects: Object.freeze([
+      Object.freeze({ kind: EffectKind.PERIODIC_DAMAGE, amount: 2, interval: 0.45, damageType: 'shadow' }),
     ]),
   }),
   [ConditionId.BLEEDING]: Object.freeze({

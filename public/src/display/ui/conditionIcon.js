@@ -11,6 +11,7 @@ const aliases = new Map([
   [ConditionId.ICE_ARMOR, 'shield_guard'],
   [ConditionId.REGENERATION, 'regen'],
   [ConditionId.HEALTH_POTION, 'renewal'],
+  [ConditionId.SHADOWBURN, 'cursed'],
 ]);
 
 export function getConditionFrame(id) {

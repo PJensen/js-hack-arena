@@ -1232,7 +1232,7 @@ export function createWebGLArenaRenderer(deps) {
           drawLines(new Float32Array([x - side * 1.8, y - 3.4, x, y]), color);
           drawDisc(x, y, size, color, color);
         }
-      } else if (condition.id === ConditionId.AGONY) {
+      } else if ((condition.visual ?? conditionCatalog[condition.id]?.visual) === 'agony') {
         const age = Math.max(0, condition.duration - condition.remaining);
         const radius = collider.radius;
         if (!inView(position.x, position.y, radius * 3)) continue;

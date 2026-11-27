@@ -15,6 +15,7 @@ const PATH_REFRESH = 0.5;        // recompute every 0.5s
 const GAZE_FLASH_SECONDS = 0.25;
 const MIMIC_LEAP_SPEED = 290;
 const MIMIC_BITE_REACH = 8;
+const SHADOW_BOLT_DAMAGE = 6;
 
 function hasLOS(grid, ax, ay, bx, by, gaze) {
   if (gaze) return sweepMaxFree(grid, ax, ay, bx, by, 5) === 1;
@@ -185,7 +186,7 @@ export function createAISystem(ctx) {
           world.add(boltId, Position,   { x: pos.x + Math.cos(angle) * 18, y: pos.y + Math.sin(angle) * 18 });
           world.add(boltId, Velocity,   { vx: Math.cos(angle) * ai.projSpeed, vy: Math.sin(angle) * ai.projSpeed });
           world.add(boltId, Projectile, {
-            damage: 12,
+            damage: SHADOW_BOLT_DAMAGE,
             owner: id,
             team: 'enemies',
             speed: ai.projSpeed,
@@ -193,6 +194,10 @@ export function createAISystem(ctx) {
             trailColor: '#b060ff',
             burstColor: '#d0a0ff',
             style: 'shadow',
+            impacts: [
+              { kind: ImpactKind.DAMAGE, amount: SHADOW_BOLT_DAMAGE },
+              { kind: ImpactKind.APPLY_CONDITION, conditionId: ConditionId.SHADOWBURN },
+            ],
           });
           world.add(boltId, Lifetime,   { ttl: SHADOW_BOLT_LIFETIME });
           world.add(boltId, Collider,   { radius: 5 });

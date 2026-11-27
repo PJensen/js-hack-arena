@@ -645,6 +645,56 @@ Deno.test('game room: walking through the campfire applies and replicates timed 
   }
 });
 
+Deno.test('game room: a wraith bolt deals a smaller hit and replicates timed Shadowburn', async () => {
+  const room = new GameRoom(makeRoomState(), makeEnv());
+  const socket = new FakeSocket();
+  await room.accept(socket, { userId: 'user-1', displayName: 'First' });
+  try {
+    const { peerId } = socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    const cave = room.ensureCave();
+    const sim = room.ensureSim();
+    const playerId = sim.getPlayerEntity(peerId);
+    const [, ai, wraith] = [...sim.world.query(AI, Position, Actor)]
+      .find(([, , , actor]) => actor.theme === 'shadow');
+    const approach = [[64, 0], [-64, 0], [0, 64], [0, -64]]
+      .map(([dx, dy]) => ({ x: wraith.x + dx, y: wraith.y + dy }))
+      .find(({ x, y }) => cave.grid.distanceMove(x, y) >= 14 && sweepMaxFree(cave.grid, wraith.x, wraith.y, x, y, 6) === 1);
+    assert(approach);
+    Object.assign(sim.world.get(playerId, Position), approach);
+    const snapshot = () => latestSnapshot(socket);
+    const playerState = () => snapshot().entities.find(({ owner }) => owner === peerId).state;
+    const initialHp = playerState().hp;
+    assertEquals(playerState().conditions, []);
+
+    const damage = [];
+    sim.world.on('damage.dealt', ({ target, hpLost, damageType, periodic }) => {
+      if (target === playerId) damage.push([hpLost, damageType, periodic]);
+    });
+    room.step();
+    ai.castCooldown = 10; // Isolate the first bolt.
+    for (let i = 0; i < 10 && damage.length === 0; i++) room.step();
+    room.broadcastSnapshot();
+    assertEquals(damage, [[6, 'shadow', false]]);
+    assertEquals(playerState().hp, initialHp - 6);
+    assertEquals(playerState().conditions.map(({ id, remaining }) => [id, remaining]), [['shadowburn', 1.5]]);
+
+    const replica = createArenaDungeonSimulation({ seed: room.seed, cave, mode: SIM_MODE.REPLICA });
+    replica.applySnapshot(snapshot());
+    const replicaConditions = replica.world.get(replica.getPlayerEntity(peerId), Conditions);
+    assertEquals(replicaConditions.active.map(({ id, visual }) => [id, visual]), [['shadowburn', 'agony']]);
+
+    for (let i = 0; i < 31; i++) room.step();
+    room.broadcastSnapshot();
+    assertEquals(damage, [[6, 'shadow', false], ...Array.from({ length: 3 }, () => [2, 'shadow', true])]);
+    assertEquals(playerState().hp, initialHp - 12);
+    assertEquals(playerState().conditions, []);
+    replica.applySnapshot(snapshot());
+    assertEquals(replicaConditions.active, []);
+  } finally {
+    room.leave(socket);
+  }
+});
+
 Deno.test('game room: a starter Cleave consumes stamina, broadcasts the swing and recovers gradually', async () => {
   const room = new GameRoom(makeRoomState(), makeEnv());
   const socket = new FakeSocket();
