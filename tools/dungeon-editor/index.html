@@ -24,7 +24,8 @@
     .size { display:inline-flex; align-items:center; gap:6px; }
     #brushSize { width:92px; accent-color:var(--accent); }
     #sizeLabel { min-width:4ch; color:#a9b7ad; }
-    #roughness { width:85px; accent-color:var(--accent); }
+    #roughness, #mapRoughness { width:85px; accent-color:var(--accent); }
+    .size[hidden] { display:none; }
     #roughnessLabel, #zoomLevel { min-width:4ch; color:#a9b7ad; }
     .view-tools { display:flex; align-items:center; flex-wrap:wrap; gap:5px; }
     .view-tools label { display:inline-flex; align-items:center; gap:4px; }
@@ -68,14 +69,15 @@
       <button type="button" data-brush="place" aria-pressed="false">Place Content</button>
       <button id="clearStart" type="button" disabled>Clear Start</button>
     </div>
-    <label class="size" for="brushSize">Width <input id="brushSize" type="range" min="16" max="2000" step="4" value="480"><output id="sizeLabel" for="brushSize">480</output></label>
-    <label class="size" for="roughness" title="Applies to all walls in this dungeon">Wall roughness <input id="roughness" type="range" min="0" max="100" value="0"><output id="roughnessLabel" for="roughness">0%</output></label>
+    <label class="size" for="brushSize">Width <input id="brushSize" type="range" min="16" max="2000" step="4" value="128"><output id="sizeLabel" for="brushSize">128</output></label>
+    <label class="size" for="roughness">Brush roughness <input id="roughness" type="range" min="0" max="100" value="80"><output id="roughnessLabel" for="roughness">80%</output></label>
+    <label class="size" id="mapRoughnessField" hidden>Map roughness <input id="mapRoughness" type="range" min="0" max="100" value="0"><output id="mapRoughnessLabel" for="mapRoughness">0%</output></label>
     <button id="undo" type="button" disabled>Undo</button>
     <button id="redo" type="button" disabled>Redo</button>
     <div class="view-tools" role="group" aria-label="Map view">
       <button type="button" data-brush="pan" aria-pressed="false">Pan</button>
       <button id="zoomOut" type="button" aria-label="Zoom out">−</button>
-      <output id="zoomLevel">1×</output>
+      <output id="zoomLevel">3.4×</output>
       <button id="zoomIn" type="button" aria-label="Zoom in">+</button>
       <button id="resetView" type="button">Fit Map</button>
       <label><input id="showGrid" type="checkbox">Grid</label>

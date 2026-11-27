@@ -118,6 +118,18 @@ Deno.test('a built rock wall blocks mob sight and can be carved open again', () 
   assert(goblinTarget([room, wall, door]));
 });
 
+Deno.test('brush roughness changes built rock edges without opening its core', () => {
+  const room = { id: 'room', type: 'rect', x: 160, y: 160, w: 680, h: 680 };
+  const wall = { id: 'wall', type: 'rect', erase: true, x: 440, y: 320, w: 128, h: 360 };
+  const smooth = bakeHandCarvedGrid({ ...layout, strokes: [room, wall] });
+  const draft = normalizeHandCarvedDungeon({ ...layout, strokes: [room, { ...wall, roughness: 80 }] });
+  assertEquals(draft.strokes[1].roughness, 80);
+  const rough = bakeHandCarvedGrid(draft);
+  assert(rough.moveGrid.some((value, i) => (value > 0) !== (smooth.moveGrid[i] > 0)));
+  for (let y = 368; y <= 632; y += 8) assertEquals(rough.distanceMove(504, y), 0);
+  assert(rough.distanceMove(320, 504) > PLAYER_COLLIDER_RADIUS);
+});
+
 Deno.test('player fit checks the whole footprint and rejects an erased start', () => {
   assert(handCarvedPlayerFits(layout, 250, 500));
   assert(!handCarvedPlayerFits(layout, 250, 350));

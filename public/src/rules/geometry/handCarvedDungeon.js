@@ -38,6 +38,10 @@ export function normalizeHandCarvedDungeon(value, expectedId = null) {
     ids.add(stroke.id);
     if (stroke.erase !== undefined && typeof stroke.erase !== 'boolean') throw new Error('Invalid brush operation');
     const operation = stroke.erase ? { erase: true } : {};
+    if (stroke.roughness !== undefined) {
+      if (!Number.isInteger(stroke.roughness) || stroke.roughness < 0 || stroke.roughness > 100) throw new Error('Brush roughness must be 0–100');
+      if (stroke.roughness) operation.roughness = stroke.roughness;
+    }
     if (stroke.type === 'circle') {
       if (![stroke.cx, stroke.cy, stroke.r].every(finite) || stroke.r < 8 || stroke.r > HAND_CARVED_DUNGEON_LIMITS.maxRadius) throw new Error('Invalid circle brush');
       return { ...operation, id: stroke.id, type: 'circle', cx: within(stroke.cx, 0, value.width), cy: within(stroke.cy, 0, value.height), r: stroke.r };
@@ -94,6 +98,21 @@ export function normalizeHandCarvedDungeon(value, expectedId = null) {
 }
 
 export function handCarvedStrokeClearance(stroke, x, y) {
+  return strokeClearance(stroke, x, y, strokeRoughOffset(stroke));
+}
+
+function strokeRoughOffset(stroke) {
+  const radius = stroke.r ?? Math.min(stroke.w, stroke.h) / 2;
+  return Math.min(MAX_ROUGH_OFFSET, radius * 0.45) * (stroke.roughness ?? 0) / 100;
+}
+
+function strokeClearance(stroke, x, y, amplitude) {
+  const base = smoothStrokeClearance(stroke, x, y);
+  if (!amplitude) return base;
+  return (base + amplitude * wallNoise(x, y)) / (1 + amplitude * 0.022);
+}
+
+function smoothStrokeClearance(stroke, x, y) {
   if (stroke.type === 'circle') return stroke.r - Math.hypot(x - stroke.cx, y - stroke.cy);
   if (stroke.type === 'corridor') return stroke.r - distanceToSegment(x, y, stroke.ax, stroke.ay, stroke.bx, stroke.by);
   if (stroke.type === 'path') {
@@ -180,7 +199,10 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
   const amplitude = (layout.roughness ?? 0) * MAX_ROUGH_OFFSET / 100;
   let maxClearance = 0;
   for (const stroke of layout.strokes) {
-    const padding = stroke.erase ? Math.max(maxClearance, 120) : amplitude;
+    const brushOffset = strokeRoughOffset(stroke);
+    const padding = stroke.erase
+      ? Math.max(maxClearance, 120) * (1 + brushOffset * 0.022) + brushOffset
+      : amplitude * (1 + brushOffset * 0.022) + brushOffset;
     const bounds = strokeBounds(stroke, cellSize, layout.width, layout.height, padding);
     if (!stroke.erase) maxClearance = Math.max(maxClearance, stroke.r ?? Math.min(stroke.w, stroke.h) / 2);
     for (let gy = bounds.y0; gy <= bounds.y1; gy++) {
@@ -188,7 +210,7 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
       for (let gx = bounds.x0; gx <= bounds.x1; gx++) {
         const x = gx * cellSize;
         const index = gy * cols + gx;
-        const clearance = handCarvedStrokeClearance(stroke, x, y);
+        const clearance = strokeClearance(stroke, x, y, brushOffset);
         signedClearance[index] = stroke.erase
           ? Math.min(signedClearance[index], -clearance)
           : Math.max(signedClearance[index], clearance);

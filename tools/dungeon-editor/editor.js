@@ -20,6 +20,8 @@ const brushes = [...document.querySelectorAll('[data-brush]')];
 const [roughness, roughnessLabel, fitStatus, clearStart, zoomIn, zoomOut, zoomLevel, resetView] = [
   'roughness', 'roughnessLabel', 'fitStatus', 'clearStart', 'zoomIn', 'zoomOut', 'zoomLevel', 'resetView',
 ].map(byId);
+const [mapRoughness, mapRoughnessLabel, mapRoughnessField] =
+  ['mapRoughness', 'mapRoughnessLabel', 'mapRoughnessField'].map(byId);
 const [showGrid, snapGrid, gridSize] = ['showGrid', 'snapGrid', 'gridSize'].map(byId);
 const playtest = byId('playtest');
 const carveFloor = byId('carveFloor'), buildRock = byId('buildRock');
@@ -57,8 +59,15 @@ let pointer = null;
 let busy = false;
 let frame = 0;
 let openingPlaytest = false;
-let view = { x: 0, y: 0, zoom: 1 };
+const defaultZoom = 3.4;
+const defaultEdge = (1 - 1 / defaultZoom) / 2;
+const viewportKey = 'hack-arena.editor-viewport';
+let view = { x: defaultEdge, y: defaultEdge, zoom: defaultZoom };
+let viewportTimer;
+const touches = new Map();
+let pinch = null;
 let roughGeometry = null;
+let useRoughMap = false;
 const onScale = (value, min, max) => Math.max(min, Math.min(max, value));
 
 function paint(context, stroke, color = '#9bc99e') {
@@ -91,7 +100,8 @@ function rebuildMap() {
   const box = map.getBoundingClientRect();
   map.width = Math.max(1, Math.round(box.width * devicePixelRatio));
   map.height = Math.max(1, Math.round(box.height * devicePixelRatio));
-  if (layout.roughness) {
+  useRoughMap = Boolean(layout.roughness || layout.strokes.some((stroke) => stroke.roughness));
+  if (useRoughMap) {
     if (roughGeometry?.strokes !== layout.strokes || roughGeometry?.roughness !== layout.roughness) {
       const { cols, rows, densityGrid } = bakeHandCarvedGrid(layout, 16);
       roughMap.width = cols;
@@ -127,15 +137,15 @@ function requestDraw() {
     ctx.clearRect(0, 0, map.width, map.height);
     const { x, y, zoom } = view;
     ctx.setTransform(zoom, 0, 0, zoom, -x * map.width * zoom, -y * map.height * zoom);
-    if (layout.roughness) {
+    if (useRoughMap) {
       const tileX = map.width * 16 / layout.width, tileY = map.height * 16 / layout.height;
       ctx.drawImage(roughMap, -tileX / 2, -tileY / 2, tileX * roughMap.width, tileY * roughMap.height);
     } else if (zoom === 1) {
       ctx.drawImage(committed, 0, 0);
     }
     ctx.scale(map.width / layout.width, map.height / layout.height);
-    if (!layout.roughness && zoom !== 1) for (const stroke of layout.strokes) paint(ctx, stroke);
-    if (gesture && !['pan', 'placement-zone'].includes(gesture.type)) {
+    if (!useRoughMap && zoom !== 1) for (const stroke of layout.strokes) paint(ctx, stroke);
+    if (gesture?.id) {
       const preview = strokeForGesture(gesture);
       if (preview) paint(ctx, { ...preview, erase: false }, preview.erase ? '#c09077b8' : '#c0e9c3');
     }
@@ -238,8 +248,10 @@ function updateCursor() {
   return spacing;
 }
 
-function strokeForGesture({ id, type, points, start, end, radius, constrain, spacing, fillRock }) {
-  const stroke = fillRock ? { id, erase: true } : { id };
+function strokeForGesture({ id, type, points, start, end, radius, constrain, spacing, fillRock, brushRoughness }) {
+  const stroke = { id };
+  if (fillRock) stroke.erase = true;
+  if (brushRoughness) stroke.roughness = brushRoughness;
   if (points) {
     if (points.length === 1) return { ...stroke, type: 'circle', cx: start.x, cy: start.y, r: radius };
     return { ...stroke, type: 'path', points, r: radius };
@@ -276,10 +288,38 @@ function strokeForGesture({ id, type, points, start, end, radius, constrain, spa
   return { ...stroke, type, x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), w, h };
 }
 
+function placeStart(point) {
+  if (handCarvedPlayerFits(layout, point.x, point.y)) {
+    edit({ start: point }, false);
+    status.textContent = 'Player start placed.';
+  } else {
+    status.textContent = 'Place the start on floor with enough room for the player.';
+  }
+  requestDraw();
+}
+
 map.addEventListener('pointerdown', (event) => {
-  if (busy || gesture || event.button !== 0) return;
+  if (busy || (event.button !== 0 && event.button !== 1)) return;
+  if (event.pointerType === 'touch') {
+    touches.set(event.pointerId, screenPoint(event));
+    map.setPointerCapture(event.pointerId);
+    if (touches.size > 1) {
+      gesture = null;
+      cursor = pointer = null;
+      beginPinch();
+      requestDraw();
+      return;
+    }
+  }
+  if (gesture) return;
   pointer = screenPoint(event);
   const spacing = updateCursor();
+  if (event.button === 1 || brush === 'pan') {
+    event.preventDefault();
+    gesture = { pointerId: event.pointerId, type: 'pan', position: pointer, view };
+    map.setPointerCapture(event.pointerId);
+    return;
+  }
   if (brush === 'fit') {
     requestDraw();
     return;
@@ -291,22 +331,13 @@ map.addEventListener('pointerdown', (event) => {
       requestDraw();
       return;
     }
-    placeAt(cursor);
+    if (event.pointerType === 'touch') gesture = { pointerId: event.pointerId, type: 'place-point', end: cursor, spacing };
+    else placeAt(cursor);
     return;
   }
   if (brush === 'start') {
-    if (handCarvedPlayerFits(layout, cursor.x, cursor.y)) {
-      edit({ start: cursor }, false);
-      status.textContent = 'Player start placed.';
-    } else {
-      status.textContent = 'Place the start on floor with enough room for the player.';
-    }
-    requestDraw();
-    return;
-  }
-  if (brush === 'pan') {
-    gesture = { pointerId: event.pointerId, type: 'pan', position: pointer, view };
-    map.setPointerCapture(event.pointerId);
+    if (event.pointerType === 'touch') gesture = { pointerId: event.pointerId, type: 'start-point', end: cursor, spacing };
+    else placeStart(cursor);
     return;
   }
   if (layout.strokes.length >= HAND_CARVED_DUNGEON_LIMITS.maxStrokes) {
@@ -318,6 +349,7 @@ map.addEventListener('pointerdown', (event) => {
     radius: Number(size.value) / 2, start: cursor, end: cursor,
     constrain: event.shiftKey, spacing,
     fillRock: buildMode || brush === 'erase',
+    brushRoughness: Number(roughness.value),
     points: brush === 'path' || brush === 'erase' ? [cursor] : null,
   };
   map.setPointerCapture(event.pointerId);
@@ -325,6 +357,11 @@ map.addEventListener('pointerdown', (event) => {
 });
 
 function movePointer(event, finish = false) {
+  if (touches.has(event.pointerId)) touches.set(event.pointerId, screenPoint(event));
+  if (pinch) {
+    updatePinch();
+    return;
+  }
   if (gesture && event.pointerId !== gesture.pointerId) return;
   if (gesture?.type === 'pan') {
     const point = screenPoint(event);
@@ -350,8 +387,21 @@ function movePointer(event, finish = false) {
 }
 map.addEventListener('pointermove', (event) => movePointer(event));
 map.addEventListener('pointerup', (event) => {
+  if (touches.has(event.pointerId) && pinch) {
+    forgetTouch(event.pointerId);
+    return;
+  }
+  touches.delete(event.pointerId);
   if (gesture?.pointerId !== event.pointerId) return;
   movePointer(event, true);
+  if (gesture.type === 'place-point' || gesture.type === 'start-point') {
+    const { type, end } = gesture;
+    gesture = null;
+    cursor = pointer = null;
+    if (type === 'place-point') placeAt(end);
+    else placeStart(end);
+    return;
+  }
   if (gesture.type === 'placement-zone') {
     const { start } = gesture;
     placementRadius.value = zoneRadius(gesture);
@@ -360,7 +410,7 @@ map.addEventListener('pointerup', (event) => {
     placeAt(start);
     return;
   }
-  const stroke = gesture.type === 'pan' ? null : strokeForGesture(gesture);
+  const stroke = gesture.id ? strokeForGesture(gesture) : null;
   gesture = null;
   if (event.pointerType !== 'mouse') cursor = pointer = null;
   if (!stroke) return;
@@ -372,12 +422,16 @@ map.addEventListener('pointerup', (event) => {
   edit({ strokes: [...layout.strokes, stroke] });
 });
 map.addEventListener('pointerleave', () => { cursor = pointer = null; requestDraw(); });
-map.addEventListener('lostpointercapture', (event) => {
+function cancelPointer(event) {
+  if (touches.has(event.pointerId)) forgetTouch(event.pointerId);
   if (gesture?.pointerId !== event.pointerId) return;
   gesture = null;
   cursor = pointer = null;
   requestDraw();
-});
+}
+map.addEventListener('pointercancel', cancelPointer);
+map.addEventListener('lostpointercapture', cancelPointer);
+map.addEventListener('auxclick', (event) => { if (event.button === 1) event.preventDefault(); });
 new ResizeObserver(rebuildMap).observe(map);
 
 function setView(x, y, zoom) {
@@ -386,27 +440,83 @@ function setView(x, y, zoom) {
   zoomLevel.value = `${Number(zoom.toFixed(1))}×`;
   updateButtons();
   requestDraw();
+  rememberViewport();
 }
 function zoomAt(factor, point = { x: 0.5, y: 0.5 }) {
-  if (gesture) return;
+  if (gesture || pinch) return;
   const zoom = onScale(view.zoom * factor, 1, 24);
   const delta = 1 / view.zoom - 1 / zoom;
   setView(view.x + point.x * delta, view.y + point.y * delta, zoom);
 }
+function pinchPoints() {
+  const [a, b] = touches.values();
+  return {
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2,
+    distance: Math.max(1, Math.hypot((a.x - b.x) * map.clientWidth, (a.y - b.y) * map.clientHeight)),
+  };
+}
+function beginPinch() {
+  const { x, y, distance } = pinchPoints();
+  pinch = { x: view.x + x / view.zoom, y: view.y + y / view.zoom, distance, zoom: view.zoom };
+}
+function updatePinch() {
+  const { x, y, distance } = pinchPoints();
+  const zoom = onScale(pinch.zoom * distance / pinch.distance, 1, 24);
+  setView(pinch.x - x / zoom, pinch.y - y / zoom, zoom);
+}
+function forgetTouch(id) {
+  touches.delete(id);
+  if (touches.size >= 2) beginPinch();
+  else pinch = null;
+}
+
+function storeViewport() {
+  clearTimeout(viewportTimer);
+  try {
+    localStorage.setItem(viewportKey, JSON.stringify({
+      ...view, grid: showGrid.checked, snap: snapGrid.checked, spacing: gridSize.value,
+    }));
+  } catch {
+    // The editor can still run with browser storage disabled.
+  }
+}
+function rememberViewport() {
+  clearTimeout(viewportTimer);
+  viewportTimer = setTimeout(storeViewport, 150);
+}
+function restoreViewport() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(viewportKey));
+    if (!saved) return;
+    if ([saved.x, saved.y, saved.zoom].every(Number.isFinite)) {
+      const zoom = onScale(saved.zoom, 1, 24);
+      view = { x: onScale(saved.x, 0, 1 - 1 / zoom), y: onScale(saved.y, 0, 1 - 1 / zoom), zoom };
+    }
+    showGrid.checked = saved.grid === true;
+    snapGrid.checked = saved.snap === true;
+    if ([...gridSize.options].some(({ value }) => value === saved.spacing)) gridSize.value = saved.spacing;
+  } catch {
+    // Use the defaults if browser storage is unavailable.
+  }
+}
+window.addEventListener('pagehide', storeViewport);
 zoomIn.addEventListener('click', () => zoomAt(1.5));
 zoomOut.addEventListener('click', () => zoomAt(1 / 1.5));
-resetView.addEventListener('click', () => { if (!gesture) setView(0, 0, 1); });
+resetView.addEventListener('click', () => { if (!gesture && !pinch) setView(0, 0, 1); });
 map.addEventListener('wheel', (event) => {
-  if (event.ctrlKey || event.metaKey || !event.deltaY) return;
+  if (event.metaKey || !event.deltaY) return;
   event.preventDefault();
   pointer = screenPoint(event);
-  zoomAt(event.deltaY < 0 ? 1.2 : 1 / 1.2, pointer);
+  const factor = event.ctrlKey ? Math.exp(onScale(-event.deltaY * 0.015, -1, 1)) : event.deltaY < 0 ? 1.2 : 1 / 1.2;
+  zoomAt(factor, pointer);
 }, { passive: false });
 for (const control of [showGrid, snapGrid, gridSize]) {
   control.addEventListener('change', () => {
     if (control === snapGrid && snapGrid.checked) showGrid.checked = true;
     updateCursor();
     requestDraw();
+    rememberViewport();
   });
 }
 
@@ -447,8 +557,9 @@ function setBuildMode(value) {
 carveFloor.addEventListener('click', () => setBuildMode(false));
 buildRock.addEventListener('click', () => setBuildMode(true));
 roughness.addEventListener('input', () => { roughnessLabel.value = `${roughness.value}%`; });
-roughness.addEventListener('change', () => {
-  const amount = Number(roughness.value);
+mapRoughness.addEventListener('input', () => { mapRoughnessLabel.value = `${mapRoughness.value}%`; });
+mapRoughness.addEventListener('change', () => {
+  const amount = Number(mapRoughness.value);
   if (amount !== (layout.roughness ?? 0)) edit({ roughness: amount });
 });
 clearStart.addEventListener('click', () => {
@@ -484,9 +595,10 @@ function updateButtons() {
   playtest.disabled = busy;
   load.disabled = busy || !savedLayouts.value;
   size.disabled = busy || !['path', 'erase', 'circle', 'corridor'].includes(brush);
-  roughness.disabled = busy;
-  roughness.value = layout.roughness ?? 0;
-  roughnessLabel.value = `${roughness.value}%`;
+  roughness.disabled = busy || !shapeTools.includes(brush);
+  mapRoughness.disabled = busy;
+  mapRoughness.value = layout.roughness ?? 0;
+  mapRoughnessLabel.value = `${mapRoughness.value}%`;
   clearStart.disabled = busy || !layout.start;
   undo.disabled = busy || !history.length;
   redo.disabled = busy || !undone.length;
@@ -507,8 +619,11 @@ function setLayout(value) {
   selectedMarkerId = '';
   placementAction.value = 'add';
   gesture = null;
+  touches.clear();
+  pinch = null;
   cursor = pointer = null;
-  setView(0, 0, 1);
+  mapRoughnessField.hidden = !value.roughness;
+  setView(view.x, view.y, view.zoom);
   rebuildMap();
   updateButtons();
 }
@@ -777,6 +892,7 @@ load.addEventListener('click', async () => {
   }
 });
 
+restoreViewport();
 setLayout(layout);
 if (new URLSearchParams(location.search).has('resume')) {
   try {

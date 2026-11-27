@@ -6,12 +6,16 @@ Drag with Freehand to carve floor, or use Circle, Corridor, Rectangle, and Oval
 to draw shapes. Hold Shift to snap a corridor or draw a square or circle.
 Choose **Build rock** to use any shape brush for solid walls and pillars
 that block movement and sight. Switch back to **Carve floor** to cut openings.
-The Eraser is a freehand rock brush. Use Wall roughness to change the shape
-of walls across the map. Undo and Redo work in both modes. **Start Over** asks
+The Eraser is a freehand rock brush. Brush roughness applies to each new
+stroke, for both carving and building, and defaults to 80%. Brush width
+starts at 128 units. Older maps with a map-wide roughness setting retain it
+under **Map roughness**. Undo and Redo work in both modes. **Start Over** asks
 for confirmation before opening a blank draft. Saved dungeons stay available.
 
-Zoom with the wheel or the zoom buttons. Select Pan to drag around a zoomed
-map. Fit Map returns to the full view. Player Fit shows the 28 unit player
+Hold the middle mouse button and drag to pan, or select Pan. Zoom with the
+wheel, pinch, or use the zoom buttons. The initial view is 3.4×. Fit Map
+returns to the full view. Position, zoom, and grid controls are remembered
+in your browser. Player Fit shows the 28 unit player
 footprint and reports whether it fits at the cursor. Use Set Start to mark
 the player's starting location on open floor. If a later edit blocks that
 location, move or clear it before saving.
