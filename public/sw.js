@@ -44,8 +44,9 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (!isSameOrigin(url)) return;
 
-  // Never cache API-like routes if introduced later.
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws/') || url.pathname.startsWith('/auth/')) {
+  // Let the network handle routes that depend on a signed-in session.
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws/') || url.pathname.startsWith('/auth/')
+      || url.pathname.startsWith('/tools/dungeon-editor/')) {
     return;
   }
 

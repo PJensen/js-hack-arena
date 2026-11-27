@@ -64,12 +64,14 @@ export default {
         return Response.redirect(login.toString(), 302);
       }
       if (!isDungeonEditor(session, env)) return json({ ok: false, error: 'dungeon editor access denied' }, { status: 403 });
-      if (url.pathname === '/tools/dungeon-editor' || url.pathname === '/tools/dungeon-editor/') {
-        const assetUrl = new URL('/tools/dungeon-editor/index.html', url);
-        assetUrl.search = url.search;
-        return env.ASSETS.fetch(new Request(assetUrl, request));
+      if (url.pathname === '/tools/dungeon-editor' || url.pathname === '/tools/dungeon-editor/index.html') {
+        url.pathname = '/tools/dungeon-editor/';
+        return Response.redirect(url.toString(), 302);
       }
-      return env.ASSETS.fetch(request);
+      const asset = await env.ASSETS.fetch(request);
+      const headers = new Headers(asset.headers);
+      headers.set('cache-control', 'private, no-store');
+      return new Response(asset.body, { status: asset.status, headers });
     }
 
     if (url.pathname === '/api/editor/dungeons') {

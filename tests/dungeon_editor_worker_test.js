@@ -59,7 +59,9 @@ Deno.test('dungeon editor API stores and loads normalized layouts for the author
   const env = makeEnv(), cookie = await signedSessionCookie(env.ARENA_SESSION_SECRET, 'owner-sub');
   const editorPage = await app.fetch(request('/tools/dungeon-editor/', { cookie }), env);
   assertEquals(editorPage.status, 200);
-  assertEquals(await editorPage.text(), '/tools/dungeon-editor/index.html');
+  assertEquals(await editorPage.text(), '/tools/dungeon-editor/');
+  const indexPage = await app.fetch(request('/tools/dungeon-editor/index.html', { cookie }), env);
+  assertEquals(indexPage.headers.get('location'), 'https://arena.hairylogic.com/tools/dungeon-editor/');
   const layout = {
     schema: 'hack-arena.hand-carved-dungeon', version: 1, id: 'test-cave', name: 'Test Cave',
     width: 1000, height: 1000, cellSize: 8,
