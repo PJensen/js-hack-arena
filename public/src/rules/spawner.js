@@ -106,7 +106,7 @@ export function spawnPlayer(world, x, y, name = 'Player') {
   world.add(id, Stamina);
   world.add(id, Powerups);
   world.add(id, Conditions);
-  world.add(id, FOV,      { distance: 220, angle: 1.4 });
+  world.add(id, FOV);
   world.add(id, PointLight, { radius: 350, r: 255, g: 190, b: 120 });
   world.add(id, MeleeWeapon, { damage: 5, name: 'Fists', glyph: '\u270A', rarity: '' });
   world.add(id, BowWeapon);

@@ -14,6 +14,7 @@ import { buildTerrainMesh } from '../public/src/display/webgl/terrainMesh.js';
 import { createDungeonDecorations } from '../public/src/display/worldDecorations.js';
 import { biolum, emberLight, fireFlicker, torchLight } from '../public/src/display/lightPatterns.js';
 import { generateArenaCave, generateCave } from '../public/src/rules/geometry/caveGen.js';
+import { FOV } from '../public/src/rules/components/FOV.js';
 import { sweepMaxFree } from '../public/src/rules/geometry/sweep.js';
 
 Deno.test('player sight turns in place, limits rear awareness, and stops at walls', () => {
@@ -23,9 +24,11 @@ Deno.test('player sight turns in place, limits rear awareness, and stops at wall
     distanceMove: (x) => wall && x >= 80 && x <= 96 ? 0 : 20,
   });
   const origin = { x: 0, y: 0 };
-  const fov = { angle: 1.4, distance: 220 };
+  const fov = FOV.defaults;
   assert(sight.update(origin, 0, fov));
   assert(sight.contains(65, 0));
+  assert(sight.contains(72, -86)); // 50° off center.
+  assert(!sight.contains(50, -107)); // 65° off center.
   assert(!sight.contains(120, 0));
   assert(sight.contains(-40, 0));
   assert(!sight.contains(-100, 0));
