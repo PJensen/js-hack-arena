@@ -14,6 +14,9 @@ footprint and reports whether it fits at the cursor. Use Set Start to mark
 the player's starting location on open floor. If a later edit blocks that
 location, move or clear it before saving.
 
+Enable Grid for an alignment guide and Snap to align shapes, corridors, and
+the start to grid intersections. Zoom in to see smaller grid intervals.
+
 **Save** and **Load** use the authenticated Worker API and the `DUNGEONS` KV
 namespace. Name a dungeon before saving. To reopen one, choose it from the saved
 dungeon list and select Load. Only the configured `DUNGEON_EDITOR_USER_ID` can

@@ -26,6 +26,7 @@
     #roughness { width:85px; accent-color:var(--accent); }
     #roughnessLabel, #zoomLevel { min-width:4ch; color:#a9b7ad; }
     .view-tools { display:flex; align-items:center; flex-wrap:wrap; gap:5px; }
+    .view-tools label { display:inline-flex; align-items:center; gap:4px; }
     #fitStatus { color:#c5d2c8; min-height:1.4em; text-align:center; }
     main { display:grid; justify-items:center; gap:8px; padding:10px; }
     #map { --aspect:1; display:block; width:min(100%, max(280px, (100dvh - 155px) * var(--aspect))); aspect-ratio:var(--aspect); border:1px solid #415044; background:#1b231e; touch-action:none; cursor:crosshair; }
@@ -64,6 +65,14 @@
       <output id="zoomLevel">1×</output>
       <button id="zoomIn" type="button" aria-label="Zoom in">+</button>
       <button id="resetView" type="button">Fit Map</button>
+      <label><input id="showGrid" type="checkbox">Grid</label>
+      <label><input id="snapGrid" type="checkbox">Snap</label>
+      <select id="gridSize" aria-label="Grid spacing">
+        <option value="32">32 units</option>
+        <option value="64">64 units</option>
+        <option value="128" selected>128 units</option>
+        <option value="256">256 units</option>
+      </select>
     </div>
   </div>
   <main>

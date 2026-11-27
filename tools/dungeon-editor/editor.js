@@ -16,6 +16,8 @@ const brushes = [...document.querySelectorAll('[data-brush]')];
 const [roughness, roughnessLabel, fitStatus, clearStart, zoomIn, zoomOut, zoomLevel, resetView] = [
   'roughness', 'roughnessLabel', 'fitStatus', 'clearStart', 'zoomIn', 'zoomOut', 'zoomLevel', 'resetView',
 ].map(byId);
+const [showGrid, snapGrid, gridSize] = ['showGrid', 'snapGrid', 'gridSize'].map(byId);
+const gridTools = ['circle', 'corridor', 'rect', 'ellipse', 'start'];
 const committed = document.createElement('canvas');
 const roughMap = document.createElement('canvas');
 const ctx = map.getContext('2d');
@@ -33,6 +35,7 @@ let undone = [];
 let brush = 'path';
 let gesture = null;
 let cursor = null;
+let pointer = null;
 let busy = false;
 let frame = 0;
 let view = { x: 0, y: 0, zoom: 1 };
@@ -118,6 +121,7 @@ function requestDraw() {
       if (preview) paint(ctx, preview, '#c0e9c3');
     }
     const unit = layout.width / (map.clientWidth * zoom);
+    if (showGrid.checked) drawGrid(unit);
     const activeTool = gesture?.type ?? brush;
     if (cursor && !busy && ['path', 'erase', 'circle', 'corridor'].includes(activeTool)) {
       ctx.globalCompositeOperation = 'source-over';
@@ -127,6 +131,13 @@ function requestDraw() {
       ctx.arc(cursor.x, cursor.y, gesture?.radius ?? Number(size.value) / 2, 0, Math.PI * 2);
       ctx.stroke();
     }
+    if (cursor && !busy && snapGrid.checked && gridTools.includes(activeTool)) {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#f3f6e8';
+      ctx.beginPath();
+      ctx.arc(cursor.x, cursor.y, 2 * unit, 0, Math.PI * 2);
+      ctx.fill();
+    }
     if (layout.start) drawPlayer(layout.start, unit, true);
     let fitText = `${layout.width.toLocaleString()} × ${layout.height.toLocaleString()} units · Player diameter ${PLAYER_COLLIDER_RADIUS * 2} units`;
     if (cursor && ['fit', 'start'].includes(activeTool) && !busy) {
@@ -134,6 +145,28 @@ function requestDraw() {
     }
     if (fitStatus.textContent !== fitText) fitStatus.textContent = fitText;
   });
+}
+
+function drawGrid(unit) {
+  const spacing = Number(gridSize.value);
+  let interval = spacing;
+  while (interval < unit * 10) interval *= 4;
+  const viewLeft = view.x * layout.width, viewTop = view.y * layout.height;
+  const viewRight = viewLeft + layout.width / view.zoom;
+  const viewBottom = viewTop + layout.height / view.zoom;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.strokeStyle = '#dde7dc50';
+  ctx.lineWidth = unit;
+  ctx.beginPath();
+  for (let x = Math.ceil(viewLeft / interval) * interval; x <= viewRight; x += interval) {
+    ctx.moveTo(x, viewTop);
+    ctx.lineTo(x, viewBottom);
+  }
+  for (let y = Math.ceil(viewTop / interval) * interval; y <= viewBottom; y += interval) {
+    ctx.moveTo(viewLeft, y);
+    ctx.lineTo(viewRight, y);
+  }
+  ctx.stroke();
 }
 
 function drawPlayer(point, unit, start = false) {
@@ -164,21 +197,34 @@ function screenPoint(event) {
   return { x: (event.clientX - box.left) / box.width, y: (event.clientY - box.top) / box.height };
 }
 
-function mapPoint(event) {
-  const point = screenPoint(event);
+function mapPoint(point, spacing = 0) {
+  const worldX = (view.x + point.x / view.zoom) * layout.width;
+  const worldY = (view.y + point.y / view.zoom) * layout.height;
+  if (spacing) {
+    return {
+      x: onScale(Math.round(worldX / spacing), 0, Math.floor(layout.width / spacing)) * spacing,
+      y: onScale(Math.round(worldY / spacing), 0, Math.floor(layout.height / spacing)) * spacing,
+    };
+  }
   return {
-    x: Math.round(onScale(view.x + point.x / view.zoom, 0, 1) * layout.width),
-    y: Math.round(onScale(view.y + point.y / view.zoom, 0, 1) * layout.height),
+    x: Math.round(onScale(worldX, 0, layout.width)),
+    y: Math.round(onScale(worldY, 0, layout.height)),
   };
 }
 
-function strokeForGesture({ id, type, points, start, end, radius, constrain }) {
+function updateCursor() {
+  const spacing = gesture?.spacing ?? (snapGrid.checked && gridTools.includes(brush) ? Number(gridSize.value) : 0);
+  cursor = pointer ? mapPoint(pointer, spacing) : null;
+  return spacing;
+}
+
+function strokeForGesture({ id, type, points, start, end, radius, constrain, spacing }) {
   const operation = type === 'erase' ? { erase: true } : {};
   if (points) {
     if (points.length === 1) return { ...operation, id, type: 'circle', cx: start.x, cy: start.y, r: radius };
     return { ...operation, id, type: 'path', points, r: radius };
   }
-  if (type === 'circle' || (type === 'corridor' && start.x === end.x && start.y === end.y)) {
+  if (type === 'circle') {
     return { id, type: 'circle', cx: start.x, cy: start.y, r: radius };
   }
   if (type === 'corridor') {
@@ -186,19 +232,23 @@ function strokeForGesture({ id, type, points, start, end, radius, constrain }) {
       const dx = end.x - start.x, dy = end.y - start.y;
       const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * Math.PI / 4;
       // Project onto the snapped line, then clip the length to stay on the map.
-      const ux = Math.cos(angle), uy = Math.sin(angle);
-      const maxX = ux > 0 ? (layout.width - start.x) / ux : ux < 0 ? -start.x / ux : Infinity;
-      const maxY = uy > 0 ? (layout.height - start.y) / uy : uy < 0 ? -start.y / uy : Infinity;
-      const distance = Math.max(0, Math.min(dx * ux + dy * uy, maxX, maxY));
-      end = { x: Math.round(start.x + ux * distance), y: Math.round(start.y + uy * distance) };
+      const ux = Math.round(Math.cos(angle)), uy = Math.round(Math.sin(angle));
+      const step = spacing || 1;
+      const maxX = ux > 0 ? layout.width - start.x : ux < 0 ? start.x : Infinity;
+      const maxY = uy > 0 ? layout.height - start.y : uy < 0 ? start.y : Infinity;
+      const projected = (dx * ux + dy * uy) / (ux * ux + uy * uy);
+      const distance = onScale(Math.round(projected / step), 0, Math.floor(Math.min(maxX, maxY) / step)) * step;
+      end = { x: start.x + ux * distance, y: start.y + uy * distance };
     }
+    if (start.x === end.x && start.y === end.y) return { id, type: 'circle', cx: start.x, cy: start.y, r: radius };
     return { id, type, ax: start.x, ay: start.y, bx: end.x, by: end.y, r: radius };
   }
   if (constrain) {
     const dx = end.x - start.x, dy = end.y - start.y;
-    const side = Math.min(Math.max(Math.abs(dx), Math.abs(dy)),
+    const step = spacing || 1;
+    const side = Math.floor(Math.min(Math.max(Math.abs(dx), Math.abs(dy)),
       dx < 0 ? start.x : layout.width - start.x,
-      dy < 0 ? start.y : layout.height - start.y);
+      dy < 0 ? start.y : layout.height - start.y) / step) * step;
     end = { x: start.x + (dx < 0 ? -side : side), y: start.y + (dy < 0 ? -side : side) };
   }
   const w = Math.abs(end.x - start.x), h = Math.abs(end.y - start.y);
@@ -208,7 +258,8 @@ function strokeForGesture({ id, type, points, start, end, radius, constrain }) {
 
 map.addEventListener('pointerdown', (event) => {
   if (busy || gesture || event.button !== 0) return;
-  cursor = mapPoint(event);
+  pointer = screenPoint(event);
+  const spacing = updateCursor();
   if (brush === 'fit') {
     requestDraw();
     return;
@@ -224,7 +275,7 @@ map.addEventListener('pointerdown', (event) => {
     return;
   }
   if (brush === 'pan') {
-    gesture = { pointerId: event.pointerId, type: 'pan', position: screenPoint(event), view };
+    gesture = { pointerId: event.pointerId, type: 'pan', position: pointer, view };
     map.setPointerCapture(event.pointerId);
     return;
   }
@@ -235,7 +286,7 @@ map.addEventListener('pointerdown', (event) => {
   gesture = {
     id: newId(), pointerId: event.pointerId, type: brush,
     radius: Number(size.value) / 2, start: cursor, end: cursor,
-    constrain: event.shiftKey,
+    constrain: event.shiftKey, spacing,
     points: brush === 'path' || brush === 'erase' ? [cursor] : null,
   };
   map.setPointerCapture(event.pointerId);
@@ -253,7 +304,8 @@ function movePointer(event, finish = false) {
     );
     return;
   }
-  cursor = mapPoint(event);
+  pointer = screenPoint(event);
+  updateCursor();
   if (gesture) {
     gesture.end = cursor;
     gesture.constrain = event.shiftKey;
@@ -271,7 +323,7 @@ map.addEventListener('pointerup', (event) => {
   movePointer(event, true);
   const stroke = gesture.type === 'pan' ? null : strokeForGesture(gesture);
   gesture = null;
-  if (event.pointerType !== 'mouse') cursor = null;
+  if (event.pointerType !== 'mouse') cursor = pointer = null;
   if (!stroke) return;
   const pointCount = layout.strokes.reduce((count, item) => count + (item.points?.length ?? 0), 0);
   if (pointCount + (stroke.points?.length ?? 0) > HAND_CARVED_DUNGEON_LIMITS.maxPathPoints) {
@@ -280,17 +332,18 @@ map.addEventListener('pointerup', (event) => {
   }
   edit({ strokes: [...layout.strokes, stroke] });
 });
-map.addEventListener('pointerleave', () => { cursor = null; requestDraw(); });
+map.addEventListener('pointerleave', () => { cursor = pointer = null; requestDraw(); });
 map.addEventListener('lostpointercapture', (event) => {
   if (gesture?.pointerId !== event.pointerId) return;
   gesture = null;
-  cursor = null;
+  cursor = pointer = null;
   requestDraw();
 });
 new ResizeObserver(rebuildMap).observe(map);
 
 function setView(x, y, zoom) {
   view = { x: onScale(x, 0, 1 - 1 / zoom), y: onScale(y, 0, 1 - 1 / zoom), zoom };
+  updateCursor();
   zoomLevel.value = `${Number(zoom.toFixed(1))}×`;
   updateButtons();
   requestDraw();
@@ -307,13 +360,21 @@ resetView.addEventListener('click', () => { if (!gesture) setView(0, 0, 1); });
 map.addEventListener('wheel', (event) => {
   if (event.ctrlKey || event.metaKey || !event.deltaY) return;
   event.preventDefault();
-  zoomAt(event.deltaY < 0 ? 1.2 : 1 / 1.2, screenPoint(event));
-  cursor = mapPoint(event);
+  pointer = screenPoint(event);
+  zoomAt(event.deltaY < 0 ? 1.2 : 1 / 1.2, pointer);
 }, { passive: false });
+for (const control of [showGrid, snapGrid, gridSize]) {
+  control.addEventListener('change', () => {
+    if (control === snapGrid && snapGrid.checked) showGrid.checked = true;
+    updateCursor();
+    requestDraw();
+  });
+}
 
 for (const button of brushes) {
   button.addEventListener('click', () => {
     brush = button.dataset.brush;
+    updateCursor();
     for (const item of brushes) item.setAttribute('aria-pressed', String(item === button));
     map.style.cursor = brush === 'pan' ? 'grab' : 'crosshair';
     const instructions = {
@@ -383,7 +444,7 @@ function setLayout(value) {
   history = [];
   undone = [];
   gesture = null;
-  cursor = null;
+  cursor = pointer = null;
   setView(0, 0, 1);
   rebuildMap();
   updateButtons();
