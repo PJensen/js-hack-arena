@@ -6,9 +6,9 @@ export const atlas = Object.freeze({
   normal: './normals.png',
   emissive: './emissive.png',
   columns: 12,
-  rows: 12,
+  rows: 13,
   width: 1254,
-  height: 1254,
+  height: 1359,
 });
 
 const names = [
@@ -36,6 +36,8 @@ const names = [
   'antidote', 'stamina_potion', 'poison_vial', 'oil_bottle', 'bandage', 'bitter_herbs', 'mushrooms', 'ration', 'iron_ore', 'coal', 'rough_crystal', 'leather_scraps',
   // Row 12: utility and additional conditions
   'old_key', 'keyring', 'torch', 'lantern', 'rope', 'coin_pouch', 'skeletal_remains', 'burning_hand', 'weakened', 'cursed', 'blind', 'fortified',
+  // Row 13: newly added icons
+  'runed_copper_signet',
 ];
 
 export const icons = Object.freeze(Object.fromEntries(names.map((id, index) => {

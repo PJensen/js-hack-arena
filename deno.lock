@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "npm:sharp@0.34.5": "0.34.5",
     "npm:wrangler@4": "4.107.1"
   },
   "npm": {
