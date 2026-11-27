@@ -166,6 +166,25 @@ Deno.test('water paint stays on the floor and dry paint clears it without changi
   assertEquals(grid.moveGrid, bakeHandCarvedGrid({ ...layout, strokes: [room] }).moveGrid);
 });
 
+Deno.test('lava paint replaces water and stone on open floor and preserves collision', () => {
+  const room = { id: 'room', type: 'rect', x: 240, y: 240, w: 480, h: 480 };
+  const water = { id: 'water', type: 'rect', x: 264, y: 320, w: 440, h: 220, floor: 'water' };
+  const lava = { id: 'lava', type: 'rect', x: 160, y: 360, w: 384, h: 144, floor: 'lava' };
+  const stone = { id: 'stone', type: 'circle', cx: 480, cy: 432, r: 32, floor: 'stone' };
+  const strokes = [room, water, { ...stone, id: 'stone-under-lava', cx: 360 }, lava, stone];
+  const draft = normalizeHandCarvedDungeon({ ...layout, start: { x: 360, y: 400 }, strokes });
+  const { grid } = createHandCarvedCave(draft);
+  const index = (x, y) => y / 8 * grid.cols + x / 8;
+  assertEquals(grid.lavaGrid[index(200, 432)], 0);
+  assertEquals(grid.lavaGrid[index(360, 432)], 255);
+  assertEquals(grid.stoneGrid[index(360, 432)], 0);
+  assertEquals(grid.waterGrid[index(360, 432)], 0);
+  assertEquals(grid.lavaGrid[index(480, 432)], 0);
+  assertEquals(grid.stoneGrid[index(480, 432)], 255);
+  assertEquals(grid.waterGrid[index(592, 432)], 255);
+  assertEquals(grid.moveGrid, bakeHandCarvedGrid({ ...draft, strokes: [room] }).moveGrid);
+});
+
 Deno.test('player fit checks the whole footprint and rejects an erased start', () => {
   assert(handCarvedPlayerFits(layout, 250, 500));
   assert(!handCarvedPlayerFits(layout, 250, 350));

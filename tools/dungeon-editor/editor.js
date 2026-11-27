@@ -30,6 +30,7 @@ const brushModes = [
   ['carve', carveFloor, 'Draw to carve open floor.'],
   ['rock', buildRock, 'Draw solid rock to block movement and sight.'],
   ['water', byId('paintWater'), 'Paint shallow water on the dungeon floor.'],
+  ['lava', byId('paintLava'), 'Paint lava on the dungeon floor.'],
   ['stone', byId('paintStone'), 'Paint dry stone on open floor.'],
 ];
 const shapeTools = ['path', 'erase', 'circle', 'corridor', 'rect', 'ellipse'];
@@ -79,7 +80,7 @@ let pinch = null;
 let rasterGeometry = null;
 let useMapRaster = false;
 const onScale = (value, min, max) => Math.max(min, Math.min(max, value));
-const brushColors = { carve: '#c0e9c3', rock: '#c09077b8', water: '#45b5deba', stone: '#aabfa9' };
+const brushColors = { carve: '#c0e9c3', rock: '#c09077b8', water: '#45b5deba', lava: '#ed713c', stone: '#aabfa9' };
 
 function activeBrushMode() {
   return brush === 'erase' ? 'rock' : brushMode;
@@ -164,7 +165,7 @@ function rebuildMap() {
     const sameStrokes = rasterGeometry?.strokes === layout.strokes;
     const cellSize = fineDetail || (sameStrokes && rasterGeometry.cellSize === 8) ? 8 : 16;
     if (!sameStrokes || rasterGeometry.cellSize !== cellSize) {
-      const { cols, rows, densityGrid, waterGrid, stoneGrid } = bakeHandCarvedGrid(layout, cellSize);
+      const { cols, rows, densityGrid, waterGrid, stoneGrid, lavaGrid } = bakeHandCarvedGrid(layout, cellSize);
       mapRaster.width = cols;
       mapRaster.height = rows;
       const rasterCtx = mapRaster.getContext('2d');
@@ -174,9 +175,10 @@ function rebuildMap() {
         const pixel = i * 4;
         const water = (waterGrid?.[i] ?? 0) / 255;
         const stone = (stoneGrid?.[i] ?? 0) / 255;
-        pixels.data[pixel] = 155 - water * 97 + stone * 15;
-        pixels.data[pixel + 1] = 201 - water * 44 - stone * 10;
-        pixels.data[pixel + 2] = 158 + water * 50 + stone * 11;
+        const lava = (lavaGrid?.[i] ?? 0) / 255;
+        pixels.data[pixel] = 155 - water * 97 + stone * 15 + lava * 82;
+        pixels.data[pixel + 1] = 201 - water * 44 - stone * 10 - lava * 88;
+        pixels.data[pixel + 2] = 158 + water * 50 + stone * 11 - lava * 98;
         pixels.data[pixel + 3] = onScale(0.5 + densityGrid[i] * 90 / cellSize, 0, 1) * 255;
       }
       rasterCtx.putImageData(pixels, 0, 0);
@@ -315,7 +317,7 @@ function updateCursor() {
 function strokeForGesture({ id, type, points, start, end, radius, constrain, spacing, mode, brushRoughness }) {
   const stroke = { id };
   if (mode === 'rock') stroke.erase = true;
-  if (mode === 'water' || mode === 'stone') stroke.floor = mode;
+  else if (mode !== 'carve') stroke.floor = mode;
   if (brushRoughness) stroke.roughness = brushRoughness;
   if (points) {
     if (points.length === 1) return { ...stroke, type: 'circle', cx: start.x, cy: start.y, r: radius };

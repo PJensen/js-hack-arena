@@ -43,7 +43,7 @@ export function normalizeHandCarvedDungeon(value, expectedId = null, { allowBloc
     if (stroke.erase !== undefined && typeof stroke.erase !== 'boolean') throw new Error('Invalid brush operation');
     const operation = stroke.erase ? { erase: true } : {};
     if (stroke.floor !== undefined) {
-      if ((stroke.floor !== 'water' && stroke.floor !== 'stone') || stroke.erase) throw new Error('Invalid floor brush');
+      if (!['water', 'stone', 'lava'].includes(stroke.floor) || stroke.erase) throw new Error('Invalid floor brush');
       operation.floor = stroke.floor;
     }
     const roughness = stroke.roughness === undefined ? (stroke.floor ? 0 : legacyRoughness) : stroke.roughness;
@@ -199,6 +199,7 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
   const densityGrid = new Float32Array(cols * rows);
   const waterGrid = layout.strokes.some(({ floor }) => floor === 'water') ? new Uint8Array(cols * rows) : null;
   const stoneGrid = layout.strokes.some(({ floor }) => floor === 'stone') ? new Uint8Array(cols * rows) : null;
+  const lavaGrid = layout.strokes.some(({ floor }) => floor === 'lava') ? new Uint8Array(cols * rows) : null;
   const signedClearance = new Float32Array(cols * rows);
   signedClearance.fill(-120);
   let maxClearance = 0;
@@ -214,6 +215,7 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
           const coverage = Math.round(within(0.5 + strokeClearance(stroke, gx * cellSize, gy * cellSize, profile) / cellSize, 0, 1) * 255);
           if (waterGrid) waterGrid[index] = paintFloor(waterGrid[index], coverage, stroke.floor === 'water');
           if (stoneGrid) stoneGrid[index] = paintFloor(stoneGrid[index], coverage, stroke.floor === 'stone');
+          if (lavaGrid) lavaGrid[index] = paintFloor(lavaGrid[index], coverage, stroke.floor === 'lava');
         }
       }
       continue;
@@ -243,6 +245,7 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
       if (signed <= 0) {
         if (waterGrid) waterGrid[index] = 0;
         if (stoneGrid) stoneGrid[index] = 0;
+        if (lavaGrid) lavaGrid[index] = 0;
       }
     }
   }
@@ -256,7 +259,7 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
     const bottom = moveGrid[index + cols] * (1 - tx) + moveGrid[index + cols + 1] * tx;
     return top * (1 - ty) + bottom * ty;
   }
-  return { width: layout.width, height: layout.height, cellSize, cols, rows, moveGrid, densityGrid, waterGrid, stoneGrid, distanceMove };
+  return { width: layout.width, height: layout.height, cellSize, cols, rows, moveGrid, densityGrid, waterGrid, stoneGrid, lavaGrid, distanceMove };
 }
 
 function paintFloor(previous, coverage, matchesMaterial) {

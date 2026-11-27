@@ -2,8 +2,10 @@ export const CAVE_FRAGMENT = `#version 300 es
 precision highp float;
 uniform sampler2D u_field;
 uniform sampler2D u_water;
+uniform sampler2D u_stone;
+uniform sampler2D u_lava;
 uniform ivec2 u_grid_size;
-uniform float u_water_time;
+uniform float u_terrain_time;
 in vec2 v_uv;
 in vec2 v_world;
 out vec4 out_color;
@@ -77,15 +79,62 @@ vec3 dirtyFloor(vec2 p, float pixelSize) {
 }
 
 vec3 shallowWater(vec3 floorColor, vec2 p, float depth) {
-  float drift = noise(p * 0.026 + vec2(-u_water_time * 0.07, 12.0));
-  float wave = sin(dot(p, vec2(0.088, 0.036)) + drift * 3.1 - u_water_time * 1.3);
-  float crossWave = sin(dot(p, vec2(-0.034, 0.091)) + drift * 2.2 + u_water_time * 0.9);
+  float drift = noise(p * 0.026 + vec2(-u_terrain_time * 0.07, 12.0));
+  float wave = sin(dot(p, vec2(0.088, 0.036)) + drift * 3.1 - u_terrain_time * 1.3);
+  float crossWave = sin(dot(p, vec2(-0.034, 0.091)) + drift * 2.2 + u_terrain_time * 0.9);
   float caustic = (1.0 - smoothstep(0.0, 0.09, abs(wave * 0.6 + crossWave * 0.4)))
     * smoothstep(0.30, 0.72, drift);
   vec3 color = floorColor * mix(vec3(0.63, 0.89, 0.99), vec3(0.36, 0.71, 0.82), depth)
     + vec3(0.014, 0.073, 0.095) * depth;
   color += vec3(0.045, 0.11, 0.13) * caustic;
   return color;
+}
+
+float floorPaint(sampler2D material) {
+  vec2 size = vec2(textureSize(material, 0));
+  if (size.x <= 1.0) return 0.0;
+  vec2 uv = (clamp(v_uv, 0.0, 1.0) * (size - 1.0) + 0.5) / size;
+  return texture(material, uv).r;
+}
+
+vec3 cryptFloor(vec2 p, float pixelSize) {
+  vec2 tile = p / vec2(44.0, 36.0);
+  tile.x += mod(floor(tile.y), 2.0) * 0.5;
+  vec2 cell = floor(tile);
+  vec2 local = fract(tile) * vec2(44.0, 36.0);
+  vec2 farEdge = vec2(44.0, 36.0) - local;
+  vec2 edgeDistance = min(local, farEdge);
+  float corner = (edgeDistance.x + edgeDistance.y) * 0.67;
+  float edge = min(min(edgeDistance.x, edgeDistance.y), corner);
+  float face = smoothstep(0.75, 0.75 + pixelSize, edge);
+  float variation = hash(cell + 56.1);
+  vec3 stone = mix(vec3(0.28, 0.29, 0.30), vec3(0.46, 0.45, 0.41), variation);
+  stone += (noise(p * 0.20) - 0.5) * 0.031;
+  float bevel = 1.0 - smoothstep(1.2, 3.0 + pixelSize, edge);
+  vec3 bevelColor = min(local.x, local.y) < min(farEdge.x, farEdge.y) ? vec3(0.09) : vec3(-0.10);
+  return mix(vec3(0.115, 0.108, 0.099), stone + bevelColor * bevel, face);
+}
+
+vec3 moltenLava(vec2 p, float pixelSize) {
+  float heat = noise(p * 0.061) * 0.74 + noise(p * 0.16) * 0.26;
+  vec3 color = mix(vec3(0.78, 0.105, 0.015), vec3(1.0, 0.54, 0.075), smoothstep(0.23, 0.81, heat));
+  float crust = (1.0 - smoothstep(0.12, 0.32, heat));
+  color = mix(color, vec3(0.30, 0.044, 0.019), crust * 0.75);
+
+  // Local domes swell, catch a highlight, then collapse into the pool.
+  vec2 tile = p / 24.0;
+  vec2 cell = floor(tile);
+  float seed = hash(cell + 13.7);
+  vec2 center = mix(vec2(0.27), vec2(0.73), vec2(hash(cell - 7.1), hash(cell + 2.9)));
+  float phase = fract(u_terrain_time / mix(1.8, 3.7, seed) + seed);
+  float swell = smoothstep(0.0, 0.34, phase) * (1.0 - smoothstep(0.40, 0.55, phase));
+  vec2 local = (fract(tile) - center) * vec2(1.0, 1.15);
+  float radius = mix(0.09, 0.21, seed) * swell;
+  float aa = max(pixelSize / 24.0, 0.01);
+  float dome = (1.0 - smoothstep(radius - aa, radius + aa, length(local))) * swell;
+  float shine = 1.0 - smoothstep(radius * 0.2, radius * 0.7 + aa, length(local + radius * 0.35));
+  vec3 bubble = mix(vec3(0.58, 0.09, 0.012), vec3(1.0, 0.83, 0.28), shine);
+  return mix(color, bubble, dome);
 }
 
 void main() {
@@ -98,14 +147,18 @@ void main() {
   vec3 color = clearance > 10.0 ? edge : wall;
   if (clearance > 18.0) {
     color = mix(floorColor, dirtyFloor(v_world, pixelSize), smoothstep(18.0, 26.0, clearance) * 0.88);
-    vec2 waterSize = vec2(textureSize(u_water, 0));
-    if (waterSize.x > 1.0) {
-      vec2 waterUV = (clamp(v_uv, 0.0, 1.0) * (waterSize - 1.0) + 0.5) / waterSize;
-      float water = texture(u_water, waterUV).r;
-      if (water > 0.0) {
-        float coverage = smoothstep(0.25, 0.72, water) * smoothstep(18.0, 24.0, clearance);
-        color = mix(color, shallowWater(color, v_world, water), coverage);
-      }
+    float edgeFade = smoothstep(18.0, 24.0, clearance);
+    float stone = floorPaint(u_stone);
+    if (stone > 0.0) {
+      color = mix(color, cryptFloor(v_world, pixelSize), smoothstep(0.25, 0.72, stone) * edgeFade);
+    }
+    float water = floorPaint(u_water);
+    if (water > 0.0) {
+      color = mix(color, shallowWater(color, v_world, water), smoothstep(0.25, 0.72, water) * edgeFade);
+    }
+    float lava = floorPaint(u_lava);
+    if (lava > 0.0) {
+      color = mix(color, moltenLava(v_world, pixelSize), smoothstep(0.25, 0.72, lava) * edgeFade);
     }
   }
   out_color = vec4(color, 1.0);

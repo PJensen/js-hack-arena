@@ -195,7 +195,9 @@ export function createWebGLArenaRenderer(deps) {
     view: uniform(gl, caveProgram, 'u_view'),
     field: uniform(gl, caveProgram, 'u_field'),
     water: uniform(gl, caveProgram, 'u_water'),
-    waterTime: uniform(gl, caveProgram, 'u_water_time'),
+    stone: uniform(gl, caveProgram, 'u_stone'),
+    lava: uniform(gl, caveProgram, 'u_lava'),
+    terrainTime: uniform(gl, caveProgram, 'u_terrain_time'),
     gridSize: uniform(gl, caveProgram, 'u_grid_size'),
   };
   const disc = worldProgram(device, DISC_FRAGMENT);
@@ -223,6 +225,8 @@ export function createWebGLArenaRenderer(deps) {
   lighting.count = uniform(gl, lighting.program, 'u_light_count');
   lighting.lights = uniform(gl, lighting.program, 'u_lights[0]');
   lighting.colors = uniform(gl, lighting.program, 'u_light_colors[0]');
+  lighting.lava = uniform(gl, lighting.program, 'u_lava');
+  lighting.cellSize = uniform(gl, lighting.program, 'u_cell_size');
   const element = worldProgram(device, ELEMENT_FRAGMENT);
   element.theme = uniform(gl, element.program, 'u_theme');
   element.time = uniform(gl, element.program, 'u_time');
@@ -387,14 +391,17 @@ export function createWebGLArenaRenderer(deps) {
     type: gl.FLOAT,
   });
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-  const waterTexture = device.texture2D({
-    width: grid.waterGrid ? grid.cols : 1,
-    height: grid.waterGrid ? grid.rows : 1,
-    data: grid.waterGrid ?? null,
+  const floorTexture = (coverage) => device.texture2D({
+    width: coverage ? grid.cols : 1,
+    height: coverage ? grid.rows : 1,
+    data: coverage ?? null,
     internalFormat: gl.R8,
     format: gl.RED,
     filter: gl.LINEAR,
   });
+  const waterTexture = floorTexture(grid.waterGrid);
+  const stoneTexture = floorTexture(grid.stoneGrid);
+  const lavaTexture = floorTexture(grid.lavaGrid);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
   const drawWaterWakes = grid.waterGrid ? createWaterWakeRenderer(device, quadVao, waterTexture, grid) : null;
   const atlas = createGlyphAtlas(device);
@@ -977,9 +984,45 @@ export function createWebGLArenaRenderer(deps) {
     gl.uniform1i(lighting.count, lightCount);
     gl.uniform4fv(lighting.lights, lightData);
     gl.uniform3fv(lighting.colors, lightColors);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, lavaTexture);
+    gl.uniform1i(lighting.lava, 3);
+    gl.uniform1f(lighting.cellSize, grid.cellSize);
+    gl.activeTexture(gl.TEXTURE0);
     gl.blendFunc(gl.DST_COLOR, gl.ZERO);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  }
+
+  function drawLavaDroplets(now) {
+    const { lavaGrid, cellSize, cols, rows, moveGrid } = grid;
+    if (!lavaGrid || motionPreference.matches) return;
+    const stride = Math.max(1, Math.round(70 / cellSize));
+    const spacing = stride * cellSize;
+    const left = Math.max(0, Math.floor((view[0] - view[2] / 2 - 25) / spacing));
+    const top = Math.max(0, Math.floor((view[1] - view[3] / 2 - 25) / spacing));
+    const right = Math.min(Math.ceil(cols / stride), Math.ceil((view[0] + view[2] / 2 + 25) / spacing));
+    const bottom = Math.min(Math.ceil(rows / stride), Math.ceil((view[1] + view[3] / 2 + 25) / spacing));
+    for (let row = top; row < bottom; row++) {
+      for (let col = left; col < right; col++) {
+        const noise = Math.sin(col * 127.1 + row * 311.7 + 18.2) * 43758.5453;
+        const seed = noise - Math.floor(noise);
+        const period = 5 + seed * 6;
+        const age = (now + seed * period) % period;
+        const hangTime = 0.48 + seed * 0.17;
+        if (age >= hangTime) continue;
+
+        const gx = col * stride + Math.floor(seed * stride);
+        const gy = row * stride + Math.floor((1 - seed) * (stride - 1));
+        const index = gy * cols + gx;
+        if (gx >= cols || gy >= rows || lavaGrid[index] < 200 || moveGrid[index] < 24) continue;
+        const x = gx * cellSize, y = gy * cellSize;
+        const height = 180 * age * (hangTime - age);
+        const fade = Math.min(1, (hangTime - age) * 18);
+        const drift = (seed - 0.5) * 26 * age;
+        drawDisc(x + drift, y - height, 1.7 + seed * 1.1, [1, 0.72, 0.19, fade], [0.99, 0.27, 0.025, fade]);
+      }
+    }
   }
 
   function drawActivePowerups(powerups, position, collider, now) {
@@ -1661,7 +1704,13 @@ export function createWebGLArenaRenderer(deps) {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, waterTexture);
     gl.uniform1i(caveLocations.water, 1);
-    gl.uniform1f(caveLocations.waterTime, motionPreference.matches ? 0 : now);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, stoneTexture);
+    gl.uniform1i(caveLocations.stone, 2);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, lavaTexture);
+    gl.uniform1i(caveLocations.lava, 3);
+    gl.uniform1f(caveLocations.terrainTime, motionPreference.matches ? 0 : now);
     gl.activeTexture(gl.TEXTURE0);
     gl.uniform2i(caveLocations.gridSize, grid.cols, grid.rows);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -1880,6 +1929,7 @@ export function createWebGLArenaRenderer(deps) {
       }
     }
     drawLighting(collectLights(now, actorLights, campfires));
+    drawLavaDroplets(now);
     drawDecorationEmission(now);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     for (const treasure of goblinTreasure) drawGoblinTreasure(treasure, now);

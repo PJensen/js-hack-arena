@@ -10,13 +10,14 @@ The Eraser is a freehand rock brush. Brush roughness applies to each new
 stroke and defaults to 80%. You can see the rough edge while drawing.
 Smaller brushes produce finer irregularities. Brush width starts at 128 units.
 The editor converts older roughness settings to individual strokes.
-Undo and Redo work in both modes. **Start Over** asks
+Undo and Redo work with every brush mode. **Start Over** asks
 for confirmation before opening a blank draft. Saved dungeons stay available.
 
 Choose **Paint water** to add shallow, walkable water with any shape brush.
-Use **Paint stone** to restore dry floor. Both paint modes preserve the
-underlying layout. In Playtest, creatures leave a wake as they move through
-water and take double damage from lightning while standing in it.
+Choose **Paint lava** for glowing, bubbling pools, or **Paint stone** to
+lay fitted crypt flagstones. Paint preserves the underlying layout. Lava is walkable
+and does no damage. Creatures leave a wake in water and take double damage
+from lightning while standing in it.
 
 Drag two fingers on the touchpad or hold the middle mouse button and drag to
 pan. Pinch, turn the mouse wheel, or use the zoom buttons to zoom. If your
