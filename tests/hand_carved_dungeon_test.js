@@ -60,6 +60,23 @@ Deno.test('hand-carved geometry bakes the clearance grid consumed by collision a
   assert(grid.densityGrid.some((value) => value < 0));
 });
 
+Deno.test('eraser strokes restore rock, reduce nearby clearance, and can be carved over', () => {
+  const room = { id: 'room', type: 'circle', cx: 504, cy: 504, r: 200 };
+  const erase = {
+    id: 'wall', type: 'path', erase: true, r: 32,
+    points: [{ x: 504, y: 272 }, { x: 504, y: 736 }],
+  };
+  const erased = normalizeHandCarvedDungeon({ ...layout, strokes: [room, erase] });
+  assertEquals(erased.strokes[1], erase);
+  const grid = bakeHandCarvedGrid(erased);
+  assertEquals(grid.distanceMove(504, 504), 0);
+  assertEquals(grid.distanceMove(552, 504), 16);
+  const reopened = bakeHandCarvedGrid({
+    ...erased, strokes: [...erased.strokes, { ...room, id: 'opening', r: 24 }],
+  });
+  assertEquals(reopened.distanceMove(504, 504), 24);
+});
+
 Deno.test('hand-carved passages are traversable by the enemy A* pathfinder', () => {
   const sample = {
     ...layout,

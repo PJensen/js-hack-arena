@@ -5,6 +5,8 @@ export const HAND_CARVED_DUNGEON_LIMITS = Object.freeze({
   maxSize: 8000,
   maxStrokes: 1000,
   maxRadius: 1200,
+  maxPointsPerStroke: 2000,
+  maxPathPoints: 10000,
 });
 
 const validId = (value) => typeof value === 'string' && /^[a-z0-9][a-z0-9_-]{0,47}$/.test(value);
@@ -27,24 +29,27 @@ export function normalizeHandCarvedDungeon(value, expectedId = null) {
   const strokes = value.strokes.map((stroke) => {
     if (!stroke || typeof stroke !== 'object' || !validId(stroke.id) || ids.has(stroke.id)) throw new Error('Every brush stroke needs a unique ID');
     ids.add(stroke.id);
+    if (stroke.erase !== undefined && typeof stroke.erase !== 'boolean') throw new Error('Invalid brush operation');
+    const operation = stroke.erase ? { erase: true } : {};
     if (stroke.type === 'circle') {
       if (![stroke.cx, stroke.cy, stroke.r].every(finite) || stroke.r < 8 || stroke.r > HAND_CARVED_DUNGEON_LIMITS.maxRadius) throw new Error('Invalid circle brush');
-      return { id: stroke.id, type: 'circle', cx: within(stroke.cx, 0, value.width), cy: within(stroke.cy, 0, value.height), r: stroke.r };
+      return { ...operation, id: stroke.id, type: 'circle', cx: within(stroke.cx, 0, value.width), cy: within(stroke.cy, 0, value.height), r: stroke.r };
     }
     if (stroke.type === 'corridor') {
       if (![stroke.ax, stroke.ay, stroke.bx, stroke.by, stroke.r].every(finite) || stroke.r < 8 || stroke.r > HAND_CARVED_DUNGEON_LIMITS.maxRadius) throw new Error('Invalid corridor brush');
-      return { id: stroke.id, type: 'corridor', ax: within(stroke.ax, 0, value.width), ay: within(stroke.ay, 0, value.height), bx: within(stroke.bx, 0, value.width), by: within(stroke.by, 0, value.height), r: stroke.r };
+      return { ...operation, id: stroke.id, type: 'corridor', ax: within(stroke.ax, 0, value.width), ay: within(stroke.ay, 0, value.height), bx: within(stroke.bx, 0, value.width), by: within(stroke.by, 0, value.height), r: stroke.r };
     }
     if (stroke.type === 'rect' || stroke.type === 'ellipse') {
       if (![stroke.x, stroke.y, stroke.w, stroke.h].every(finite) || stroke.w < 8 || stroke.h < 8 || stroke.w > value.width || stroke.h > value.height) throw new Error(`Invalid ${stroke.type} brush`);
       const x = within(stroke.x, 0, value.width), y = within(stroke.y, 0, value.height);
-      return { id: stroke.id, type: stroke.type, x: Math.min(x, value.width - stroke.w), y: Math.min(y, value.height - stroke.h), w: stroke.w, h: stroke.h };
+      return { ...operation, id: stroke.id, type: stroke.type, x: Math.min(x, value.width - stroke.w), y: Math.min(y, value.height - stroke.h), w: stroke.w, h: stroke.h };
     }
     if (stroke.type === 'path') {
-      if (!Array.isArray(stroke.points) || stroke.points.length < 2 || stroke.points.length > 2000 || !finite(stroke.r) || stroke.r < 8 || stroke.r > HAND_CARVED_DUNGEON_LIMITS.maxRadius) throw new Error('Invalid freehand brush');
+      if (!Array.isArray(stroke.points) || stroke.points.length < 2 || stroke.points.length > HAND_CARVED_DUNGEON_LIMITS.maxPointsPerStroke || !finite(stroke.r) || stroke.r < 8 || stroke.r > HAND_CARVED_DUNGEON_LIMITS.maxRadius) throw new Error('Invalid freehand brush');
       pathPointCount += stroke.points.length;
-      if (pathPointCount > 10000) throw new Error('Too many freehand points');
+      if (pathPointCount > HAND_CARVED_DUNGEON_LIMITS.maxPathPoints) throw new Error('Too many freehand points');
       return {
+        ...operation,
         id: stroke.id,
         type: 'path',
         r: stroke.r,
@@ -100,14 +105,20 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
   const densityGrid = new Float32Array(cols * rows);
   const signedClearance = new Float32Array(cols * rows);
   signedClearance.fill(-120);
+  let maxClearance = 0;
   for (const stroke of layout.strokes) {
-    const bounds = strokeBounds(stroke, cellSize, layout.width, layout.height);
+    const padding = stroke.erase ? Math.max(maxClearance, 120) : 0;
+    const bounds = strokeBounds(stroke, cellSize, layout.width, layout.height, padding);
+    if (!stroke.erase) maxClearance = Math.max(maxClearance, stroke.r ?? Math.min(stroke.w, stroke.h) / 2);
     for (let gy = bounds.y0; gy <= bounds.y1; gy++) {
       const y = gy * cellSize;
       for (let gx = bounds.x0; gx <= bounds.x1; gx++) {
         const x = gx * cellSize;
         const index = gy * cols + gx;
-        signedClearance[index] = Math.max(signedClearance[index], handCarvedStrokeClearance(stroke, x, y));
+        const clearance = handCarvedStrokeClearance(stroke, x, y);
+        signedClearance[index] = stroke.erase
+          ? Math.min(signedClearance[index], -clearance)
+          : Math.max(signedClearance[index], clearance);
       }
     }
   }
@@ -134,7 +145,7 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
   return { width: layout.width, height: layout.height, cellSize, cols, rows, moveGrid, densityGrid, distanceMove };
 }
 
-function strokeBounds(stroke, cellSize, width, height) {
+function strokeBounds(stroke, cellSize, width, height, padding) {
   let left, top, right, bottom;
   if (stroke.type === 'circle') {
     left = stroke.cx - stroke.r; right = stroke.cx + stroke.r;
@@ -152,10 +163,10 @@ function strokeBounds(stroke, cellSize, width, height) {
     bottom = Math.max(...stroke.points.map(({ y }) => y)) + stroke.r;
   }
   return {
-    x0: Math.max(0, Math.floor(left / cellSize)),
-    y0: Math.max(0, Math.floor(top / cellSize)),
-    x1: Math.min(Math.ceil(width / cellSize), Math.ceil(right / cellSize)),
-    y1: Math.min(Math.ceil(height / cellSize), Math.ceil(bottom / cellSize)),
+    x0: Math.max(0, Math.floor((left - padding) / cellSize)),
+    y0: Math.max(0, Math.floor((top - padding) / cellSize)),
+    x1: Math.min(Math.ceil(width / cellSize), Math.ceil((right + padding) / cellSize)),
+    y1: Math.min(Math.ceil(height / cellSize), Math.ceil((bottom + padding) / cellSize)),
   };
 }
 

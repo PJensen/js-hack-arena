@@ -3,88 +3,57 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Hack Arena | Cave Carver</title>
+  <title>Dungeon Editor · Hack Arena</title>
   <style>
-    :root { color-scheme: dark; font: 14px/1.45 system-ui, sans-serif; background:#10151b; color:#e8edf2; }
+    :root { color-scheme:dark; font:14px/1.4 system-ui,sans-serif; background:#111615; color:#e9eee9; --accent:#a8dfb5; }
     * { box-sizing:border-box; }
-    body { margin:0; min-height:100vh; }
-    header { display:flex; align-items:center; flex-wrap:wrap; gap:9px; padding:11px 16px; border-bottom:1px solid #2b3743; background:#171e26; }
-    h1 { margin:0 auto 0 0; font-size:16px; white-space:nowrap; }
-    button, input, select { color:inherit; font:inherit; }
-    button { padding:7px 10px; border:1px solid #3b4957; border-radius:7px; background:#202a34; cursor:pointer; }
-    button:hover { background:#2a3744; }
-    button.active { border-color:#78d5bb; color:#9ae7d1; background:#1c3833; }
-    button:disabled { opacity:.45; cursor:not-allowed; }
-    input, select { min-width:0; padding:7px 9px; border:1px solid #394654; border-radius:6px; background:#10161d; }
-    #dungeonId { width:150px; }
-    main { display:grid; grid-template-columns:minmax(0,1fr) 280px; height:calc(100vh - 57px); }
-    .viewport { min-width:0; min-height:0; display:grid; place-items:center; padding:16px; overflow:hidden; background:#0b1117; }
-    .map { position:relative; width:min(100%,calc(100vh - 90px)); aspect-ratio:1/1; border:1px solid #35414c; background:#080d12; box-shadow:0 12px 50px #0008; }
-    canvas, svg { position:absolute; inset:0; width:100%; height:100%; }
-    canvas { image-rendering:pixelated; }
-    svg { touch-action:none; }
-    aside { padding:16px; overflow:auto; border-left:1px solid #2b3743; background:#171e26; }
-    h2 { margin:0 0 8px; font-size:15px; } h3 { margin:20px 0 7px; font-size:13px; color:#b5c1cc; }
-    label { display:block; margin:11px 0 4px; color:#a8b6c3; font-size:12px; }
-    #name { width:100%; }
-    #brushSize { width:100%; accent-color:#78d5bb; }
-    .hint { color:#93a2b0; font-size:12px; }
-    .brushes { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-    .brushes button { text-align:left; }
-    .row { display:flex; gap:6px; align-items:center; }
-    .row > * { flex:1; min-width:0; }
-    #savedLayouts { width:100%; margin:5px 0 7px; }
-    #status { min-height:36px; margin:10px 0 0; color:#a8b6c3; font-size:12px; overflow-wrap:anywhere; }
-    .stroke-list { display:grid; gap:5px; margin-top:8px; }
-    .stroke-row { display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:6px; background:#202a34; color:#bcc7d1; font-size:12px; }
-    .stroke-row span { flex:1; }
-    .legend { display:flex; gap:11px; margin:12px 0; color:#9babb8; font-size:11px; }
-    .swatch { display:inline-block; width:10px; height:10px; margin-right:4px; border-radius:2px; vertical-align:-1px; }
-    .room-outline { fill:#142a2b; fill-opacity:.12; stroke:#75baaa; stroke-opacity:.36; stroke-width:2; pointer-events:none; }
-    .stroke { fill:#163c36; fill-opacity:.64; stroke:#8bdfc8; stroke-width:3; stroke-opacity:.7; }
-    .preview-stroke { fill:#78d5bb; fill-opacity:.15; stroke:#c0f4e8; stroke-width:3; stroke-dasharray:10 8; pointer-events:none; }
-    @media(max-width:760px) {
-      main { grid-template-columns:1fr; grid-template-rows:minmax(48vh,1fr) auto; height:auto; min-height:calc(100vh - 57px); }
-      .viewport { min-height:48vh; padding:8px; }
-      .map { width:min(100%,48vh); }
-      aside { border-left:0; border-top:1px solid #2b3743; }
-      h1 { width:100%; }
-    }
+    body { margin:0; }
+    header, .toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px clamp(10px,3vw,26px); border-bottom:1px solid #323d36; }
+    header { background:#202822; }
+    h1 { margin:0 auto 0 0; font-size:17px; }
+    button, input, select { font:inherit; color:inherit; }
+    button, input:not([type=range]), select { padding:7px 10px; border:1px solid #48574c; border-radius:5px; background:#171e19; }
+    button { cursor:pointer; }
+    button:hover:not(:disabled) { background:#2c3930; }
+    button:disabled { opacity:.45; cursor:default; }
+    button[aria-pressed=true], #save:not(:disabled) { border-color:var(--accent); color:var(--accent); background:#263b2d; }
+    #name, #savedLayouts { width:min(175px,42vw); }
+    .toolbar { background:#191f1b; }
+    .brushes { display:flex; flex-wrap:wrap; gap:5px; }
+    .size { display:inline-flex; align-items:center; gap:6px; }
+    #brushSize { width:92px; accent-color:var(--accent); }
+    #sizeLabel { min-width:4ch; color:#a9b7ad; }
+    main { display:grid; justify-items:center; gap:8px; padding:10px; }
+    #map { --aspect:1; display:block; width:min(100%, max(280px, (100dvh - 155px) * var(--aspect))); aspect-ratio:var(--aspect); border:1px solid #415044; background:#1b231e; touch-action:none; cursor:crosshair; }
+    #status { margin:0; min-height:1.4em; color:#bac7bd; text-align:center; }
+    @media(max-width:650px) { h1 { width:100%; } }
   </style>
 </head>
 <body>
   <header>
-    <h1>Cave Carver</h1>
-    <input id="dungeonId" value="quarry-sketch" aria-label="Dungeon ID" title="Lowercase ID used when saving">
+    <h1>Dungeon Editor</h1>
+    <input id="name" aria-label="Dungeon name" placeholder="Dungeon name" maxlength="80">
+    <button id="new" type="button">New</button>
     <button id="save" type="button">Save</button>
-    <select id="savedLayouts" aria-label="Saved dungeons"><option value="">No saved dungeons</option></select>
-    <button id="load" type="button">Load</button>
+    <select id="savedLayouts" aria-label="Saved dungeons"><option value="">Saved dungeons</option></select>
+    <button id="load" type="button" disabled>Load</button>
   </header>
+  <div class="toolbar" aria-label="Drawing tools">
+    <div class="brushes" role="group" aria-label="Brushes">
+      <button type="button" data-brush="path" aria-pressed="true">Freehand</button>
+      <button type="button" data-brush="erase" aria-pressed="false">Eraser</button>
+      <button type="button" data-brush="circle" aria-pressed="false">Circle</button>
+      <button type="button" data-brush="corridor" aria-pressed="false">Corridor</button>
+      <button type="button" data-brush="rect" aria-pressed="false">Rectangle</button>
+      <button type="button" data-brush="ellipse" aria-pressed="false">Oval</button>
+    </div>
+    <label class="size" for="brushSize">Size <input id="brushSize" type="range" min="80" max="2000" step="20" value="480"><output id="sizeLabel" for="brushSize">480</output></label>
+    <button id="undo" type="button" disabled>Undo</button>
+    <button id="redo" type="button" disabled>Redo</button>
+  </div>
   <main>
-    <div class="viewport"><div class="map">
-      <canvas id="field" width="250" height="250" aria-hidden="true"></canvas>
-      <svg id="map" viewBox="0 0 8000 8000" aria-label="Cave brush editor"></svg>
-    </div></div>
-    <aside>
-      <h2 id="dungeonTitle">The Quarry · sketch</h2>
-      <p class="hint">Draw open cave floor into solid rock. The coarse preview shows the clearance grid used by collision and enemy A*.</p>
-      <h3>Brush</h3>
-      <div class="brushes">
-        <button type="button" data-brush="circle" class="active">◯ Room</button>
-        <button type="button" data-brush="corridor">━ Corridor</button>
-        <button type="button" data-brush="ellipse">⬭ Oval</button>
-        <button type="button" data-brush="path">〰 Freehand</button>
-        <button type="button" data-brush="rect">▭ Rectangle</button>
-        <button id="undo" type="button">↶ Undo</button>
-      </div>
-      <label for="brushSize">Brush width or room radius <strong id="sizeLabel">420</strong></label>
-      <input id="brushSize" type="range" min="80" max="1000" step="20" value="420">
-      <div class="legend"><span><i class="swatch" style="background:#18302e"></i>narrow</span><span><i class="swatch" style="background:#356a5e"></i>walkable</span><span><i class="swatch" style="background:#79b9a7"></i>wide</span></div>
-      <label for="name">Dungeon name</label><input id="name" value="The Quarry · sketch">
-      <h3>Brush strokes <span id="strokeCount" class="hint"></span></h3>
-      <div id="strokeList" class="stroke-list"></div>
-      <p id="status" role="status"></p>
-    </aside>
+    <canvas id="map" aria-label="Dungeon drawing canvas"></canvas>
+    <p id="status" role="status">Drag on the canvas to carve a dungeon.</p>
   </main>
   <script type="module" src="./editor.js"></script>
 </body>
