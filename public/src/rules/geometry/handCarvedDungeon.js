@@ -19,7 +19,7 @@ const validId = (value) => typeof value === 'string' && /^[a-z0-9][a-z0-9_-]{0,4
 const finite = (value) => typeof value === 'number' && Number.isFinite(value);
 const MAX_ROUGH_OFFSET = 96;
 
-export function normalizeHandCarvedDungeon(value, expectedId = null) {
+export function normalizeHandCarvedDungeon(value, expectedId = null, { allowBlockedStart = false } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected a dungeon layout object');
   if (value.schema !== HAND_CARVED_DUNGEON_SCHEMA || value.version !== HAND_CARVED_DUNGEON_VERSION) {
     throw new Error('Unsupported dungeon layout schema or version');
@@ -31,6 +31,10 @@ export function normalizeHandCarvedDungeon(value, expectedId = null) {
     throw new Error('Dungeon dimensions must be between 1000 and 8000 world units');
   }
   if (!Array.isArray(value.strokes) || value.strokes.length > HAND_CARVED_DUNGEON_LIMITS.maxStrokes) throw new Error('Invalid dungeon brush strokes');
+  // Convert older saves to stroke settings as they are read. This field is
+  // never emitted by the normalized document or used by the terrain baker.
+  const legacyRoughness = value.roughness ?? 0;
+  if (!Number.isInteger(legacyRoughness) || legacyRoughness < 0 || legacyRoughness > 100) throw new Error('Roughness must be 0–100');
   const ids = new Set();
   let pathPointCount = 0;
   const strokes = value.strokes.map((stroke) => {
@@ -42,10 +46,9 @@ export function normalizeHandCarvedDungeon(value, expectedId = null) {
       if ((stroke.floor !== 'water' && stroke.floor !== 'stone') || stroke.erase) throw new Error('Invalid floor brush');
       operation.floor = stroke.floor;
     }
-    if (stroke.roughness !== undefined) {
-      if (!Number.isInteger(stroke.roughness) || stroke.roughness < 0 || stroke.roughness > 100) throw new Error('Brush roughness must be 0–100');
-      if (stroke.roughness) operation.roughness = stroke.roughness;
-    }
+    const roughness = stroke.roughness === undefined ? (stroke.floor ? 0 : legacyRoughness) : stroke.roughness;
+    if (!Number.isInteger(roughness) || roughness < 0 || roughness > 100) throw new Error('Brush roughness must be 0–100');
+    if (roughness) operation.roughness = roughness;
     if (stroke.type === 'circle') {
       if (![stroke.cx, stroke.cy, stroke.r].every(finite) || stroke.r < 8 || stroke.r > HAND_CARVED_DUNGEON_LIMITS.maxRadius) throw new Error('Invalid circle brush');
       return { ...operation, id: stroke.id, type: 'circle', cx: within(stroke.cx, 0, value.width), cy: within(stroke.cy, 0, value.height), r: stroke.r };
@@ -76,8 +79,6 @@ export function normalizeHandCarvedDungeon(value, expectedId = null) {
     }
     throw new Error('Unknown dungeon brush type');
   });
-  const roughness = value.roughness ?? 0;
-  if (!Number.isInteger(roughness) || roughness < 0 || roughness > 100) throw new Error('Roughness must be 0–100');
   const result = {
     schema: HAND_CARVED_DUNGEON_SCHEMA,
     version: HAND_CARVED_DUNGEON_VERSION,
@@ -88,12 +89,12 @@ export function normalizeHandCarvedDungeon(value, expectedId = null) {
     cellSize: 8,
     strokes,
   };
-  if (roughness) result.roughness = roughness;
   const placements = normalizeDungeonPlacements(value.placements, result);
   if (placements.length) result.placements = placements;
   if (value.start != null) {
     const { x, y } = value.start;
-    if (!finite(x) || !finite(y) || !handCarvedPlayerFits(result, x, y)) {
+    if (!finite(x) || !finite(y) || x < 0 || y < 0 || x > result.width || y > result.height ||
+        (!allowBlockedStart && !handCarvedPlayerFits(result, x, y))) {
       throw new Error('The player start needs enough room on open floor');
     }
     result.start = { x, y };
@@ -102,18 +103,28 @@ export function normalizeHandCarvedDungeon(value, expectedId = null) {
 }
 
 export function handCarvedStrokeClearance(stroke, x, y) {
-  return strokeClearance(stroke, x, y, strokeRoughOffset(stroke));
+  return strokeClearance(stroke, x, y, brushProfile(stroke));
 }
 
-function strokeRoughOffset(stroke) {
+export function sampleHandCarvedStroke(stroke) {
+  const profile = brushProfile(stroke);
+  return (x, y) => strokeClearance(stroke, x, y, profile);
+}
+
+function brushProfile(stroke) {
   const radius = stroke.r ?? Math.min(stroke.w, stroke.h) / 2;
-  return Math.min(MAX_ROUGH_OFFSET, radius * 0.45) * (stroke.roughness ?? 0) / 100;
+  const amplitude = Math.min(MAX_ROUGH_OFFSET, radius * 0.45) * (stroke.roughness ?? 0) / 100;
+  const scale = within(radius * 2, 16, 320);
+  // Bound the slope of the two noise layers so clearance stays conservative.
+  return { radius, amplitude, scale, divisor: 1 + 7 * amplitude / scale };
 }
 
-function strokeClearance(stroke, x, y, amplitude) {
+function strokeClearance(stroke, x, y, { amplitude, scale, divisor }) {
   const base = smoothStrokeClearance(stroke, x, y);
   if (!amplitude) return base;
-  return (base + amplitude * wallNoise(x, y)) / (1 + amplitude * 0.022);
+  const detail = scale * (105 / 320);
+  const roughness = 0.72 * noise(x / scale, y / scale) + 0.28 * noise(x / detail + 41, y / detail + 13);
+  return (base + amplitude * roughness) / divisor;
 }
 
 function smoothStrokeClearance(stroke, x, y) {
@@ -140,11 +151,6 @@ function smoothStrokeClearance(stroke, x, y) {
   return -(Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0));
 }
 
-// Fixed world coordinates keep the same wall profile after zoom, reload, or undo.
-function wallNoise(x, y) {
-  return 0.72 * noise(x / 320, y / 320) + 0.28 * noise(x / 105 + 41, y / 105 + 13);
-}
-
 function noise(x, y) {
   const i = Math.floor(x), j = Math.floor(y);
   const fade = (t) => t * t * (3 - 2 * t);
@@ -162,13 +168,6 @@ function hash(x, y) {
 
 function mix(a, b, t) { return a + (b - a) * t; }
 
-function wallClearance(layout, x, y, base, amplitude) {
-  const boundary = Math.min(x, y, layout.width - x, layout.height - y);
-  if (!amplitude) return Math.min(boundary, base);
-  // Divide by a bound on the noise slope so clearance stays conservative.
-  return Math.min(boundary, (base + amplitude * wallNoise(x, y)) / (1 + amplitude * 0.022));
-}
-
 export function handCarvedPlayerFits(layout, x, y) {
   let base = -120;
   for (const stroke of layout.strokes) {
@@ -176,8 +175,7 @@ export function handCarvedPlayerFits(layout, x, y) {
     const clearance = handCarvedStrokeClearance(stroke, x, y);
     base = stroke.erase ? Math.min(base, -clearance) : Math.max(base, clearance);
   }
-  const amplitude = (layout.roughness ?? 0) * MAX_ROUGH_OFFSET / 100;
-  return wallClearance(layout, x, y, base, amplitude) >= PLAYER_COLLIDER_RADIUS;
+  return Math.min(base, x, y, layout.width - x, layout.height - y) >= PLAYER_COLLIDER_RADIUS;
 }
 
 export function createHandCarvedCave(layout, seed = 1) {
@@ -202,18 +200,18 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
   const waterGrid = layout.strokes.some(({ floor }) => floor === 'water') ? new Uint8Array(cols * rows) : null;
   const signedClearance = new Float32Array(cols * rows);
   signedClearance.fill(-120);
-  const amplitude = (layout.roughness ?? 0) * MAX_ROUGH_OFFSET / 100;
   let maxClearance = 0;
   for (const stroke of layout.strokes) {
-    const brushOffset = strokeRoughOffset(stroke);
+    const profile = brushProfile(stroke);
+    const { amplitude, radius, divisor } = profile;
     if (stroke.floor) {
       if (!waterGrid) continue;
-      const padding = brushOffset + cellSize * (1 + brushOffset * 0.022);
+      const padding = amplitude + cellSize * divisor;
       const bounds = strokeBounds(stroke, cellSize, layout.width, layout.height, padding);
       for (let gy = bounds.y0; gy <= bounds.y1; gy++) {
         for (let gx = bounds.x0; gx <= bounds.x1; gx++) {
           const index = gy * cols + gx;
-          const coverage = Math.round(within(0.5 + strokeClearance(stroke, gx * cellSize, gy * cellSize, brushOffset) / cellSize, 0, 1) * 255);
+          const coverage = Math.round(within(0.5 + strokeClearance(stroke, gx * cellSize, gy * cellSize, profile) / cellSize, 0, 1) * 255);
           waterGrid[index] = stroke.floor === 'water'
             ? Math.max(waterGrid[index], coverage)
             : Math.min(waterGrid[index], 255 - coverage);
@@ -221,17 +219,15 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
       }
       continue;
     }
-    const padding = stroke.erase
-      ? Math.max(maxClearance, 120) * (1 + brushOffset * 0.022) + brushOffset
-      : amplitude * (1 + brushOffset * 0.022) + brushOffset;
+    const padding = stroke.erase ? Math.max(maxClearance, 120) * divisor + amplitude : amplitude;
     const bounds = strokeBounds(stroke, cellSize, layout.width, layout.height, padding);
-    if (!stroke.erase) maxClearance = Math.max(maxClearance, stroke.r ?? Math.min(stroke.w, stroke.h) / 2);
+    if (!stroke.erase) maxClearance = Math.max(maxClearance, (radius + amplitude) / divisor);
     for (let gy = bounds.y0; gy <= bounds.y1; gy++) {
       const y = gy * cellSize;
       for (let gx = bounds.x0; gx <= bounds.x1; gx++) {
         const x = gx * cellSize;
         const index = gy * cols + gx;
-        const clearance = strokeClearance(stroke, x, y, brushOffset);
+        const clearance = strokeClearance(stroke, x, y, profile);
         signedClearance[index] = stroke.erase
           ? Math.min(signedClearance[index], -clearance)
           : Math.max(signedClearance[index], clearance);
@@ -242,7 +238,7 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
     const y = gy * cellSize;
     for (let gx = 0; gx < cols; gx++) {
       const x = gx * cellSize, index = gy * cols + gx;
-      const signed = wallClearance(layout, x, y, signedClearance[index], amplitude);
+      const signed = Math.min(signedClearance[index], x, y, layout.width - x, layout.height - y);
       moveGrid[index] = Math.max(0, signed);
       densityGrid[index] = signed / 90;
       if (waterGrid && signed <= 0) waterGrid[index] = 0;
@@ -261,7 +257,7 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
   return { width: layout.width, height: layout.height, cellSize, cols, rows, moveGrid, densityGrid, waterGrid, distanceMove };
 }
 
-function strokeBounds(stroke, cellSize, width, height, padding) {
+export function handCarvedStrokeBounds(stroke) {
   let left, top, right, bottom;
   if (stroke.type === 'circle') {
     left = stroke.cx - stroke.r; right = stroke.cx + stroke.r;
@@ -278,6 +274,11 @@ function strokeBounds(stroke, cellSize, width, height, padding) {
     top = Math.min(...stroke.points.map(({ y }) => y)) - stroke.r;
     bottom = Math.max(...stroke.points.map(({ y }) => y)) + stroke.r;
   }
+  return { left, top, right, bottom };
+}
+
+function strokeBounds(stroke, cellSize, width, height, padding) {
+  const { left, top, right, bottom } = handCarvedStrokeBounds(stroke);
   return {
     x0: Math.max(0, Math.floor((left - padding) / cellSize)),
     y0: Math.max(0, Math.floor((top - padding) / cellSize)),

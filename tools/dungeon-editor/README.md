@@ -7,9 +7,10 @@ to draw shapes. Hold Shift to snap a corridor or draw a square or circle.
 Choose **Build rock** to use any shape brush for solid walls and pillars
 that block movement and sight. Switch back to **Carve floor** to cut openings.
 The Eraser is a freehand rock brush. Brush roughness applies to each new
-stroke, for both carving and building, and defaults to 80%. Brush width
-starts at 128 units. Older maps with a map-wide roughness setting retain it
-under **Map roughness**. Undo and Redo work in both modes. **Start Over** asks
+stroke and defaults to 80%. You can see the rough edge while drawing.
+Smaller brushes produce finer irregularities. Brush width starts at 128 units.
+The editor converts older roughness settings to individual strokes.
+Undo and Redo work in both modes. **Start Over** asks
 for confirmation before opening a blank draft. Saved dungeons stay available.
 
 Choose **Paint water** to add shallow, walkable water with any shape brush.

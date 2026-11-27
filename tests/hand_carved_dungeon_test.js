@@ -82,17 +82,35 @@ Deno.test('eraser strokes restore rock, reduce nearby clearance, and can be carv
   assertEquals(reopened.distanceMove(504, 504), 24);
 });
 
-Deno.test('wall roughness bakes deterministically and preserves a valid player start', () => {
+Deno.test('legacy roughness migrates to strokes and bakes deterministically', () => {
   const start = { x: 248, y: 504 };
-  const rough = normalizeHandCarvedDungeon({ ...layout, roughness: 65, start });
+  const [room, hall, end] = layout.strokes;
+  const rough = normalizeHandCarvedDungeon({
+    ...layout, roughness: 65, start,
+    strokes: [room, { ...hall, roughness: 25 }, { ...end, roughness: 0 }],
+  });
   assertEquals(rough.start, start);
-  assertEquals(rough.roughness, 65);
+  assertEquals(rough.roughness, undefined);
+  assertEquals(rough.strokes.map(({ roughness }) => roughness), [65, 25, undefined]);
   const preview = bakeHandCarvedGrid(rough);
   const plain = bakeHandCarvedGrid(layout);
   assert(preview.moveGrid.some((value, i) => (value > 0) !== (plain.moveGrid[i] > 0)));
   assertEquals(preview.moveGrid, bakeHandCarvedGrid(rough).moveGrid);
   assert(preview.distanceMove(start.x, start.y) >= PLAYER_COLLIDER_RADIUS);
   assertThrows(() => normalizeHandCarvedDungeon({ ...layout, roughness: 101 }), Error, 'Roughness');
+});
+
+Deno.test('narrow rough brushes break up a straight edge at the scale of the brush', () => {
+  const wall = { id: 'wall', type: 'path', points: [{ x: 216, y: 496 }, { x: 784, y: 496 }], r: 16, roughness: 80 };
+  let changes = 0;
+  let last = handCarvedStrokeClearance(wall, 256, 512) > 0;
+  for (let x = 260; x <= 740; x += 4) {
+    const inside = handCarvedStrokeClearance(wall, x, 512) > 0;
+    if (inside !== last) changes++;
+    last = inside;
+    assert(handCarvedStrokeClearance(wall, x, 496) > 0);
+  }
+  assert(changes >= 8);
 });
 
 Deno.test('a built rock wall blocks mob sight and can be carved open again', () => {

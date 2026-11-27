@@ -93,9 +93,9 @@ Deno.test('dungeon editor API stores and loads normalized layouts for the author
   assertEquals(savedBody.layout.id, 'test-cave');
   assertEquals(savedBody.layout.cellSize, 8);
   assertEquals(savedBody.layout.start, layout.start);
-  assertEquals(savedBody.layout.roughness, layout.roughness);
+  assertEquals(savedBody.layout.roughness, undefined);
   assertEquals(savedBody.layout.placements, layout.placements);
-  assertEquals(savedBody.layout.strokes, layout.strokes);
+  assertEquals(savedBody.layout.strokes, [{ ...layout.strokes[0], roughness: 35 }, layout.strokes[1]]);
   assertEquals(typeof savedBody.updatedAt, 'string');
 
   const listed = await app.fetch(request('/api/editor/dungeons', { cookie }), env);

@@ -6,7 +6,9 @@ import {
   PLAYER_COLLIDER_RADIUS,
   bakeHandCarvedGrid,
   handCarvedPlayerFits,
+  handCarvedStrokeBounds,
   normalizeHandCarvedDungeon,
+  sampleHandCarvedStroke,
 } from '../../public/src/rules/geometry/handCarvedDungeon.js';
 import {
   dungeonPlacementTypes, dungeonItemIds, normalizeDungeonPlacements, PLACEMENT_LIMIT,
@@ -20,8 +22,6 @@ const brushes = [...document.querySelectorAll('[data-brush]')];
 const [roughness, roughnessLabel, fitStatus, clearStart, zoomIn, zoomOut, zoomLevel, resetView] = [
   'roughness', 'roughnessLabel', 'fitStatus', 'clearStart', 'zoomIn', 'zoomOut', 'zoomLevel', 'resetView',
 ].map(byId);
-const [mapRoughness, mapRoughnessLabel, mapRoughnessField] =
-  ['mapRoughness', 'mapRoughnessLabel', 'mapRoughnessField'].map(byId);
 const [showGrid, snapGrid, gridSize] = ['showGrid', 'snapGrid', 'gridSize'].map(byId);
 const scrollMode = byId('scrollMode');
 const playtest = byId('playtest');
@@ -46,8 +46,10 @@ let selectedMarkerId = '';
 let shownPlacements;
 const committed = document.createElement('canvas');
 const mapRaster = document.createElement('canvas');
+const strokeRaster = document.createElement('canvas');
 const ctx = map.getContext('2d');
 const committedCtx = committed.getContext('2d');
+const strokeCtx = strokeRaster.getContext('2d');
 const newId = () => crypto.randomUUID();
 const blankLayout = () => ({
   schema: HAND_CARVED_DUNGEON_SCHEMA, version: HAND_CARVED_DUNGEON_VERSION,
@@ -107,16 +109,62 @@ function paint(context, stroke, color = '#9bc99e') {
   context.fill();
 }
 
+function drawStrokePreview(stroke, mode) {
+  const color = brushColors[mode];
+  if (!stroke.roughness) {
+    paint(ctx, { ...stroke, erase: false }, color);
+    return;
+  }
+  const bounds = handCarvedStrokeBounds(stroke);
+  const radius = stroke.r ?? Math.min(stroke.w, stroke.h) / 2;
+  const padding = Math.min(96, radius * 0.45) + 8;
+  const left = Math.max(bounds.left - padding, view.x * layout.width);
+  const top = Math.max(bounds.top - padding, view.y * layout.height);
+  const width = Math.min(bounds.right + padding, (view.x + 1 / view.zoom) * layout.width) - left;
+  const height = Math.min(bounds.bottom + padding, (view.y + 1 / view.zoom) * layout.height) - top;
+  if (width <= 0 || height <= 0) return;
+  const pointCount = stroke.points?.length ?? 1;
+  const sampleBudget = Math.min(20_000, 900_000 / pointCount);
+  const step = Math.max(3, Math.sqrt(width * height / sampleBudget), layout.width / (map.clientWidth * view.zoom));
+  const cols = Math.ceil(width / step), rows = Math.ceil(height / step);
+  if (strokeRaster.width !== cols || strokeRaster.height !== rows) {
+    strokeRaster.width = cols;
+    strokeRaster.height = rows;
+  }
+  const pixels = strokeCtx.createImageData(cols, rows);
+  const sample = sampleHandCarvedStroke(stroke);
+  const rgb = Number.parseInt(color.slice(1, 7), 16);
+  for (let row = 0; row < rows; row++) {
+    const y = top + (row + 0.5) * step;
+    for (let col = 0; col < cols; col++) {
+      const coverage = onScale(0.5 + sample(left + (col + 0.5) * step, y) / step, 0, 1);
+      if (!coverage) continue;
+      const pixel = (row * cols + col) * 4;
+      pixels.data[pixel] = rgb >> 16;
+      pixels.data[pixel + 1] = (rgb >> 8) & 255;
+      pixels.data[pixel + 2] = rgb & 255;
+      pixels.data[pixel + 3] = coverage * 200;
+    }
+  }
+  strokeCtx.putImageData(pixels, 0, 0);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(strokeRaster, left, top, cols * step, rows * step);
+}
+
 function rebuildMap() {
   const { width, height } = layout;
   map.style.setProperty('--aspect', width / height);
   const box = map.getBoundingClientRect();
   map.width = Math.max(1, Math.round(box.width * devicePixelRatio));
   map.height = Math.max(1, Math.round(box.height * devicePixelRatio));
-  useMapRaster = Boolean(layout.roughness || layout.strokes.some((stroke) => stroke.roughness || stroke.floor));
+  useMapRaster = layout.strokes.some((stroke) => stroke.roughness || stroke.floor);
   if (useMapRaster) {
-    if (rasterGeometry?.strokes !== layout.strokes || rasterGeometry?.roughness !== layout.roughness) {
-      const { cols, rows, densityGrid, waterGrid } = bakeHandCarvedGrid(layout, 16);
+    const fineDetail = view.zoom >= 6 || layout.strokes.some((stroke) =>
+      stroke.roughness && (stroke.r ? stroke.r * 2 : Math.min(stroke.w, stroke.h)) < 64);
+    const sameStrokes = rasterGeometry?.strokes === layout.strokes;
+    const cellSize = fineDetail || (sameStrokes && rasterGeometry.cellSize === 8) ? 8 : 16;
+    if (!sameStrokes || rasterGeometry.cellSize !== cellSize) {
+      const { cols, rows, densityGrid, waterGrid } = bakeHandCarvedGrid(layout, cellSize);
       mapRaster.width = cols;
       mapRaster.height = rows;
       const rasterCtx = mapRaster.getContext('2d');
@@ -128,10 +176,10 @@ function rebuildMap() {
         pixels.data[pixel] = 155 - water * 97;
         pixels.data[pixel + 1] = 201 - water * 44;
         pixels.data[pixel + 2] = 158 + water * 50;
-        pixels.data[pixel + 3] = onScale(0.5 + densityGrid[i] * 90 / 16, 0, 1) * 255;
+        pixels.data[pixel + 3] = onScale(0.5 + densityGrid[i] * 90 / cellSize, 0, 1) * 255;
       }
       rasterCtx.putImageData(pixels, 0, 0);
-      rasterGeometry = { strokes: layout.strokes, roughness: layout.roughness };
+      rasterGeometry = { strokes: layout.strokes, cellSize };
     }
   } else {
     committed.width = map.width;
@@ -152,7 +200,8 @@ function requestDraw() {
     const { x, y, zoom } = view;
     ctx.setTransform(zoom, 0, 0, zoom, -x * map.width * zoom, -y * map.height * zoom);
     if (useMapRaster) {
-      const tileX = map.width * 16 / layout.width, tileY = map.height * 16 / layout.height;
+      const tileX = map.width * rasterGeometry.cellSize / layout.width;
+      const tileY = map.height * rasterGeometry.cellSize / layout.height;
       ctx.drawImage(mapRaster, -tileX / 2, -tileY / 2, tileX * mapRaster.width, tileY * mapRaster.height);
     } else if (zoom === 1) {
       ctx.drawImage(committed, 0, 0);
@@ -161,7 +210,7 @@ function requestDraw() {
     if (!useMapRaster && zoom !== 1) for (const stroke of layout.strokes) paint(ctx, stroke);
     if (gesture?.id) {
       const preview = strokeForGesture(gesture);
-      if (preview) paint(ctx, { ...preview, erase: false }, brushColors[gesture.mode]);
+      if (preview) drawStrokePreview(preview, gesture.mode);
     }
     const unit = layout.width / (map.clientWidth * zoom);
     if (showGrid.checked) drawGrid(unit);
@@ -451,6 +500,7 @@ new ResizeObserver(rebuildMap).observe(map);
 
 function setView(x, y, zoom) {
   view = { x: onScale(x, 0, 1 - 1 / zoom), y: onScale(y, 0, 1 - 1 / zoom), zoom };
+  if (useMapRaster && rasterGeometry?.strokes === layout.strokes && rasterGeometry.cellSize === 16 && zoom >= 6) rebuildMap();
   updateCursor();
   zoomLevel.value = `${Number(zoom.toFixed(1))}×`;
   updateButtons();
@@ -597,11 +647,6 @@ for (const [mode, button, message] of brushModes) {
   button.addEventListener('click', () => setBrushMode(mode, message));
 }
 roughness.addEventListener('input', () => { roughnessLabel.value = `${roughness.value}%`; });
-mapRoughness.addEventListener('input', () => { mapRoughnessLabel.value = `${mapRoughness.value}%`; });
-mapRoughness.addEventListener('change', () => {
-  const amount = Number(mapRoughness.value);
-  if (amount !== (layout.roughness ?? 0)) edit({ roughness: amount });
-});
 clearStart.addEventListener('click', () => {
   edit({ start: undefined }, false);
   status.textContent = 'Player start cleared.';
@@ -609,14 +654,13 @@ clearStart.addEventListener('click', () => {
 
 function hasChanges() {
   return !savedVersion || layout.name !== savedVersion.name
-    || (layout.roughness ?? 0) !== (savedVersion.roughness ?? 0)
     || layout.start !== savedVersion.start
     || layout.placements !== savedVersion.placements
     || layout.strokes !== savedVersion.strokes;
 }
 
 function geometry() {
-  return { strokes: layout.strokes, roughness: layout.roughness, start: layout.start, placements: layout.placements };
+  return { strokes: layout.strokes, start: layout.start, placements: layout.placements };
 }
 function edit(changes, rebuild = true) {
   history.push(geometry());
@@ -637,9 +681,6 @@ function updateButtons() {
   load.disabled = busy || !savedLayouts.value;
   size.disabled = busy || !['path', 'erase', 'circle', 'corridor'].includes(brush);
   roughness.disabled = busy || !shapeTools.includes(brush);
-  mapRoughness.disabled = busy;
-  mapRoughness.value = layout.roughness ?? 0;
-  mapRoughnessLabel.value = `${mapRoughness.value}%`;
   clearStart.disabled = busy || !layout.start;
   undo.disabled = busy || !history.length;
   redo.disabled = busy || !undone.length;
@@ -663,7 +704,6 @@ function setLayout(value) {
   touches.clear();
   pinch = null;
   cursor = pointer = null;
-  mapRoughnessField.hidden = !value.roughness;
   setView(view.x, view.y, view.zoom);
   rebuildMap();
   updateButtons();
@@ -924,8 +964,10 @@ load.addEventListener('click', async () => {
   status.textContent = 'Loading…';
   try {
     const { layout: saved } = await requestJson(`/api/editor/dungeons/${encodeURIComponent(id)}`);
-    setLayout(normalizeHandCarvedDungeon(saved, id));
-    status.textContent = `Loaded “${layout.name}”.`;
+    setLayout(normalizeHandCarvedDungeon(saved, id, { allowBlockedStart: true }));
+    status.textContent = layout.start && !handCarvedPlayerFits(layout, layout.start.x, layout.start.y)
+      ? `Loaded “${layout.name}”. Move or clear the blocked player start before saving.`
+      : `Loaded “${layout.name}”.`;
   } catch (error) {
     status.textContent = `Load failed. ${error.message}`;
   } finally {
