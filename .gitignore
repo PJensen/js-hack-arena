@@ -1,2 +1,3 @@
 .wrangler/
 public/assets/icons/wip/**
+/public/tools/dungeon-editor/
