@@ -91,6 +91,11 @@ function href(screen, status = '') {
   return `?${query.toString().replaceAll('&', '&amp;')}`;
 }
 
+function gameHref(query = gameParams) {
+  const search = query.toString().replaceAll('&', '&amp;');
+  return search ? `/?${search}` : '/';
+}
+
 function navigation() {
   const tabs = [
     ['Run', 'run', 'run'], ['Craft', 'craft', 'craft'],
@@ -200,6 +205,9 @@ function back(screen, label) {
 }
 
 function runScreen() {
+  const launchParams = new URLSearchParams(gameParams);
+  if (!launchParams.has('room')) launchParams.set('room', 'quarry');
+  launchParams.set('startRun', '');
   return `
     <div class="run-hero" role="img" aria-label="A fire and tent inside the cave camp"></div>
     <div class="run-panels">
@@ -230,7 +238,7 @@ function runScreen() {
               <span class="chevron" aria-hidden="true"></span>
             </li>`).join('')}
         </ul>
-        <button type="button" class="primary start-run" disabled>${icon('run')} Start Run</button>
+        <a class="primary start-run" href="${gameHref(launchParams)}">${icon('run')} Start Run</a>
       </section>
     </div>`;
 }
@@ -389,7 +397,6 @@ function queueScreen() {
 }
 
 function inventoryScreen() {
-  const gameQuery = gameParams.toString().replaceAll('&', '&amp;');
   return `
     <div class="screen-heading"><h1>Inventory</h1></div>
     <section class="panel bank-panel" aria-labelledby="bank-title">
@@ -399,7 +406,7 @@ function inventoryScreen() {
       </div>
       <div id="bank-content" aria-live="polite"><p class="bank-message">Loading your bank…</p></div>
       <h2>Banked Equipment</h2><div id="banked-gear" aria-live="polite"></div>
-      <a class="bank-action" href="/${gameQuery ? `?${gameQuery}` : ''}">Open Game</a>
+      <a class="bank-action" href="${gameHref()}">Open Game</a>
     </section>`;
 }
 

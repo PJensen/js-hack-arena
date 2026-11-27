@@ -482,6 +482,7 @@ const chestPreview = pageParams.get('chest')?.trim().toLowerCase() === 'epic';
 const mobPreview = chestPreview ? null : getPreviewMob(previewName);
 const isPreview = Boolean(mobPreview || chestPreview);
 const forceOffline = pageParams.has('offline') || previewName !== null || chestPreview || itemPreview !== null;
+const startRun = pageParams.has('startRun');
 const tracksOfflineProgress = forceOffline && previewName === null && !chestPreview && !itemPreview;
 const offlineProgressKey = 'hack-arena.offline-progress';
 let offlineProgress = { gold: 0 };
@@ -573,16 +574,14 @@ const { playerName, netWelcome } = await new Promise((resolve) => {
   }
   field.value = localStorage.getItem('hack-arena.player-name') || '';
   entryButton.disabled = false;
-  requestAnimationFrame(() => field.focus());
   async function enterDungeon(event) {
-    event.preventDefault();
+    event?.preventDefault();
     if (entryButton.disabled) return;
     if (!forceOffline && !authState.authenticated) {
       window.location.assign(`/auth/login?return=${encodeURIComponent(location.pathname + location.search)}`);
       return;
     }
-    // Unlock Web Audio while this is still a browser user gesture.
-    unlockArenaAudio();
+    if (event) unlockArenaAudio();
     const name = normalizePlayerName(field.value);
     localStorage.setItem('hack-arena.player-name', name);
     entryButton.disabled = true;
@@ -602,6 +601,22 @@ const { playerName, netWelcome } = await new Promise((resolve) => {
     resolve({ playerName: name, netWelcome: welcome });
   }
   form.addEventListener('submit', enterDungeon);
+  if (startRun && (forceOffline || authState.authenticated)) {
+    // Navigation may consume the Start Run gesture before this page can use it.
+    const audioUnlock = new AbortController();
+    const unlockOnInput = () => {
+      if (navigator.userActivation && !navigator.userActivation.isActive) return;
+      unlockArenaAudio();
+      audioUnlock.abort();
+    };
+    for (const type of ['pointerup', 'keydown']) {
+      window.addEventListener(type, unlockOnInput, { capture: true, signal: audioUnlock.signal });
+    }
+    enterDungeon();
+  } else {
+    if (startRun) entryButton.textContent = 'Sign In to Start Run';
+    requestAnimationFrame(() => (startRun ? entryButton : field).focus());
+  }
 });
 
 const isNetworked = Boolean(netWelcome);
@@ -900,7 +915,14 @@ onCampResult = ({ action, error, deposited }) => {
   } else if (action === CampAction.EXIT) {
     loop.stop();
     netClient.destroy();
-    location.reload();
+    if (startRun) {
+      const previewUrl = new URL('/interface-preview/', location.href);
+      if (pageParams.has('room')) previewUrl.searchParams.set('room', pageParams.get('room'));
+      if (tracksOfflineProgress) previewUrl.searchParams.set('offline', '');
+      location.assign(previewUrl);
+    } else {
+      location.reload();
+    }
   } else if (action === CampAction.DEPOSIT) {
     const total = Object.values(deposited).reduce((sum, count) => sum + count, 0);
     const message = `Banked ${total} ${total === 1 ? 'item' : 'items'}`;

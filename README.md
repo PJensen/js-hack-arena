@@ -71,8 +71,10 @@ The client should remain deployable as static assets. Worker code owns server
 routes such as `/api/*` and `/ws/*`, then falls back to static asset serving.
 
 Open `/interface-preview/` to review the Run, Crafting, Smelting, and Crafting
-Queue screens with sample data. The preview supports navigation between screens
-and queue tabs. Party controls and run selection are static. Signed-in characters can smelt
+Queue screens. **Start Run** opens The Quarry or the room specified by `?room=`.
+Online runs use your Arena sign-in. Add `?offline` to the preview URL for local
+play. The camp exit portal returns you to the Run screen. Party controls and
+the other dungeon cards are placeholders. Signed-in characters can smelt
 Copper Ingots from two banked Copper Ore and one Gold each. The first recipe
 uses a 10-minute base duration per ingot. Each profession has one active slot
 and five pending slots by default. Batch quantities reserve inputs for all units
