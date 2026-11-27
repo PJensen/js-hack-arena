@@ -11,6 +11,7 @@ BASEMENT_ISSUER = "https://auth.hairylogic.com"
 BASEMENT_CLIENT_ID = "arena"
 BASEMENT_REDIRECT_URI = "https://arena.hairylogic.com/auth/callback"
 BASEMENT_SCOPES = "openid profile"
+DUNGEON_EDITOR_USER_ID = "bb0b5b3e-b3f6-4493-bd95-9a6874fdc806"
 
 [secrets]
 required = ["BASEMENT_CLIENT_SECRET", "ARENA_SESSION_SECRET"]
@@ -25,6 +26,11 @@ service = "basement"
 directory = "public"
 binding = "ASSETS"
 not_found_handling = "404-page"
+run_worker_first = ["/tools/dungeon-editor", "/tools/dungeon-editor/*"]
+
+[[kv_namespaces]]
+binding = "DUNGEONS"
+id = "8dda43e302684b2eb42d5f41cbdb2a2f"
 
 [[durable_objects.bindings]]
 name = "GAME_ROOM"

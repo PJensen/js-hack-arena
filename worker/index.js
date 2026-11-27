@@ -16,6 +16,7 @@ import { Gold, MaterialStacks } from '../public/src/rules/components/index.js';
 import { CampAction, checkCampAction } from '../public/src/rules/camp.js';
 import { SIM_DT, SIM_TICK_HZ } from '../public/src/rules/sim/arenaSim.js';
 import { createArenaDungeonSimulation } from '../public/src/rules/sim/arenaDungeon.js';
+import { normalizeHandCarvedDungeon } from '../public/src/rules/geometry/handCarvedDungeon.js';
 import {
   authCallback,
   authConfigStatus,
@@ -54,6 +55,60 @@ export default {
     }
     if (url.pathname === '/auth/me') return authMe(request, env);
     if (url.pathname === '/auth/logout' && (request.method === 'POST' || request.method === 'GET')) return authLogout();
+
+    if (url.pathname === '/tools/dungeon-editor' || url.pathname.startsWith('/tools/dungeon-editor/')) {
+      const session = await readSession(request, env);
+      if (!session) {
+        const login = new URL('/auth/login', url.origin);
+        login.searchParams.set('return', `${url.pathname}${url.search}`);
+        return Response.redirect(login.toString(), 302);
+      }
+      if (!isDungeonEditor(session, env)) return json({ ok: false, error: 'dungeon editor access denied' }, { status: 403 });
+      return env.ASSETS.fetch(request);
+    }
+
+    if (url.pathname === '/api/editor/dungeons') {
+      const session = await requireDungeonEditor(request, env);
+      if (session instanceof Response) return session;
+      if (request.method !== 'GET') return json({ error: 'method not allowed' }, { status: 405, headers: { allow: 'GET' } });
+      const result = await env.DUNGEONS.list({ prefix: 'hand-carved:', limit: 1000 });
+      return json({ dungeons: result.keys.flatMap(({ metadata }) => metadata?.dungeonId ? [{
+        id: metadata.dungeonId,
+        name: metadata.name,
+        updatedAt: metadata.updatedAt,
+      }] : []) });
+    }
+
+    const dungeonEditorPath = /^\/api\/editor\/dungeons\/([a-z0-9][a-z0-9_-]{0,47})$/.exec(url.pathname);
+    if (dungeonEditorPath) {
+      const session = await requireDungeonEditor(request, env);
+      if (session instanceof Response) return session;
+      const id = dungeonEditorPath[1];
+      const key = `hand-carved:${id}`;
+      if (request.method === 'GET') {
+        const saved = await env.DUNGEONS.get(key, 'json');
+        return saved ? json({ layout: saved }) : json({ error: 'dungeon not found' }, { status: 404 });
+      }
+      if (request.method !== 'PUT') return json({ error: 'method not allowed' }, { status: 405, headers: { allow: 'GET, PUT' } });
+      if (request.headers.get('origin') !== url.origin) return json({ error: 'invalid origin' }, { status: 403 });
+      if (!request.headers.get('content-type')?.startsWith('application/json')) return json({ error: 'expected JSON' }, { status: 415 });
+      const declaredSize = Number(request.headers.get('content-length') || 0);
+      if (declaredSize > 512_000) return json({ error: 'dungeon layout is too large' }, { status: 413 });
+      let body;
+      try {
+        const text = await request.text();
+        if (new TextEncoder().encode(text).byteLength > 512_000) return json({ error: 'dungeon layout is too large' }, { status: 413 });
+        body = JSON.parse(text);
+      } catch { return json({ error: 'invalid JSON' }, { status: 400 }); }
+      let layout;
+      try { layout = normalizeHandCarvedDungeon(body, id); }
+      catch (error) { return json({ error: error.message }, { status: 400 }); }
+      const updatedAt = new Date().toISOString();
+      await env.DUNGEONS.put(key, JSON.stringify(layout), {
+        metadata: { dungeonId: id, name: layout.name, updatedAt, ownerId: session.sub },
+      });
+      return json({ layout, updatedAt });
+    }
 
     if (url.pathname === '/api/health') {
       return json({
@@ -112,6 +167,19 @@ export default {
     return env.ASSETS.fetch(request);
   },
 };
+
+async function requireDungeonEditor(request, env) {
+  const session = await readSession(request, env);
+  if (!session) return json({ error: 'login required' }, { status: 401 });
+  if (!isDungeonEditor(session, env)) return json({ error: 'dungeon editor access denied' }, { status: 403 });
+  if (!env.DUNGEONS) return json({ error: 'dungeon storage is not configured' }, { status: 503 });
+  return session;
+}
+
+export function isDungeonEditor(session, env) {
+  const configuredUserId = String(env.DUNGEON_EDITOR_USER_ID || '');
+  return Boolean(configuredUserId && session?.sub && session.sub === configuredUserId);
+}
 
 export class GameRoom {
   constructor(state, env) {

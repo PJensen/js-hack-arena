@@ -1,18 +1,15 @@
-# Dungeon Sketch
+# Cave Carver
 
-Open `index.html` directly in a browser to sketch a room graph. Drag rooms to
-position them, connect selected rooms with **Link rooms**, add mob and decor
-placements by string key, then save or open a JSON file.
+Open the live editor at `/tools/dungeon-editor/` after signing into Hack Arena.
+Use the Room, Corridor, and Rectangle brushes to draw walkable floor into solid
+rock. The background previews the same kind of clearance grid used for actor
+collision and A* movement. Undo removes the most recent stroke.
 
-`deno task dev` and `deno task deploy` copy the editor into `public/tools/` so it
-is served at `/tools/dungeon-editor/` with the rest of the static assets.
+**Save** and **Load** use the authenticated Worker API and the `DUNGEONS` KV
+namespace. Only the configured `DUNGEON_EDITOR_USER_ID` can access the editor
+and its saved layouts. The layout stores compact brush strokes; it does not
+store the baked grid or load itself into live dungeon runs yet.
 
-The exported document uses `schema: "hack-arena.dungeon-layout"` and `version: 1`.
-Rooms have stable IDs, layout coordinates, a type, a world size, and placements.
-Connections refer to room IDs. Placement keys are deliberately plain strings:
-the editor does not import the current mob or decoration catalogs, so adding
-content does not require changing the layout schema.
-
-This is an authoring prototype. It does not yet generate cave geometry, check
-room connectivity or collision, resolve content keys, or load layouts in the
-game. The sample layout is a design sketch, not the current Quarry map.
+`deno task dev` and `deno task deploy` copy the editor into `public/tools/` so
+the Worker can serve it with the app assets. Layout documents use the
+versioned `hack-arena.hand-carved-dungeon` schema.

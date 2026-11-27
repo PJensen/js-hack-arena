@@ -3,57 +3,84 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Hack Arena | Dungeon Sketch</title>
+  <title>Hack Arena | Cave Carver</title>
   <style>
-    :root { color-scheme: dark; font: 14px/1.45 system-ui, sans-serif; background: #10151b; color: #e8edf2; }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; }
-    header { display:flex; align-items:center; gap:12px; padding:12px 18px; border-bottom:1px solid #29333e; background:#171e26; }
-    h1 { font-size:16px; margin:0 auto 0 0; } button, input, textarea { color:inherit; font:inherit; }
-    button { border:1px solid #3b4856; border-radius:7px; background:#202a34; padding:7px 10px; cursor:pointer; }
-    button:hover { background:#2a3744; } button.active { border-color:#6bcab2; color:#9ce7d3; }
-    main { display:grid; grid-template-columns:minmax(0,1fr) 320px; height:calc(100vh - 54px); }
-    #map { width:100%; height:100%; background-color:#111820; background-image:radial-gradient(#33404c 1px,transparent 1px); background-size:24px 24px; touch-action:none; }
-    aside { padding:18px; overflow:auto; border-left:1px solid #29333e; background:#171e26; }
-    h2 { margin:0 0 12px; font-size:15px; } h3 { margin:22px 0 8px; font-size:13px; color:#aebbc8; }
-    label { display:block; margin:10px 0 4px; color:#aebbc8; font-size:12px; }
-    input, textarea { width:100%; border:1px solid #394654; border-radius:6px; background:#10161d; padding:8px; }
-    textarea { min-height:90px; resize:vertical; font:12px/1.45 ui-monospace,monospace; }
-    .row { display:flex; gap:7px; } .row button { flex:1; } .hint, #status { color:#98a6b4; font-size:12px; }
-    #status { min-height:20px; margin-top:12px; }
-    .room { cursor:grab; } .room rect { fill:#23313d; stroke:#536777; stroke-width:2; rx:18; }
-    .room.selected rect { fill:#24473f; stroke:#79d7bd; } .room text { fill:#f0f4f7; pointer-events:none; text-anchor:middle; }
-    .link { stroke:#78899a; stroke-width:8; stroke-linecap:round; opacity:.8; cursor:pointer; }
-    .link:hover { stroke:#b8d5da; } .link.selected { stroke:#79d7bd; }
-    .marker { fill:#e8b56a; stroke:#302417; stroke-width:2; }
-    .small { font-size:11px; fill:#c4d0da !important; }
-    @media(max-width:760px) { main { grid-template-columns:1fr; grid-template-rows:minmax(45vh,1fr) auto; height:auto; min-height:calc(100vh - 54px); } #map { min-height:45vh; } aside { border-left:0; border-top:1px solid #29333e; } header { flex-wrap:wrap; } }
+    :root { color-scheme: dark; font: 14px/1.45 system-ui, sans-serif; background:#10151b; color:#e8edf2; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; }
+    header { display:flex; align-items:center; flex-wrap:wrap; gap:9px; padding:11px 16px; border-bottom:1px solid #2b3743; background:#171e26; }
+    h1 { margin:0 auto 0 0; font-size:16px; white-space:nowrap; }
+    button, input, select { color:inherit; font:inherit; }
+    button { padding:7px 10px; border:1px solid #3b4957; border-radius:7px; background:#202a34; cursor:pointer; }
+    button:hover { background:#2a3744; }
+    button.active { border-color:#78d5bb; color:#9ae7d1; background:#1c3833; }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    input, select { min-width:0; padding:7px 9px; border:1px solid #394654; border-radius:6px; background:#10161d; }
+    #dungeonId { width:150px; }
+    main { display:grid; grid-template-columns:minmax(0,1fr) 280px; height:calc(100vh - 57px); }
+    .viewport { min-width:0; min-height:0; display:grid; place-items:center; padding:16px; overflow:hidden; background:#0b1117; }
+    .map { position:relative; width:min(100%,calc(100vh - 90px)); aspect-ratio:1/1; border:1px solid #35414c; background:#080d12; box-shadow:0 12px 50px #0008; }
+    canvas, svg { position:absolute; inset:0; width:100%; height:100%; }
+    canvas { image-rendering:pixelated; }
+    svg { touch-action:none; }
+    aside { padding:16px; overflow:auto; border-left:1px solid #2b3743; background:#171e26; }
+    h2 { margin:0 0 8px; font-size:15px; } h3 { margin:20px 0 7px; font-size:13px; color:#b5c1cc; }
+    label { display:block; margin:11px 0 4px; color:#a8b6c3; font-size:12px; }
+    #name { width:100%; }
+    #brushSize { width:100%; accent-color:#78d5bb; }
+    .hint { color:#93a2b0; font-size:12px; }
+    .brushes { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+    .brushes button { text-align:left; }
+    .row { display:flex; gap:6px; align-items:center; }
+    .row > * { flex:1; min-width:0; }
+    #savedLayouts { width:100%; margin:5px 0 7px; }
+    #status { min-height:36px; margin:10px 0 0; color:#a8b6c3; font-size:12px; overflow-wrap:anywhere; }
+    .stroke-list { display:grid; gap:5px; margin-top:8px; }
+    .stroke-row { display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:6px; background:#202a34; color:#bcc7d1; font-size:12px; }
+    .stroke-row span { flex:1; }
+    .legend { display:flex; gap:11px; margin:12px 0; color:#9babb8; font-size:11px; }
+    .swatch { display:inline-block; width:10px; height:10px; margin-right:4px; border-radius:2px; vertical-align:-1px; }
+    .room-outline { fill:#142a2b; fill-opacity:.12; stroke:#75baaa; stroke-opacity:.36; stroke-width:2; pointer-events:none; }
+    .stroke { fill:#163c36; fill-opacity:.64; stroke:#8bdfc8; stroke-width:3; stroke-opacity:.7; }
+    .preview-stroke { fill:#78d5bb; fill-opacity:.15; stroke:#c0f4e8; stroke-width:3; stroke-dasharray:10 8; pointer-events:none; }
+    @media(max-width:760px) {
+      main { grid-template-columns:1fr; grid-template-rows:minmax(48vh,1fr) auto; height:auto; min-height:calc(100vh - 57px); }
+      .viewport { min-height:48vh; padding:8px; }
+      .map { width:min(100%,48vh); }
+      aside { border-left:0; border-top:1px solid #2b3743; }
+      h1 { width:100%; }
+    }
   </style>
 </head>
 <body>
   <header>
-    <h1>Dungeon Sketch <span class="hint">· schema 1</span></h1>
-    <button id="addRoom">Add room</button><button id="linkMode">Link rooms</button>
-    <button id="open">Open JSON</button><button id="save">Save JSON</button>
-    <input id="file" type="file" accept="application/json" hidden>
+    <h1>Cave Carver</h1>
+    <input id="dungeonId" value="quarry-sketch" aria-label="Dungeon ID" title="Lowercase ID used when saving">
+    <button id="save" type="button">Save</button>
+    <select id="savedLayouts" aria-label="Saved dungeons"><option value="">No saved dungeons</option></select>
+    <button id="load" type="button">Load</button>
   </header>
   <main>
-    <svg id="map" viewBox="0 0 1000 700" aria-label="Dungeon layout editor"></svg>
+    <div class="viewport"><div class="map">
+      <canvas id="field" width="250" height="250" aria-hidden="true"></canvas>
+      <svg id="map" viewBox="0 0 8000 8000" aria-label="Cave brush editor"></svg>
+    </div></div>
     <aside>
-      <section id="details"><h2>Dungeon</h2><p class="hint">Drag rooms to arrange the layout. Add rooms, link them, then describe the contents of each room with stable string keys.</p>
-        <label for="name">Name</label><input id="name">
-        <label for="description">Design notes</label><textarea id="description"></textarea>
-      </section>
-      <section id="roomDetails" hidden><h2>Room</h2>
-        <label for="roomName">Name</label><input id="roomName">
-        <label for="roomType">Room type</label><input id="roomType" placeholder="entrance, chamber, boss">
-        <label for="roomSize">Size (world units)</label><input id="roomSize" type="number" min="80" max="600" step="20">
-        <h3>Placements</h3><p class="hint">Keys are plain strings so content can be added later without changing the layout format.</p>
-        <div class="row"><input id="placementKey" placeholder="e.g. goblin_raider"><button id="addPlacement">Add mob</button></div>
-        <div class="row" style="margin-top:7px"><input id="decorKey" placeholder="e.g. broken_crystal"><button id="addDecor">Add decor</button></div>
-        <div id="placements"></div>
-      </section>
-      <section id="linkDetails" hidden><h2>Connection</h2><p id="linkLabel" class="hint"></p><button id="removeLink">Remove connection</button></section>
+      <h2 id="dungeonTitle">The Quarry · sketch</h2>
+      <p class="hint">Draw open cave floor into solid rock. The coarse preview shows the clearance grid used by collision and enemy A*.</p>
+      <h3>Brush</h3>
+      <div class="brushes">
+        <button type="button" data-brush="circle" class="active">◯ Room</button>
+        <button type="button" data-brush="corridor">━ Corridor</button>
+        <button type="button" data-brush="rect">▭ Rectangle</button>
+        <button id="undo" type="button">↶ Undo</button>
+      </div>
+      <label for="brushSize">Brush width / radius <strong id="sizeLabel">420</strong></label>
+      <input id="brushSize" type="range" min="80" max="1000" step="20" value="420">
+      <div class="legend"><span><i class="swatch" style="background:#18302e"></i>narrow</span><span><i class="swatch" style="background:#356a5e"></i>walkable</span><span><i class="swatch" style="background:#79b9a7"></i>wide</span></div>
+      <label for="name">Dungeon name</label><input id="name" value="The Quarry · sketch">
+      <h3>Brush strokes <span id="strokeCount" class="hint"></span></h3>
+      <div id="strokeList" class="stroke-list"></div>
       <p id="status" role="status"></p>
     </aside>
   </main>
