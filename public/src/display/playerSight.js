@@ -5,7 +5,6 @@ const WALL_CLEARANCE = 3;
 const AWARENESS_DISTANCE = 68;
 const AWARENESS_FEATHER = 24;
 const RANGE_FEATHER = 34;
-const ANGLE_FEATHER = 0.15;
 const WALL_FEATHER = 11;
 const rayX = Float64Array.from({ length: RAY_COUNT }, (_, i) => Math.cos(i * TURN / RAY_COUNT));
 const rayY = Float64Array.from({ length: RAY_COUNT }, (_, i) => Math.sin(i * TURN / RAY_COUNT));
@@ -32,7 +31,7 @@ export function createPlayerSight(grid) {
     eye[3] = Math.sin(facing);
     const halfAngle = angle * 0.5;
     cone[0] = Math.cos(halfAngle);
-    cone[1] = Math.cos(Math.max(0, halfAngle - ANGLE_FEATHER));
+    cone[1] = Math.sin(halfAngle);
     forwardDistance = distance;
     const limit = Math.max(distance, AWARENESS_DISTANCE);
     if (!dirty && originX === eye[0] && originY === eye[1] && rayRange === limit) return false;
@@ -68,8 +67,14 @@ export function createPlayerSight(grid) {
     if (distance === 0) return true;
     if (distance >= rayRange) return false;
 
-    const ahead = (dx * eye[2] + dy * eye[3]) / distance;
-    const forward = smoothstep(cone[0], cone[1], ahead) *
+    const ahead = dx * eye[2] + dy * eye[3];
+    const side = Math.abs(dy * eye[2] - dx * eye[3]);
+    const cosHalfAngle = cone[0], sinHalfAngle = cone[1];
+    // Use the round boundary behind the tangent points and the sloped sides ahead.
+    const edgeDistance = ahead * cosHalfAngle + side * sinHalfAngle >= 0
+      ? AWARENESS_DISTANCE + ahead * sinHalfAngle - side * cosHalfAngle
+      : AWARENESS_DISTANCE - distance;
+    const forward = smoothstep(0, AWARENESS_FEATHER, edgeDistance) *
       (1 - smoothstep(Math.max(0, forwardDistance - RANGE_FEATHER), forwardDistance, distance));
     const nearby = 1 - smoothstep(AWARENESS_DISTANCE - AWARENESS_FEATHER, AWARENESS_DISTANCE, distance);
     const falloff = Math.max(forward, nearby);

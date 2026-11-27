@@ -28,10 +28,14 @@ Deno.test('player sight turns in place, limits rear awareness, and stops at wall
   assert(sight.update(origin, 0, fov));
   assert(sight.contains(65, 0));
   assert(sight.contains(72, -86)); // 50° off center.
-  assert(!sight.contains(50, -107)); // 65° off center.
+  assert(sight.contains(0, -100)); // The tangent widens near-side awareness.
+  assert(sight.contains(0, 100));
+  assert(!sight.contains(30, -250)); // Far outside the tangent sides.
+  assert(!sight.contains(-70, -40)); // Behind the rounded shoulder.
   assert(!sight.contains(300, 0));
   assert(sight.contains(-40, 0));
   assert(!sight.contains(-100, 0));
+  assert(!sight.contains(104, 84)); // The widened side still stops at a wall.
   assert(!sight.update(origin, Math.PI, fov));
   assert(sight.contains(-100, 0));
   assert(!sight.contains(65, 0));

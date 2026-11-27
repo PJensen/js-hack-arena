@@ -28,8 +28,13 @@ void main() {
   float distanceFromEye = length(offset);
   float visibility = 0.0;
   if (distanceFromEye < max(u_ranges.x, u_distance)) {
-    float ahead = dot(offset, u_eye.zw) / max(distanceFromEye, 0.001);
-    float forward = smoothstep(u_cone.x, u_cone.y, ahead) *
+    float ahead = dot(offset, u_eye.zw);
+    float side = abs(dot(offset, vec2(-u_eye.w, u_eye.z)));
+    // Switch boundaries where the nearest point reaches the tangent.
+    float edgeDistance = ahead * u_cone.x + side * u_cone.y >= 0.0
+      ? u_ranges.x + ahead * u_cone.y - side * u_cone.x
+      : u_ranges.x - distanceFromEye;
+    float forward = smoothstep(0.0, u_ranges.y, edgeDistance) *
       (1.0 - smoothstep(max(0.0, u_distance - u_ranges.z), u_distance, distanceFromEye));
     float nearby = 1.0 - smoothstep(u_ranges.x - u_ranges.y, u_ranges.x, distanceFromEye);
     visibility = max(forward, nearby);
