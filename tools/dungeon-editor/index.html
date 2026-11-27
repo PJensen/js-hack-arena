@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hack Arena | Dungeon Sketch</title>
+  <style>
+    :root { color-scheme: dark; font: 14px/1.45 system-ui, sans-serif; background: #10151b; color: #e8edf2; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; }
+    header { display:flex; align-items:center; gap:12px; padding:12px 18px; border-bottom:1px solid #29333e; background:#171e26; }
+    h1 { font-size:16px; margin:0 auto 0 0; } button, input, textarea { color:inherit; font:inherit; }
+    button { border:1px solid #3b4856; border-radius:7px; background:#202a34; padding:7px 10px; cursor:pointer; }
+    button:hover { background:#2a3744; } button.active { border-color:#6bcab2; color:#9ce7d3; }
+    main { display:grid; grid-template-columns:minmax(0,1fr) 320px; height:calc(100vh - 54px); }
+    #map { width:100%; height:100%; background-color:#111820; background-image:radial-gradient(#33404c 1px,transparent 1px); background-size:24px 24px; touch-action:none; }
+    aside { padding:18px; overflow:auto; border-left:1px solid #29333e; background:#171e26; }
+    h2 { margin:0 0 12px; font-size:15px; } h3 { margin:22px 0 8px; font-size:13px; color:#aebbc8; }
+    label { display:block; margin:10px 0 4px; color:#aebbc8; font-size:12px; }
+    input, textarea { width:100%; border:1px solid #394654; border-radius:6px; background:#10161d; padding:8px; }
+    textarea { min-height:90px; resize:vertical; font:12px/1.45 ui-monospace,monospace; }
+    .row { display:flex; gap:7px; } .row button { flex:1; } .hint, #status { color:#98a6b4; font-size:12px; }
+    #status { min-height:20px; margin-top:12px; }
+    .room { cursor:grab; } .room rect { fill:#23313d; stroke:#536777; stroke-width:2; rx:18; }
+    .room.selected rect { fill:#24473f; stroke:#79d7bd; } .room text { fill:#f0f4f7; pointer-events:none; text-anchor:middle; }
+    .link { stroke:#78899a; stroke-width:8; stroke-linecap:round; opacity:.8; cursor:pointer; }
+    .link:hover { stroke:#b8d5da; } .link.selected { stroke:#79d7bd; }
+    .marker { fill:#e8b56a; stroke:#302417; stroke-width:2; }
+    .small { font-size:11px; fill:#c4d0da !important; }
+    @media(max-width:760px) { main { grid-template-columns:1fr; grid-template-rows:minmax(45vh,1fr) auto; height:auto; min-height:calc(100vh - 54px); } #map { min-height:45vh; } aside { border-left:0; border-top:1px solid #29333e; } header { flex-wrap:wrap; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Dungeon Sketch <span class="hint">· schema 1</span></h1>
+    <button id="addRoom">Add room</button><button id="linkMode">Link rooms</button>
+    <button id="open">Open JSON</button><button id="save">Save JSON</button>
+    <input id="file" type="file" accept="application/json" hidden>
+  </header>
+  <main>
+    <svg id="map" viewBox="0 0 1000 700" aria-label="Dungeon layout editor"></svg>
+    <aside>
+      <section id="details"><h2>Dungeon</h2><p class="hint">Drag rooms to arrange the layout. Add rooms, link them, then describe the contents of each room with stable string keys.</p>
+        <label for="name">Name</label><input id="name">
+        <label for="description">Design notes</label><textarea id="description"></textarea>
+      </section>
+      <section id="roomDetails" hidden><h2>Room</h2>
+        <label for="roomName">Name</label><input id="roomName">
+        <label for="roomType">Room type</label><input id="roomType" placeholder="entrance, chamber, boss">
+        <label for="roomSize">Size (world units)</label><input id="roomSize" type="number" min="80" max="600" step="20">
+        <h3>Placements</h3><p class="hint">Keys are plain strings so content can be added later without changing the layout format.</p>
+        <div class="row"><input id="placementKey" placeholder="e.g. goblin_raider"><button id="addPlacement">Add mob</button></div>
+        <div class="row" style="margin-top:7px"><input id="decorKey" placeholder="e.g. broken_crystal"><button id="addDecor">Add decor</button></div>
+        <div id="placements"></div>
+      </section>
+      <section id="linkDetails" hidden><h2>Connection</h2><p id="linkLabel" class="hint"></p><button id="removeLink">Remove connection</button></section>
+      <p id="status" role="status"></p>
+    </aside>
+  </main>
+  <script type="module" src="./editor.js"></script>
+</body>
+</html>
