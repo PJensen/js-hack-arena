@@ -23,6 +23,7 @@ export function normalizeHandCarvedDungeon(value, expectedId = null) {
   }
   if (!Array.isArray(value.strokes) || value.strokes.length > HAND_CARVED_DUNGEON_LIMITS.maxStrokes) throw new Error('Invalid dungeon brush strokes');
   const ids = new Set();
+  let pathPointCount = 0;
   const strokes = value.strokes.map((stroke) => {
     if (!stroke || typeof stroke !== 'object' || !validId(stroke.id) || ids.has(stroke.id)) throw new Error('Every brush stroke needs a unique ID');
     ids.add(stroke.id);
@@ -34,10 +35,24 @@ export function normalizeHandCarvedDungeon(value, expectedId = null) {
       if (![stroke.ax, stroke.ay, stroke.bx, stroke.by, stroke.r].every(finite) || stroke.r < 8 || stroke.r > HAND_CARVED_DUNGEON_LIMITS.maxRadius) throw new Error('Invalid corridor brush');
       return { id: stroke.id, type: 'corridor', ax: within(stroke.ax, 0, value.width), ay: within(stroke.ay, 0, value.height), bx: within(stroke.bx, 0, value.width), by: within(stroke.by, 0, value.height), r: stroke.r };
     }
-    if (stroke.type === 'rect') {
-      if (![stroke.x, stroke.y, stroke.w, stroke.h].every(finite) || stroke.w < 8 || stroke.h < 8 || stroke.w > value.width || stroke.h > value.height) throw new Error('Invalid rectangle brush');
+    if (stroke.type === 'rect' || stroke.type === 'ellipse') {
+      if (![stroke.x, stroke.y, stroke.w, stroke.h].every(finite) || stroke.w < 8 || stroke.h < 8 || stroke.w > value.width || stroke.h > value.height) throw new Error(`Invalid ${stroke.type} brush`);
       const x = within(stroke.x, 0, value.width), y = within(stroke.y, 0, value.height);
-      return { id: stroke.id, type: 'rect', x: Math.min(x, value.width - stroke.w), y: Math.min(y, value.height - stroke.h), w: stroke.w, h: stroke.h };
+      return { id: stroke.id, type: stroke.type, x: Math.min(x, value.width - stroke.w), y: Math.min(y, value.height - stroke.h), w: stroke.w, h: stroke.h };
+    }
+    if (stroke.type === 'path') {
+      if (!Array.isArray(stroke.points) || stroke.points.length < 2 || stroke.points.length > 2000 || !finite(stroke.r) || stroke.r < 8 || stroke.r > HAND_CARVED_DUNGEON_LIMITS.maxRadius) throw new Error('Invalid freehand brush');
+      pathPointCount += stroke.points.length;
+      if (pathPointCount > 10000) throw new Error('Too many freehand points');
+      return {
+        id: stroke.id,
+        type: 'path',
+        r: stroke.r,
+        points: stroke.points.map((point) => {
+          if (!point || !finite(point.x) || !finite(point.y)) throw new Error('Invalid freehand point');
+          return { x: within(point.x, 0, value.width), y: within(point.y, 0, value.height) };
+        }),
+      };
     }
     throw new Error('Unknown dungeon brush type');
   });
@@ -56,6 +71,22 @@ export function normalizeHandCarvedDungeon(value, expectedId = null) {
 export function handCarvedStrokeClearance(stroke, x, y) {
   if (stroke.type === 'circle') return stroke.r - Math.hypot(x - stroke.cx, y - stroke.cy);
   if (stroke.type === 'corridor') return stroke.r - distanceToSegment(x, y, stroke.ax, stroke.ay, stroke.bx, stroke.by);
+  if (stroke.type === 'path') {
+    let distance = Infinity;
+    for (let index = 1; index < stroke.points.length; index++) {
+      const from = stroke.points[index - 1], to = stroke.points[index];
+      distance = Math.min(distance, distanceToSegment(x, y, from.x, from.y, to.x, to.y));
+    }
+    return stroke.r - distance;
+  }
+  if (stroke.type === 'ellipse') {
+    const rx = stroke.w / 2, ry = stroke.h / 2;
+    const dx = x - stroke.x - rx, dy = y - stroke.y - ry;
+    const k0 = Math.hypot(dx / rx, dy / ry);
+    if (k0 < 1e-8) return Math.min(rx, ry);
+    const k1 = Math.hypot(dx / (rx * rx), dy / (ry * ry));
+    return k0 * (1 - k0) / k1;
+  }
   const qx = Math.abs(x - stroke.x - stroke.w / 2) - stroke.w / 2;
   const qy = Math.abs(y - stroke.y - stroke.h / 2) - stroke.h / 2;
   return -(Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0));
@@ -111,9 +142,14 @@ function strokeBounds(stroke, cellSize, width, height) {
   } else if (stroke.type === 'corridor') {
     left = Math.min(stroke.ax, stroke.bx) - stroke.r; right = Math.max(stroke.ax, stroke.bx) + stroke.r;
     top = Math.min(stroke.ay, stroke.by) - stroke.r; bottom = Math.max(stroke.ay, stroke.by) + stroke.r;
-  } else {
+  } else if (stroke.type === 'rect' || stroke.type === 'ellipse') {
     left = stroke.x; right = stroke.x + stroke.w;
     top = stroke.y; bottom = stroke.y + stroke.h;
+  } else {
+    left = Math.min(...stroke.points.map(({ x }) => x)) - stroke.r;
+    right = Math.max(...stroke.points.map(({ x }) => x)) + stroke.r;
+    top = Math.min(...stroke.points.map(({ y }) => y)) - stroke.r;
+    bottom = Math.max(...stroke.points.map(({ y }) => y)) + stroke.r;
   }
   return {
     x0: Math.max(0, Math.floor(left / cellSize)),

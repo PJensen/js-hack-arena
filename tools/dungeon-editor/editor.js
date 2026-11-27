@@ -9,7 +9,7 @@ const starter = {
     { id: 'quarry-room', type: 'circle', cx: 5050, cy: 4000, r: 900 },
   ],
 };
-let layout = structuredClone(starter), brush = 'circle', drawStart = null, preview = null, busy = false;
+let layout = structuredClone(starter), brush = 'circle', drawStart = null, drawPoints = null, preview = null, busy = false;
 const svg = document.querySelector('#map'), fieldCanvas = document.querySelector('#field');
 const fieldContext = fieldCanvas.getContext('2d', { alpha: false });
 const pointFromEvent = (event) => {
@@ -21,6 +21,8 @@ const newId = () => crypto.randomUUID().replaceAll('-', '').slice(0, 16);
 function strokeMarkup(stroke) {
   if (stroke.type === 'circle') return `<circle class="stroke" cx="${stroke.cx}" cy="${stroke.cy}" r="${stroke.r}"/>`;
   if (stroke.type === 'corridor') return `<line class="stroke" x1="${stroke.ax}" y1="${stroke.ay}" x2="${stroke.bx}" y2="${stroke.by}" stroke-width="${stroke.r * 2}" stroke-linecap="round"/>`;
+  if (stroke.type === 'ellipse') return `<ellipse class="stroke" cx="${stroke.x + stroke.w / 2}" cy="${stroke.y + stroke.h / 2}" rx="${stroke.w / 2}" ry="${stroke.h / 2}"/>`;
+  if (stroke.type === 'path') return `<polyline class="stroke" fill="none" points="${stroke.points.map(({ x, y }) => `${x},${y}`).join(' ')}" stroke-width="${stroke.r * 2}" stroke-linecap="round" stroke-linejoin="round"/>`;
   return `<rect class="stroke" x="${stroke.x}" y="${stroke.y}" width="${stroke.w}" height="${stroke.h}" rx="18"/>`;
 }
 
@@ -58,6 +60,8 @@ function render() {
 function strokeLabel(stroke) {
   return stroke.type === 'circle' ? `Room · radius ${Math.round(stroke.r)}`
     : stroke.type === 'corridor' ? `Corridor · width ${Math.round(stroke.r * 2)}`
+    : stroke.type === 'ellipse' ? `Oval · ${Math.round(stroke.w)} × ${Math.round(stroke.h)}`
+    : stroke.type === 'path' ? `Freehand · width ${Math.round(stroke.r * 2)}`
     : `Rectangle · ${Math.round(stroke.w)} × ${Math.round(stroke.h)}`;
 }
 
@@ -74,25 +78,41 @@ svg.addEventListener('pointerdown', (event) => {
   const radius = Number(document.querySelector('#brushSize').value);
   if (brush === 'circle') {
     layout.strokes.push(makeStroke(brush, drawStart, drawStart, radius)); drawStart = null; render();
+  } else if (brush === 'path') {
+    drawPoints = [{ x: drawStart.x, y: drawStart.y }]; drawStart = null;
   }
 });
 svg.addEventListener('pointermove', (event) => {
+  if (drawPoints) {
+    const point = pointFromEvent(event), previous = drawPoints.at(-1);
+    if (Math.hypot(point.x - previous.x, point.y - previous.y) >= 20) drawPoints.push({ x: Math.round(point.x), y: Math.round(point.y) });
+    const radius = Number(document.querySelector('#brushSize').value);
+    preview = { id: 'preview', type: 'path', points: [...drawPoints, point], r: radius }; render(); return;
+  }
   if (!drawStart) return;
   const radius = Number(document.querySelector('#brushSize').value);
   preview = makeStroke(brush, drawStart, pointFromEvent(event), radius); render();
 });
 svg.addEventListener('pointerup', (event) => {
+  if (drawPoints) {
+    const point = pointFromEvent(event), previous = drawPoints.at(-1);
+    if (Math.hypot(point.x - previous.x, point.y - previous.y) >= 1) drawPoints.push({ x: Math.round(point.x), y: Math.round(point.y) });
+    const radius = Number(document.querySelector('#brushSize').value);
+    if (drawPoints.length === 1) layout.strokes.push({ id: newId(), type: 'circle', cx: drawPoints[0].x, cy: drawPoints[0].y, r: radius });
+    else layout.strokes.push({ id: newId(), type: 'path', points: drawPoints, r: radius });
+    drawPoints = null; preview = null; render(); return;
+  }
   if (!drawStart) return;
   const end = pointFromEvent(event), radius = Number(document.querySelector('#brushSize').value);
   const stroke = makeStroke(brush, drawStart, end, radius);
   if (brush === 'corridor' && Math.hypot(stroke.bx - stroke.ax, stroke.by - stroke.ay) < 12) {
     stroke.bx += 1;
-  } else if (brush === 'rect' && (stroke.w < 20 || stroke.h < 20)) {
+  } else if (['rect', 'ellipse'].includes(brush) && (stroke.w < 20 || stroke.h < 20)) {
     drawStart = null; preview = null; render(); return;
   }
   layout.strokes.push(stroke); drawStart = null; preview = null; render();
 });
-svg.addEventListener('pointercancel', () => { drawStart = null; preview = null; render(); });
+svg.addEventListener('pointercancel', () => { drawStart = null; drawPoints = null; preview = null; render(); });
 
 document.querySelectorAll('[data-brush]').forEach((button) => button.addEventListener('click', () => {
   brush = button.dataset.brush;

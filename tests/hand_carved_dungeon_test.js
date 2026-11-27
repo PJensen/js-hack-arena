@@ -33,6 +33,21 @@ Deno.test('hand-carved brush clearances union rooms, corridors, and rectangles',
   assert(handCarvedStrokeClearance(layout.strokes[2], 950, 500) < 0);
 });
 
+Deno.test('hand-carved oval and freehand brushes have usable clearance', () => {
+  const strokes = [
+    { id: 'oval', type: 'ellipse', x: 100, y: 200, w: 400, h: 200 },
+    { id: 'wandering-cut', type: 'path', points: [{ x: 100, y: 700 }, { x: 400, y: 650 }, { x: 800, y: 700 }], r: 40 },
+  ];
+  const normalized = normalizeHandCarvedDungeon({ ...layout, strokes });
+  assertEquals(handCarvedStrokeClearance(normalized.strokes[0], 300, 300), 100);
+  assertEquals(handCarvedStrokeClearance(normalized.strokes[0], 500, 300), 0);
+  assert(handCarvedStrokeClearance(normalized.strokes[1], 400, 650) > 39);
+  assert(handCarvedStrokeClearance(normalized.strokes[1], 400, 600) < 0);
+  const grid = bakeHandCarvedGrid(normalized, 8);
+  assert(grid.distanceMove(300, 300) > 80);
+  assert(grid.distanceMove(400, 650) > 30);
+});
+
 Deno.test('hand-carved geometry bakes the clearance grid consumed by collision and A*', () => {
   const grid = bakeHandCarvedGrid(normalizeHandCarvedDungeon(layout), 8);
   assertEquals([grid.cols, grid.rows], [126, 126]);

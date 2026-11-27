@@ -1,9 +1,9 @@
 # Cave Carver
 
 Open the live editor at `/tools/dungeon-editor/` after signing into Hack Arena.
-Use the Room, Corridor, and Rectangle brushes to draw walkable floor into solid
-rock. The background previews the same kind of clearance grid used for actor
-collision and A* movement. Undo removes the most recent stroke.
+Use the Room, Corridor, Oval, Freehand, and Rectangle brushes to draw walkable
+floor into solid rock. The background previews the same kind of clearance grid
+used for actor collision and A* movement. Undo removes the most recent stroke.
 
 **Save** and **Load** use the authenticated Worker API and the `DUNGEONS` KV
 namespace. Only the configured `DUNGEON_EDITOR_USER_ID` can access the editor

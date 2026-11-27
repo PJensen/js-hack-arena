@@ -72,10 +72,12 @@
       <div class="brushes">
         <button type="button" data-brush="circle" class="active">◯ Room</button>
         <button type="button" data-brush="corridor">━ Corridor</button>
+        <button type="button" data-brush="ellipse">⬭ Oval</button>
+        <button type="button" data-brush="path">〰 Freehand</button>
         <button type="button" data-brush="rect">▭ Rectangle</button>
         <button id="undo" type="button">↶ Undo</button>
       </div>
-      <label for="brushSize">Brush width / radius <strong id="sizeLabel">420</strong></label>
+      <label for="brushSize">Brush width or room radius <strong id="sizeLabel">420</strong></label>
       <input id="brushSize" type="range" min="80" max="1000" step="20" value="420">
       <div class="legend"><span><i class="swatch" style="background:#18302e"></i>narrow</span><span><i class="swatch" style="background:#356a5e"></i>walkable</span><span><i class="swatch" style="background:#79b9a7"></i>wide</span></div>
       <label for="name">Dungeon name</label><input id="name" value="The Quarry · sketch">

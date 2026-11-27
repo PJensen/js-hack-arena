@@ -34,7 +34,7 @@ function makeEnv() {
     ARENA_SESSION_SECRET: 'test-session-secret',
     DUNGEON_EDITOR_USER_ID: 'owner-sub',
     DUNGEONS: makeKv(),
-    ASSETS: { fetch: async () => new Response('editor asset') },
+    ASSETS: { fetch: async (request) => new Response(new URL(request.url).pathname) },
   };
 }
 
@@ -59,7 +59,7 @@ Deno.test('dungeon editor API stores and loads normalized layouts for the author
   const env = makeEnv(), cookie = await signedSessionCookie(env.ARENA_SESSION_SECRET, 'owner-sub');
   const editorPage = await app.fetch(request('/tools/dungeon-editor/', { cookie }), env);
   assertEquals(editorPage.status, 200);
-  assertEquals(await editorPage.text(), 'editor asset');
+  assertEquals(await editorPage.text(), '/tools/dungeon-editor/index.html');
   const layout = {
     schema: 'hack-arena.hand-carved-dungeon', version: 1, id: 'test-cave', name: 'Test Cave',
     width: 1000, height: 1000, cellSize: 8,
