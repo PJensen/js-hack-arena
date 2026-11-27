@@ -1,0 +1,1 @@
+export const PLAYER_COLLIDER_RADIUS = 14;

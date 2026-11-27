@@ -71,6 +71,8 @@ Deno.test('dungeon editor API stores and loads normalized layouts for the author
   const layout = {
     schema: 'hack-arena.hand-carved-dungeon', version: 1, id: 'test-cave', name: 'Test Cave',
     width: 1000, height: 1000, cellSize: 8,
+    start: { x: 500, y: 500 },
+    roughness: 35,
     strokes: [{ id: 'room-one', type: 'circle', cx: 500, cy: 500, r: 120 }],
   };
   const unauthorizedCookie = await signedSessionCookie(env.ARENA_SESSION_SECRET, 'other-sub');
@@ -86,6 +88,8 @@ Deno.test('dungeon editor API stores and loads normalized layouts for the author
   const savedBody = await saved.json();
   assertEquals(savedBody.layout.id, 'test-cave');
   assertEquals(savedBody.layout.cellSize, 8);
+  assertEquals(savedBody.layout.start, layout.start);
+  assertEquals(savedBody.layout.roughness, layout.roughness);
   assertEquals(typeof savedBody.updatedAt, 'string');
 
   const listed = await app.fetch(request('/api/editor/dungeons', { cookie }), env);

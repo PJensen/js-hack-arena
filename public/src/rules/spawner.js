@@ -12,6 +12,7 @@ import { Ring } from './components/Ring.js';
 import { getMiningMaterial, miningMaterialIds } from './data/miningMaterials.js';
 import { ringCatalog } from './data/ringCatalog.js';
 import { normalizeStatModifiers } from './stats.js';
+import { PLAYER_COLLIDER_RADIUS } from './playerDimensions.js';
 
 export const GOLD_LIGHT = Object.freeze({ radius: 36, r: 255, g: 190, b: 45 });
 export const SPIDER_LIGHT = Object.freeze({ radius: 56, r: 148, g: 98, b: 70 });
@@ -95,7 +96,7 @@ export function spawnPlayer(world, x, y, name = 'Player') {
   world.add(id, Position, { x, y });
   world.add(id, Velocity, { vx: 0, vy: 0 });
   world.add(id, Facing,   { angle: 0 });
-  world.add(id, Collider, { radius: 14 });
+  world.add(id, Collider, { radius: PLAYER_COLLIDER_RADIUS });
   world.add(id, Speed,    { max: 200 });
   world.add(id, Input);
   world.add(id, Actor,    { kind: ActorKind.PLAYER, team: 'friendly', name, glyph: '@' });

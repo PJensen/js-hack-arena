@@ -23,6 +23,10 @@
     .size { display:inline-flex; align-items:center; gap:6px; }
     #brushSize { width:92px; accent-color:var(--accent); }
     #sizeLabel { min-width:4ch; color:#a9b7ad; }
+    #roughness { width:85px; accent-color:var(--accent); }
+    #roughnessLabel, #zoomLevel { min-width:4ch; color:#a9b7ad; }
+    .view-tools { display:flex; align-items:center; flex-wrap:wrap; gap:5px; }
+    #fitStatus { color:#c5d2c8; min-height:1.4em; text-align:center; }
     main { display:grid; justify-items:center; gap:8px; padding:10px; }
     #map { --aspect:1; display:block; width:min(100%, max(280px, (100dvh - 155px) * var(--aspect))); aspect-ratio:var(--aspect); border:1px solid #415044; background:#1b231e; touch-action:none; cursor:crosshair; }
     #status { margin:0; min-height:1.4em; color:#bac7bd; text-align:center; }
@@ -46,13 +50,25 @@
       <button type="button" data-brush="corridor" aria-pressed="false">Corridor</button>
       <button type="button" data-brush="rect" aria-pressed="false">Rectangle</button>
       <button type="button" data-brush="ellipse" aria-pressed="false">Oval</button>
+      <button type="button" data-brush="fit" aria-pressed="false">Player Fit</button>
+      <button type="button" data-brush="start" aria-pressed="false">Set Start</button>
+      <button id="clearStart" type="button" disabled>Clear Start</button>
     </div>
-    <label class="size" for="brushSize">Size <input id="brushSize" type="range" min="80" max="2000" step="20" value="480"><output id="sizeLabel" for="brushSize">480</output></label>
+    <label class="size" for="brushSize">Width <input id="brushSize" type="range" min="16" max="2000" step="4" value="480"><output id="sizeLabel" for="brushSize">480</output></label>
+    <label class="size" for="roughness" title="Applies to all walls in this dungeon">Wall roughness <input id="roughness" type="range" min="0" max="100" value="0"><output id="roughnessLabel" for="roughness">0%</output></label>
     <button id="undo" type="button" disabled>Undo</button>
     <button id="redo" type="button" disabled>Redo</button>
+    <div class="view-tools" role="group" aria-label="Map view">
+      <button type="button" data-brush="pan" aria-pressed="false">Pan</button>
+      <button id="zoomOut" type="button" aria-label="Zoom out">−</button>
+      <output id="zoomLevel">1×</output>
+      <button id="zoomIn" type="button" aria-label="Zoom in">+</button>
+      <button id="resetView" type="button">Fit Map</button>
+    </div>
   </div>
   <main>
     <canvas id="map" aria-label="Dungeon drawing canvas"></canvas>
+    <div id="fitStatus"></div>
     <p id="status" role="status">Drag on the canvas to carve a dungeon.</p>
   </main>
   <script type="module" src="./editor.js"></script>

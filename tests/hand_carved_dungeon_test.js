@@ -1,8 +1,10 @@
 import { assert, assertEquals, assertThrows } from 'https://deno.land/std@0.220.0/assert/mod.ts';
 import {
   bakeHandCarvedGrid,
+  handCarvedPlayerFits,
   handCarvedStrokeClearance,
   normalizeHandCarvedDungeon,
+  PLAYER_COLLIDER_RADIUS,
 } from '../public/src/rules/geometry/handCarvedDungeon.js';
 import { astar } from '../public/src/rules/ai/pathfind.js';
 
@@ -75,6 +77,28 @@ Deno.test('eraser strokes restore rock, reduce nearby clearance, and can be carv
     ...erased, strokes: [...erased.strokes, { ...room, id: 'opening', r: 24 }],
   });
   assertEquals(reopened.distanceMove(504, 504), 24);
+});
+
+Deno.test('wall roughness bakes deterministically and preserves a valid player start', () => {
+  const start = { x: 248, y: 504 };
+  const rough = normalizeHandCarvedDungeon({ ...layout, roughness: 65, start });
+  assertEquals(rough.start, start);
+  assertEquals(rough.roughness, 65);
+  const preview = bakeHandCarvedGrid(rough);
+  const plain = bakeHandCarvedGrid(layout);
+  assert(preview.moveGrid.some((value, i) => (value > 0) !== (plain.moveGrid[i] > 0)));
+  assertEquals(preview.moveGrid, bakeHandCarvedGrid(rough).moveGrid);
+  assert(preview.distanceMove(start.x, start.y) >= PLAYER_COLLIDER_RADIUS);
+  assertThrows(() => normalizeHandCarvedDungeon({ ...layout, roughness: 101 }), Error, 'Roughness');
+});
+
+Deno.test('player fit checks the whole footprint and rejects an erased start', () => {
+  assert(handCarvedPlayerFits(layout, 250, 500));
+  assert(!handCarvedPlayerFits(layout, 250, 350));
+  const start = { x: 250, y: 500 };
+  const rock = { id: 'rock', type: 'circle', erase: true, cx: start.x, cy: start.y, r: 80 };
+  assertThrows(() => normalizeHandCarvedDungeon({ ...layout, start, strokes: [...layout.strokes, rock] }),
+    Error, 'The player start needs enough room on open floor');
 });
 
 Deno.test('hand-carved passages are traversable by the enemy A* pathfinder', () => {

@@ -1,3 +1,6 @@
+import { PLAYER_COLLIDER_RADIUS } from '../playerDimensions.js';
+
+export { PLAYER_COLLIDER_RADIUS };
 export const HAND_CARVED_DUNGEON_SCHEMA = 'hack-arena.hand-carved-dungeon';
 export const HAND_CARVED_DUNGEON_VERSION = 1;
 export const HAND_CARVED_DUNGEON_LIMITS = Object.freeze({
@@ -11,6 +14,7 @@ export const HAND_CARVED_DUNGEON_LIMITS = Object.freeze({
 
 const validId = (value) => typeof value === 'string' && /^[a-z0-9][a-z0-9_-]{0,47}$/.test(value);
 const finite = (value) => typeof value === 'number' && Number.isFinite(value);
+const MAX_ROUGH_OFFSET = 96;
 
 export function normalizeHandCarvedDungeon(value, expectedId = null) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected a dungeon layout object');
@@ -61,7 +65,9 @@ export function normalizeHandCarvedDungeon(value, expectedId = null) {
     }
     throw new Error('Unknown dungeon brush type');
   });
-  return {
+  const roughness = value.roughness ?? 0;
+  if (!Number.isInteger(roughness) || roughness < 0 || roughness > 100) throw new Error('Roughness must be 0–100');
+  const result = {
     schema: HAND_CARVED_DUNGEON_SCHEMA,
     version: HAND_CARVED_DUNGEON_VERSION,
     id: value.id,
@@ -71,6 +77,15 @@ export function normalizeHandCarvedDungeon(value, expectedId = null) {
     cellSize: 8,
     strokes,
   };
+  if (roughness) result.roughness = roughness;
+  if (value.start != null) {
+    const { x, y } = value.start;
+    if (!finite(x) || !finite(y) || !handCarvedPlayerFits(result, x, y)) {
+      throw new Error('The player start needs enough room on open floor');
+    }
+    result.start = { x, y };
+  }
+  return result;
 }
 
 export function handCarvedStrokeClearance(stroke, x, y) {
@@ -97,6 +112,45 @@ export function handCarvedStrokeClearance(stroke, x, y) {
   return -(Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0));
 }
 
+// Fixed world coordinates keep the same wall profile after zoom, reload, or undo.
+function wallNoise(x, y) {
+  return 0.72 * noise(x / 320, y / 320) + 0.28 * noise(x / 105 + 41, y / 105 + 13);
+}
+
+function noise(x, y) {
+  const i = Math.floor(x), j = Math.floor(y);
+  const fade = (t) => t * t * (3 - 2 * t);
+  const u = fade(x - i), v = fade(y - j);
+  const top = mix(hash(i, j), hash(i + 1, j), u);
+  const bottom = mix(hash(i, j + 1), hash(i + 1, j + 1), u);
+  return mix(top, bottom, v);
+}
+
+function hash(x, y) {
+  const n = Math.imul(x, 374761393) + Math.imul(y, 668265263);
+  const mixed = Math.imul(n ^ (n >>> 13), 1274126177);
+  return ((mixed ^ (mixed >>> 16)) >>> 0) / 2147483648 - 1;
+}
+
+function mix(a, b, t) { return a + (b - a) * t; }
+
+function wallClearance(layout, x, y, base, amplitude) {
+  const boundary = Math.min(x, y, layout.width - x, layout.height - y);
+  if (!amplitude) return Math.min(boundary, base);
+  // Divide by a bound on the noise slope so clearance stays conservative.
+  return Math.min(boundary, (base + amplitude * wallNoise(x, y)) / (1 + amplitude * 0.022));
+}
+
+export function handCarvedPlayerFits(layout, x, y) {
+  let base = -120;
+  for (const stroke of layout.strokes) {
+    const clearance = handCarvedStrokeClearance(stroke, x, y);
+    base = stroke.erase ? Math.min(base, -clearance) : Math.max(base, clearance);
+  }
+  const amplitude = (layout.roughness ?? 0) * MAX_ROUGH_OFFSET / 100;
+  return wallClearance(layout, x, y, base, amplitude) >= PLAYER_COLLIDER_RADIUS;
+}
+
 export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
   if (!Number.isSafeInteger(cellSize) || cellSize < 4 || cellSize > 64) throw new Error('Invalid dungeon grid cell size');
   const cols = Math.ceil(layout.width / cellSize) + 1;
@@ -105,9 +159,10 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
   const densityGrid = new Float32Array(cols * rows);
   const signedClearance = new Float32Array(cols * rows);
   signedClearance.fill(-120);
+  const amplitude = (layout.roughness ?? 0) * MAX_ROUGH_OFFSET / 100;
   let maxClearance = 0;
   for (const stroke of layout.strokes) {
-    const padding = stroke.erase ? Math.max(maxClearance, 120) : 0;
+    const padding = stroke.erase ? Math.max(maxClearance, 120) : amplitude;
     const bounds = strokeBounds(stroke, cellSize, layout.width, layout.height, padding);
     if (!stroke.erase) maxClearance = Math.max(maxClearance, stroke.r ?? Math.min(stroke.w, stroke.h) / 2);
     for (let gy = bounds.y0; gy <= bounds.y1; gy++) {
@@ -126,8 +181,7 @@ export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {
     const y = gy * cellSize;
     for (let gx = 0; gx < cols; gx++) {
       const x = gx * cellSize, index = gy * cols + gx;
-      const boundary = Math.max(0, Math.min(x, y, layout.width - x, layout.height - y));
-      const signed = Math.min(signedClearance[index], boundary);
+      const signed = wallClearance(layout, x, y, signedClearance[index], amplitude);
       moveGrid[index] = Math.max(0, signed);
       densityGrid[index] = signed / 90;
     }

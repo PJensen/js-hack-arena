@@ -3,8 +3,16 @@
 Select **Dungeon Editor** on the Hack Arena entry screen after signing in, or
 open `/tools/dungeon-editor/` directly.
 Drag with Freehand to carve floor, or use Circle, Corridor, Rectangle, and Oval
-to draw shapes. The Eraser fills floor back in with rock. Use Undo and Redo to
-adjust recent strokes. Select New for a blank canvas.
+to draw shapes. Hold Shift to snap a corridor or draw a square or circle.
+Use Wall roughness to change the shape of the walls across the map. The
+Eraser fills floor back in with rock. Use Undo and Redo to adjust recent
+edits. Select New for a blank canvas.
+
+Zoom with the wheel or the zoom buttons. Select Pan to drag around a zoomed
+map. Fit Map returns to the full view. Player Fit shows the 28 unit player
+footprint and reports whether it fits at the cursor. Use Set Start to mark
+the player's starting location on open floor. If a later edit blocks that
+location, move or clear it before saving.
 
 **Save** and **Load** use the authenticated Worker API and the `DUNGEONS` KV
 namespace. Name a dungeon before saving. To reopen one, choose it from the saved
