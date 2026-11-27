@@ -1,3 +1,5 @@
+import { DUNGEON_LIGHT_GLSL } from './dungeonLight.glsl.js';
+
 export function createLightFragment(maxLights) {
   return `#version 300 es
 precision highp float;
@@ -9,8 +11,9 @@ uniform sampler2D u_lava;
 uniform float u_cell_size;
 in vec2 v_world;
 out vec4 out_color;
+${DUNGEON_LIGHT_GLSL}
 void main() {
-  vec3 illumination = vec3(0.14, 0.15, 0.18);
+  vec3 illumination = AMBIENT_LIGHT;
   for (int i = 0; i < MAX_LIGHTS; i++) {
     if (i >= u_light_count) break;
     vec4 source = u_lights[i];
@@ -19,7 +22,7 @@ void main() {
     falloff = pow(falloff, 2.8);
     illumination += u_light_colors[i] * falloff * source.w * 4.0;
   }
-  vec3 mapped = illumination / (vec3(0.55) + illumination);
+  vec3 mapped = mapDungeonLight(illumination);
   // Preserve the molten surface's own color in the darkness pass.
   vec2 lavaSize = vec2(textureSize(u_lava, 0));
   if (lavaSize.x > 1.0) {

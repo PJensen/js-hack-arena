@@ -1,4 +1,5 @@
 import { CAVE_SURFACE_GLSL } from './caveSurface.glsl.js';
+import { DUNGEON_LIGHT_GLSL } from './dungeonLight.glsl.js';
 
 export const PLAYER_SIGHT_FRAGMENT = `#version 300 es
 precision highp float;
@@ -14,6 +15,7 @@ in vec2 v_world;
 out vec4 out_color;
 
 ${CAVE_SURFACE_GLSL}
+${DUNGEON_LIGHT_GLSL}
 
 float wallVisibility(float distanceFromEye, int ray) {
   float stop = texelFetch(u_distances, ivec2(ray, 0), 0).r;
@@ -40,7 +42,7 @@ void main() {
         wallVisibility(distanceFromEye, (index + 1) % count), fract(ray));
     }
   }
-  vec3 darkness = vec3(0.032, 0.044, 0.052);
+  vec3 darkness = vec3(0.012, 0.016, 0.021);
   if (visibility < 1.0 && all(greaterThanEqual(v_world, vec2(0.0))) &&
       all(lessThan(v_world, u_terrain_size))) {
     vec2 memorySize = vec2(textureSize(u_memory, 0)) * u_memory_cell_size;
@@ -48,8 +50,8 @@ void main() {
     if (memory.r > 0.0) {
       float clearance = (memory.g / memory.r) * (255.0 / 4.0);
       vec3 terrain = caveSurface(clearance, v_world / u_terrain_size, v_world, pixelSize, 0.0);
-      float luma = dot(terrain, vec3(0.2126, 0.7152, 0.0722));
-      vec3 remembered = mix(vec3(luma), terrain, 0.25) * vec3(0.32, 0.35, 0.40);
+      // Memory stays below even the ambient-only lighting of the live terrain.
+      vec3 remembered = terrain * mapDungeonLight(AMBIENT_LIGHT) * 0.60;
       darkness = mix(darkness, remembered, smoothstep(0.05, 0.95, memory.r));
     }
   }
