@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertThrows } from 'https://deno.land/std@0.220.0/assert/mod.ts';
 import {
   bakeHandCarvedGrid,
+  createHandCarvedCave,
   handCarvedPlayerFits,
   handCarvedStrokeClearance,
   normalizeHandCarvedDungeon,
@@ -99,6 +100,17 @@ Deno.test('player fit checks the whole footprint and rejects an erased start', (
   const rock = { id: 'rock', type: 'circle', erase: true, cx: start.x, cy: start.y, r: 80 };
   assertThrows(() => normalizeHandCarvedDungeon({ ...layout, start, strokes: [...layout.strokes, rock] }),
     Error, 'The player start needs enough room on open floor');
+});
+
+Deno.test('playtest uses the authored start, bounds, and floor', () => {
+  const start = { x: 250, y: 500 };
+  const draft = normalizeHandCarvedDungeon({ ...layout, start });
+  const cave = createHandCarvedCave(draft);
+  assertEquals(cave.bounds, { w: 1000, h: 1000 });
+  assertEquals(cave.spawns, [start]);
+  assert(cave.grid.distanceMove(start.x, start.y) >= PLAYER_COLLIDER_RADIUS);
+  assertEquals(cave.grid.distanceMove(100, 100), 0);
+  assertThrows(() => createHandCarvedCave(layout), Error, 'Set a player start');
 });
 
 Deno.test('hand-carved passages are traversable by the enemy A* pathfinder', () => {

@@ -437,6 +437,7 @@
 <script type="module" id="arena-boot">
 // ── Boot: imports ───────────────────────────────────────────────
 import { generateArenaCave } from './src/rules/geometry/caveGen.js';
+import { createHandCarvedCave, HAND_CARVED_PLAYTEST_KEY, normalizeHandCarvedDungeon } from './src/rules/geometry/handCarvedDungeon.js';
 import { findReachableNear } from './src/rules/geometry/landmarks.js';
 import { resolveSeed } from './src/runtime/rng.js';
 import { getPreviewMob, previewMobNames, spawnPreviewMob } from './src/runtime/mobPreview.js';
@@ -477,14 +478,26 @@ const canvas = document.getElementById('game');
 const overlayCanvas = document.getElementById('world-overlay');
 
 const pageParams = new URLSearchParams(location.search);
+const isAuthoredPlaytest = pageParams.has('authoredPlaytest');
+let playtestLayout = null;
+if (isAuthoredPlaytest) {
+  try {
+    const handoff = JSON.parse(sessionStorage.getItem(HAND_CARVED_PLAYTEST_KEY));
+    playtestLayout = normalizeHandCarvedDungeon(handoff?.layout);
+    if (!playtestLayout.start) throw new Error('Set a player start before playtesting.');
+  } catch {
+    location.replace('/tools/dungeon-editor/');
+    throw new Error('Open Playtest from the dungeon editor.');
+  }
+}
 const itemPreview = getItemPreview(pageParams);
 const previewName = pageParams.get('spawn');
 const chestPreview = pageParams.get('chest')?.trim().toLowerCase() === 'epic';
 const mobPreview = chestPreview ? null : getPreviewMob(previewName);
 const isPreview = Boolean(mobPreview || chestPreview);
-const forceOffline = pageParams.has('offline') || previewName !== null || chestPreview || itemPreview !== null;
-const startRun = pageParams.has('startRun');
-const tracksOfflineProgress = forceOffline && previewName === null && !chestPreview && !itemPreview;
+const forceOffline = isAuthoredPlaytest || pageParams.has('offline') || previewName !== null || chestPreview || itemPreview !== null;
+const startRun = isAuthoredPlaytest || pageParams.has('startRun');
+const tracksOfflineProgress = forceOffline && !isAuthoredPlaytest && previewName === null && !chestPreview && !itemPreview;
 const offlineProgressKey = 'hack-arena.offline-progress';
 let offlineProgress = { gold: 0 };
 if (tracksOfflineProgress) {
@@ -500,8 +513,16 @@ if (tracksOfflineProgress) {
 }
 const resetDungeonButton = document.getElementById('reset-dungeon');
 resetDungeonButton.hidden = !forceOffline;
+if (isAuthoredPlaytest) {
+  resetDungeonButton.textContent = 'Back to Editor';
+  resetDungeonButton.title = 'Return to the current dungeon draft';
+}
 document.getElementById('reset-dungeon').addEventListener('click', () => {
   if (!forceOffline) return;
+  if (isAuthoredPlaytest) {
+    location.assign('/tools/dungeon-editor/?resume=1');
+    return;
+  }
   if (!window.confirm('Leave this dungeon and generate a new one?')) return;
   const next = new URL(location.href);
   const values = new Uint32Array(1);
@@ -625,12 +646,12 @@ const isNetworked = Boolean(netWelcome);
 
 // ── Seed + cave ─────────────────────────────────────────────────
 const SEED = netWelcome?.seed ?? (chestPreview && !pageParams.get('seed') ? 7 : resolveSeed().seed);
-const caveData = generateArenaCave(SEED);
+const caveData = playtestLayout ? createHandCarvedCave(playtestLayout) : generateArenaCave(SEED);
 const { grid, bounds, spawns, routes, campfires } = caveData;
 const camp = isNetworked || tracksOfflineProgress ? caveData.camp : null;
 const spawn = spawns[0];
 const previewChestSite = chestPreview ? findReachableNear(grid, spawn, [72, 56, 40]) : null;
-const decorations = createDungeonDecorations({ grid, routes, spawns, campfires, seed: SEED });
+const decorations = playtestLayout ? {} : createDungeonDecorations({ grid, routes, spawns, campfires, seed: SEED });
 
 const carve = createGridCarver(grid);
 

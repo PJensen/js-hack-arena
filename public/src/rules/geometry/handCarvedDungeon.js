@@ -3,6 +3,7 @@ import { PLAYER_COLLIDER_RADIUS } from '../playerDimensions.js';
 export { PLAYER_COLLIDER_RADIUS };
 export const HAND_CARVED_DUNGEON_SCHEMA = 'hack-arena.hand-carved-dungeon';
 export const HAND_CARVED_DUNGEON_VERSION = 1;
+export const HAND_CARVED_PLAYTEST_KEY = 'hack-arena.authored-playtest';
 export const HAND_CARVED_DUNGEON_LIMITS = Object.freeze({
   minSize: 1000,
   maxSize: 8000,
@@ -149,6 +150,20 @@ export function handCarvedPlayerFits(layout, x, y) {
   }
   const amplitude = (layout.roughness ?? 0) * MAX_ROUGH_OFFSET / 100;
   return wallClearance(layout, x, y, base, amplitude) >= PLAYER_COLLIDER_RADIUS;
+}
+
+export function createHandCarvedCave(layout) {
+  if (!layout.start) throw new Error('Set a player start before playtesting.');
+  return {
+    grid: bakeHandCarvedGrid(layout),
+    bounds: { w: layout.width, h: layout.height },
+    spawns: [layout.start],
+    routes: [],
+    campfires: [],
+    chestSites: [],
+    encounterSites: [],
+    oreSites: [],
+  };
 }
 
 export function bakeHandCarvedGrid(layout, cellSize = layout.cellSize ?? 8) {

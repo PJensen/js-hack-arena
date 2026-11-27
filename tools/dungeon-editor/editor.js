@@ -2,6 +2,7 @@ import {
   HAND_CARVED_DUNGEON_LIMITS,
   HAND_CARVED_DUNGEON_SCHEMA,
   HAND_CARVED_DUNGEON_VERSION,
+  HAND_CARVED_PLAYTEST_KEY,
   PLAYER_COLLIDER_RADIUS,
   bakeHandCarvedGrid,
   handCarvedPlayerFits,
@@ -17,6 +18,7 @@ const [roughness, roughnessLabel, fitStatus, clearStart, zoomIn, zoomOut, zoomLe
   'roughness', 'roughnessLabel', 'fitStatus', 'clearStart', 'zoomIn', 'zoomOut', 'zoomLevel', 'resetView',
 ].map(byId);
 const [showGrid, snapGrid, gridSize] = ['showGrid', 'snapGrid', 'gridSize'].map(byId);
+const playtest = byId('playtest');
 const gridTools = ['circle', 'corridor', 'rect', 'ellipse', 'start'];
 const committed = document.createElement('canvas');
 const roughMap = document.createElement('canvas');
@@ -38,6 +40,7 @@ let cursor = null;
 let pointer = null;
 let busy = false;
 let frame = 0;
+let openingPlaytest = false;
 let view = { x: 0, y: 0, zoom: 1 };
 let roughGeometry = null;
 const onScale = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -402,7 +405,7 @@ clearStart.addEventListener('click', () => {
 });
 
 function hasChanges() {
-  return layout.name !== savedVersion.name
+  return !savedVersion || layout.name !== savedVersion.name
     || (layout.roughness ?? 0) !== (savedVersion.roughness ?? 0)
     || layout.start !== savedVersion.start
     || layout.strokes !== savedVersion.strokes;
@@ -422,6 +425,7 @@ function edit(changes, rebuild = true) {
 function updateButtons() {
   for (const input of [name, newButton, savedLayouts, ...brushes]) input.disabled = busy;
   save.disabled = busy || !layout.name.trim();
+  playtest.disabled = busy;
   load.disabled = busy || !savedLayouts.value;
   size.disabled = busy || !['path', 'erase', 'circle', 'corridor'].includes(brush);
   roughness.disabled = busy;
@@ -487,9 +491,25 @@ window.addEventListener('keydown', (event) => {
   (event.shiftKey ? redo : undo).click();
 });
 window.addEventListener('beforeunload', (event) => {
-  if (!hasChanges()) return;
+  if (openingPlaytest || !hasChanges()) return;
   event.preventDefault();
   event.returnValue = true;
+});
+window.addEventListener('pageshow', () => { openingPlaytest = false; });
+
+playtest.addEventListener('click', () => {
+  if (gesture) return;
+  try {
+    if (!layout.start) throw new Error('Set a player start first.');
+    const draft = normalizeHandCarvedDungeon({ ...layout, name: layout.name.trim() || 'Untitled Dungeon' });
+    sessionStorage.setItem(HAND_CARVED_PLAYTEST_KEY, JSON.stringify({
+      layout: draft, name: layout.name, dirty: hasChanges(),
+    }));
+    openingPlaytest = true;
+    location.assign('/?authoredPlaytest');
+  } catch (error) {
+    status.textContent = `Could not playtest. ${error.message}`;
+  }
 });
 
 async function requestJson(url, options = {}) {
@@ -544,6 +564,17 @@ load.addEventListener('click', async () => {
 });
 
 setLayout(layout);
+if (new URLSearchParams(location.search).has('resume')) {
+  try {
+    const handoff = JSON.parse(sessionStorage.getItem(HAND_CARVED_PLAYTEST_KEY));
+    setLayout({ ...normalizeHandCarvedDungeon(handoff?.layout), name: handoff.name });
+    if (handoff.dirty) savedVersion = null;
+    status.textContent = 'Returned from playtest.';
+  } catch {
+    status.textContent = 'No playtest draft to restore.';
+  }
+  window.history.replaceState(null, '', location.pathname);
+}
 requestJson('/api/editor/dungeons').then(({ dungeons }) => {
   for (const dungeon of dungeons) {
     if (![...savedLayouts.options].some(({ value }) => value === dungeon.id)) listDungeon(dungeon.id, dungeon.name);
