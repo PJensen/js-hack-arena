@@ -4,3 +4,4 @@
 **/deno.lock
 **/deno.json
 **/AGENTS.md
+/tools/dungeon-editor/

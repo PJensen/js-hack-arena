@@ -67,7 +67,15 @@ export async function authCallback(request, env) {
 export async function authMe(request, env) {
   const session = await readSession(request, env);
   if (!session) return json({ authenticated: false }, 401);
-  return json({ authenticated: true, user: { id: session.sub, name: session.name } });
+  return json({
+    authenticated: true, user: { id: session.sub, name: session.name },
+    ...(isDungeonEditor(session, env) ? { canEditDungeons: true } : {}),
+  });
+}
+
+export function isDungeonEditor(session, env) {
+  const configuredUserId = String(env.DUNGEON_EDITOR_USER_ID || '');
+  return Boolean(configuredUserId && session?.sub && session.sub === configuredUserId);
 }
 
 export async function authLogout() {

@@ -24,6 +24,7 @@ import {
   authLogout,
   authMe,
   createRoomHandoff,
+  isDungeonEditor,
   readSession,
   verifyRoomHandoff,
 } from './auth.js';
@@ -42,7 +43,7 @@ const PENDING_MATERIALS_PREFIX = 'pending-character-materials:';
 const CREDIT_RETRY_MS = 2000;
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, editorFiles) {
     const url = new URL(request.url);
 
     if (url.pathname === '/auth/login') {
@@ -68,10 +69,19 @@ export default {
         url.pathname = '/tools/dungeon-editor/';
         return Response.redirect(url.toString(), 302);
       }
-      const asset = await env.ASSETS.fetch(request);
-      const headers = new Headers(asset.headers);
-      headers.set('cache-control', 'private, no-store');
-      return new Response(asset.body, { status: asset.status, headers });
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        return new Response(null, { status: 405, headers: { allow: 'GET, HEAD' } });
+      }
+      const isPage = url.pathname === '/tools/dungeon-editor/';
+      if (!isPage && url.pathname !== '/tools/dungeon-editor/editor.js') {
+        return new Response('Not found', { status: 404 });
+      }
+      return new Response(request.method === 'HEAD' ? null : isPage ? editorFiles.html : editorFiles.script, {
+        headers: {
+          'content-type': isPage ? 'text/html; charset=utf-8' : 'text/javascript; charset=utf-8',
+          'cache-control': 'private, no-store',
+        },
+      });
     }
 
     if (url.pathname === '/api/editor/dungeons') {
@@ -181,11 +191,6 @@ async function requireDungeonEditor(request, env) {
   if (!isDungeonEditor(session, env)) return json({ error: 'dungeon editor access denied' }, { status: 403 });
   if (!env.DUNGEONS) return json({ error: 'dungeon storage is not configured' }, { status: 503 });
   return session;
-}
-
-export function isDungeonEditor(session, env) {
-  const configuredUserId = String(env.DUNGEON_EDITOR_USER_ID || '');
-  return Boolean(configuredUserId && session?.sub && session.sub === configuredUserId);
 }
 
 export class GameRoom {

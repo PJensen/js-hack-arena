@@ -1,8 +1,16 @@
 import { DurableObject } from 'cloudflare:workers';
 import { CharacterProgress } from './characterProgress.js';
-import { GameRoom as Room } from './index.js';
+import app, { GameRoom as Room } from './index.js';
+import html from '../tools/dungeon-editor/index.html';
+import script from '../tools/dungeon-editor/editor.js';
 
-export { default } from './index.js';
+const editorFiles = { html, script: script.replace('../../public/src/', '/src/') };
+
+export default {
+  fetch(request, env) {
+    return app.fetch(request, env, editorFiles);
+  },
+};
 
 export class GameRoom extends DurableObject {
   constructor(ctx, env) {

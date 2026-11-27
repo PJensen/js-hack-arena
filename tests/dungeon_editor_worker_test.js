@@ -1,6 +1,7 @@
 import { assertEquals } from 'https://deno.land/std@0.220.0/assert/mod.ts';
 import { timingSafeEqual } from 'node:crypto';
-import app, { isDungeonEditor } from '../worker/index.js';
+import app from '../worker/index.js';
+import { isDungeonEditor } from '../worker/auth.js';
 
 if (!crypto.subtle.timingSafeEqual) crypto.subtle.timingSafeEqual = timingSafeEqual;
 
@@ -34,7 +35,6 @@ function makeEnv() {
     ARENA_SESSION_SECRET: 'test-session-secret',
     DUNGEON_EDITOR_USER_ID: 'owner-sub',
     DUNGEONS: makeKv(),
-    ASSETS: { fetch: async (request) => new Response(new URL(request.url).pathname) },
   };
 }
 
@@ -57,9 +57,15 @@ Deno.test('dungeon editor API permits only the configured stable user ID', async
 
 Deno.test('dungeon editor API stores and loads normalized layouts for the authorized user', async () => {
   const env = makeEnv(), cookie = await signedSessionCookie(env.ARENA_SESSION_SECRET, 'owner-sub');
-  const editorPage = await app.fetch(request('/tools/dungeon-editor/', { cookie }), env);
+  const editorFiles = { html: '<title>Dungeon Editor</title>', script: 'export {};' };
+  const editorPage = await app.fetch(request('/tools/dungeon-editor/', { cookie }), env, editorFiles);
   assertEquals(editorPage.status, 200);
-  assertEquals(await editorPage.text(), '/tools/dungeon-editor/');
+  assertEquals(await editorPage.text(), editorFiles.html);
+  assertEquals(editorPage.headers.get('cache-control'), 'private, no-store');
+  const script = await app.fetch(request('/tools/dungeon-editor/editor.js', { cookie }), env, editorFiles);
+  assertEquals(await script.text(), editorFiles.script);
+  const ownerProfile = await app.fetch(request('/auth/me', { cookie }), env);
+  assertEquals((await ownerProfile.json()).canEditDungeons, true);
   const indexPage = await app.fetch(request('/tools/dungeon-editor/index.html', { cookie }), env);
   assertEquals(indexPage.headers.get('location'), 'https://arena.hairylogic.com/tools/dungeon-editor/');
   const layout = {
@@ -68,6 +74,10 @@ Deno.test('dungeon editor API stores and loads normalized layouts for the author
     strokes: [{ id: 'room-one', type: 'circle', cx: 500, cy: 500, r: 120 }],
   };
   const unauthorizedCookie = await signedSessionCookie(env.ARENA_SESSION_SECRET, 'other-sub');
+  const otherProfile = await app.fetch(request('/auth/me', { cookie: unauthorizedCookie }), env);
+  assertEquals((await otherProfile.json()).canEditDungeons, undefined);
+  const deniedPage = await app.fetch(request('/tools/dungeon-editor/', { cookie: unauthorizedCookie }), env, editorFiles);
+  assertEquals(deniedPage.status, 403);
   const denied = await app.fetch(request('/api/editor/dungeons', { cookie: unauthorizedCookie }), env);
   assertEquals(denied.status, 403);
 

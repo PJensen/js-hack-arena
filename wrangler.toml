@@ -28,6 +28,11 @@ binding = "ASSETS"
 not_found_handling = "404-page"
 run_worker_first = ["/tools/dungeon-editor", "/tools/dungeon-editor/*"]
 
+[[rules]]
+type = "Text"
+globs = ["**/dungeon-editor/editor.js"]
+fallthrough = true
+
 [[kv_namespaces]]
 binding = "DUNGEONS"
 id = "8dda43e302684b2eb42d5f41cbdb2a2f"
