@@ -36,6 +36,7 @@ import { createCampfireMesh } from './campfireMesh.js';
 import { createGhostPipeMesh } from './ghostPipeMesh.js';
 import { createLootMeshes } from './lootMesh.js';
 import { createOreRenderer } from './oreRenderer.js';
+import { createLavaLightPixels } from './lavaLight.js';
 import { createWaterWakeRenderer } from './waterWakeRenderer.js';
 import { LOOT_VERTEX } from './shaders/loot.vert.js';
 import { LOOT_FRAGMENT } from './shaders/loot.frag.js';
@@ -442,7 +443,14 @@ export function createWebGLArenaRenderer(deps) {
   });
   const waterTexture = floorTexture(grid.waterGrid);
   const stoneTexture = floorTexture(grid.stoneGrid);
-  const lavaTexture = floorTexture(grid.lavaGrid);
+  const lavaTexture = device.texture2D({
+    width: grid.lavaGrid ? grid.cols : 1,
+    height: grid.lavaGrid ? grid.rows : 1,
+    data: grid.lavaGrid ? createLavaLightPixels(grid) : null,
+    internalFormat: gl.RG8,
+    format: gl.RG,
+    filter: gl.LINEAR,
+  });
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
   const drawWaterWakes = grid.waterGrid ? createWaterWakeRenderer(device, quadVao, waterTexture, grid) : null;
   const atlas = createGlyphAtlas(device);
@@ -1092,18 +1100,16 @@ export function createWebGLArenaRenderer(deps) {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  function drawLavaDroplets(now) {
+  function collectLavaDroplets(now) {
+    const droplets = [];
     const { lavaGrid, cellSize, cols, rows, moveGrid } = grid;
-    if (!lavaDroplet || motionPreference.matches) return;
+    if (!lavaDroplet || motionPreference.matches) return droplets;
     const stride = Math.max(1, Math.round(70 / cellSize));
     const spacing = stride * cellSize;
     const left = Math.max(0, Math.floor((view[0] - view[2] / 2 - 25) / spacing));
     const top = Math.max(0, Math.floor((view[1] - view[3] / 2 - 25) / spacing));
     const right = Math.min(Math.ceil(cols / stride), Math.ceil((view[0] + view[2] / 2 + 25) / spacing));
     const bottom = Math.min(Math.ceil(rows / stride), Math.ceil((view[1] + view[3] / 2 + 25) / spacing));
-    gl.useProgram(lavaDroplet.program);
-    gl.bindVertexArray(quadVao);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     for (let row = top; row < bottom; row++) {
       for (let col = left; col < right; col++) {
         const noise = Math.sin(col * 127.1 + row * 311.7 + 18.2) * 43758.5453;
@@ -1122,10 +1128,21 @@ export function createWebGLArenaRenderer(deps) {
         const fade = Math.min(1, (hangTime - age) * 18);
         const drift = (seed - 0.5) * 26 * age;
         const size = (1.7 + seed * 1.1) * 8;
-        setWorld(lavaDroplet, x + drift, y - height, size, size);
-        gl.uniform1f(lavaDroplet.fade, fade);
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        droplets.push({ x: x + drift, y, height, fade, size });
       }
+    }
+    return droplets;
+  }
+
+  function drawLavaDroplets(droplets) {
+    if (!droplets.length) return;
+    gl.useProgram(lavaDroplet.program);
+    gl.bindVertexArray(quadVao);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    for (const { x, y, height, fade, size } of droplets) {
+      setWorld(lavaDroplet, x, y - height, size, size);
+      gl.uniform1f(lavaDroplet.fade, fade);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
@@ -2036,8 +2053,16 @@ export function createWebGLArenaRenderer(deps) {
         });
       }
     }
+    const lavaDroplets = collectLavaDroplets(now);
+    for (const { x, y, height, fade } of lavaDroplets) {
+      actorLights.push({
+        x, y, radius: 34 + height * 2,
+        intensity: 0.30 * fade * Math.min(1, height / 8),
+        r: 1, g: 0.42, b: 0.12,
+      });
+    }
     drawLighting(collectLights(now, actorLights, campfires));
-    drawLavaDroplets(now);
+    drawLavaDroplets(lavaDroplets);
     drawDecorationEmission(now);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     for (const treasure of goblinTreasure) drawGoblinTreasure(treasure, now);

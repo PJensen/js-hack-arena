@@ -22,16 +22,18 @@ void main() {
     falloff = pow(falloff, 2.8);
     illumination += u_light_colors[i] * falloff * source.w * 4.0;
   }
-  vec3 mapped = mapDungeonLight(illumination);
-  // Preserve the molten surface's own color in the darkness pass.
+  vec2 lava = vec2(0.0);
   vec2 lavaSize = vec2(textureSize(u_lava, 0));
   if (lavaSize.x > 1.0) {
     vec2 point = v_world / u_cell_size;
     if (all(greaterThanEqual(point, vec2(0.0))) && all(lessThan(point, lavaSize - 1.0))) {
-      float lava = texture(u_lava, (point + 0.5) / lavaSize).r;
-      mapped = mix(mapped, vec3(1.0), smoothstep(0.25, 0.72, lava));
+      lava = texture(u_lava, (point + 0.5) / lavaSize).rg;
     }
   }
+  illumination += vec3(1.0, 0.36, 0.075) * lava.g * 1.65;
+  vec3 mapped = mapDungeonLight(illumination);
+  // Preserve the molten surface's own color while its spill lights the surroundings.
+  mapped = mix(mapped, vec3(1.0), smoothstep(0.25, 0.72, lava.r));
   out_color = vec4(mapped, 1.0);
 }`;
 }

@@ -1,6 +1,7 @@
 import { assert, assertAlmostEquals, assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
 import { multiply, perspective } from '../public/src/display/webgl/math.js';
 import { ParticleFX, ParticlePool } from '../public/src/display/webgl/particles.js';
+import { createLavaLightPixels } from '../public/src/display/webgl/lavaLight.js';
 import { MAX_DYNAMIC_LIGHTS } from '../public/src/display/webgl/arenaRenderer.js';
 import { itemTooltipIconId, weaponTooltipName } from '../public/src/display/ui/itemTooltip.js';
 import { icons } from '../public/assets/icons/manifest.js';
@@ -87,6 +88,25 @@ Deno.test('dungeon memory retains observed terrain and refreshes only in sight',
   assertEquals(read(324, 244), new Uint8Array([255, 176]));
   assertEquals(read(420, 244), new Uint8Array([0, 0]));
   assertEquals(createDungeonMemory(bounds, grid).cells.some(Boolean), false);
+});
+
+Deno.test('lava light extends onto dry tiles and fades away from the pool', () => {
+  const cols = 24, rows = 24, cellSize = 8;
+  const lavaGrid = new Uint8Array(cols * rows);
+  lavaGrid[12 * cols + 12] = 255;
+  lavaGrid[12 * cols + 11] = 127;
+  const pixels = createLavaLightPixels({ lavaGrid, cols, rows, cellSize });
+  const offset = (x, y) => (y * cols + x) * 2;
+  const spill = (x, y) => pixels[offset(x, y) + 1];
+  assertEquals(pixels[offset(12, 12)], 255);
+  assertEquals(pixels[offset(11, 12)], 127);
+  assertEquals(pixels[offset(13, 12)], 0);
+  assertEquals(spill(12, 12), 255);
+  assertEquals(spill(11, 12), spill(13, 12));
+  assert(spill(15, 12) > spill(17, 12));
+  assert(spill(17, 12) > 0);
+  assertEquals(spill(20, 12), 0);
+  assertEquals(spill(15, 15), spill(9, 9));
 });
 
 Deno.test('weapon tooltip: authored names take precedence over weapon type fallbacks', () => {
