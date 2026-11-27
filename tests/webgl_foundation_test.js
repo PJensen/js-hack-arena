@@ -5,6 +5,7 @@ import { MAX_DYNAMIC_LIGHTS } from '../public/src/display/webgl/arenaRenderer.js
 import { itemTooltipIconId, weaponTooltipName } from '../public/src/display/ui/itemTooltip.js';
 import { icons } from '../public/assets/icons/manifest.js';
 import { createMeleeImpact } from '../public/src/display/passes/meleeImpact.js';
+import { createDungeonMemory } from '../public/src/display/dungeonMemory.js';
 import { createPlayerSight } from '../public/src/display/playerSight.js';
 import { createFloatTextPass } from '../public/src/display/passes/floatText.js';
 import { createGorePass, GORE_LIMITS } from '../public/src/display/passes/gore.js';
@@ -39,6 +40,44 @@ Deno.test('player sight turns in place, limits rear awareness, and stops at wall
   assert(sight.contains(120, 0));
   assert(sight.update({ x: 16, y: 0 }, 0, fov));
   assert(sight.contains(208, 0));
+});
+
+Deno.test('dungeon memory retains observed terrain and refreshes only in sight', () => {
+  const bounds = { w: 640, h: 480 };
+  const player = { x: 260, y: 244 };
+  const fov = { distance: 220, angle: 1.4 };
+  let floorClearance = 20;
+  const grid = {
+    cellSize: 8,
+    distanceMove: (x, y) => x >= 360 && x <= 384 && y > 180 ? 0 : x < 260 ? 32 : floorClearance,
+  };
+  const sight = createPlayerSight(grid);
+  const memory = createDungeonMemory(bounds, grid);
+  const read = (x, y) => {
+    const index = (Math.floor(y / 8) * memory.cols + Math.floor(x / 8)) * 2;
+    return memory.cells.slice(index, index + 2);
+  };
+  const update = (facing) => memory.observe(sight, fov, sight.update(player, facing, fov));
+
+  const dirty = update(0);
+  assert(dirty.x <= 40 && dirty.x + dirty.width > 40);
+  assertEquals(read(324, 244), new Uint8Array([255, 80]));
+  assertEquals(read(420, 244), new Uint8Array([0, 0]));
+  assertEquals(read(156, 244), new Uint8Array([0, 0]));
+  assertEquals(update(0), null);
+
+  assert(update(Math.PI));
+  assertEquals(read(156, 244), new Uint8Array([255, 128]));
+  assert(!sight.contains(324, 244));
+  assertEquals(read(324, 244), new Uint8Array([255, 80]));
+  floorClearance = 44;
+  sight.invalidate();
+  update(Math.PI);
+  assertEquals(read(324, 244), new Uint8Array([255, 80]));
+  assert(update(0));
+  assertEquals(read(324, 244), new Uint8Array([255, 176]));
+  assertEquals(read(420, 244), new Uint8Array([0, 0]));
+  assertEquals(createDungeonMemory(bounds, grid).cells.some(Boolean), false);
 });
 
 Deno.test('weapon tooltip: authored names take precedence over weapon type fallbacks', () => {

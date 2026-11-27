@@ -18,6 +18,7 @@ import { createGorePass } from '../passes/gore.js';
 import { createHudReadout } from '../ui/hudReadout.js';
 import { compareDirection, ringTooltipRows } from '../ui/itemTooltip.js';
 import { getConditionFrame, conditionCellSize, conditionSheetUrl } from '../ui/conditionIcon.js';
+import { createDungeonMemory } from '../dungeonMemory.js';
 import { createPlayerSight } from '../playerSight.js';
 import { spellCastProgress } from '../spellCastProgress.js';
 import { biolum, emberLight, fireFlicker, torchLight } from '../lightPatterns.js';
@@ -230,14 +231,21 @@ export function createWebGLArenaRenderer(deps) {
   lighting.lava = uniform(gl, lighting.program, 'u_lava');
   lighting.cellSize = uniform(gl, lighting.program, 'u_cell_size');
   const sight = showPlayerSight ? createPlayerSight(grid) : null;
+  const memory = sight ? createDungeonMemory(bounds, grid) : null;
   const sightShader = sight ? worldProgram(device, PLAYER_SIGHT_FRAGMENT) : null;
-  let sightTexture;
+  let sightTexture, memoryTexture;
   if (sightShader) {
     sightShader.distances = uniform(gl, sightShader.program, 'u_distances');
     sightShader.eye = uniform(gl, sightShader.program, 'u_eye');
     sightShader.cone = uniform(gl, sightShader.program, 'u_cone');
     sightShader.ranges = uniform(gl, sightShader.program, 'u_ranges');
     sightShader.distance = uniform(gl, sightShader.program, 'u_distance');
+    sightShader.memory = uniform(gl, sightShader.program, 'u_memory');
+    sightShader.memoryCellSize = uniform(gl, sightShader.program, 'u_memory_cell_size');
+    sightShader.terrainSize = uniform(gl, sightShader.program, 'u_terrain_size');
+    sightShader.water = uniform(gl, sightShader.program, 'u_water');
+    sightShader.stone = uniform(gl, sightShader.program, 'u_stone');
+    sightShader.lava = uniform(gl, sightShader.program, 'u_lava');
     sightTexture = device.texture2D({
       width: sight.distances.length,
       height: 1,
@@ -246,6 +254,16 @@ export function createWebGLArenaRenderer(deps) {
       format: gl.RED,
       type: gl.FLOAT,
     });
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    memoryTexture = device.texture2D({
+      width: memory.cols,
+      height: memory.rows,
+      data: memory.cells,
+      internalFormat: gl.RG8,
+      format: gl.RG,
+      filter: gl.LINEAR,
+    });
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
   }
   const element = worldProgram(device, ELEMENT_FRAGMENT);
   element.theme = uniform(gl, element.program, 'u_theme');
@@ -1018,6 +1036,39 @@ export function createWebGLArenaRenderer(deps) {
     return !sight || sight.contains(x, y);
   }
 
+  function bindTerrainMaterials(locations) {
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, waterTexture);
+    gl.uniform1i(locations.water, 1);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, stoneTexture);
+    gl.uniform1i(locations.stone, 2);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, lavaTexture);
+    gl.uniform1i(locations.lava, 3);
+    gl.activeTexture(gl.TEXTURE0);
+  }
+
+  function updateSight(player, facing, fov) {
+    const raysChanged = sight.update(player, facing, fov);
+    if (raysChanged) {
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, sightTexture);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, sight.distances.length, 1, gl.RED, gl.FLOAT, sight.distances);
+    }
+
+    const dirty = memory.observe(sight, fov, raysChanged);
+    if (!dirty) return;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, memoryTexture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, memory.cols);
+    const offset = (dirty.y * memory.cols + dirty.x) * 2;
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, dirty.x, dirty.y, dirty.width, dirty.height, gl.RG, gl.UNSIGNED_BYTE, memory.cells, offset);
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+  }
+
   function drawSightMask(distance) {
     gl.useProgram(sightShader.program);
     gl.bindVertexArray(quadVao);
@@ -1025,6 +1076,12 @@ export function createWebGLArenaRenderer(deps) {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, sightTexture);
     gl.uniform1i(sightShader.distances, 0);
+    gl.activeTexture(gl.TEXTURE4);
+    gl.bindTexture(gl.TEXTURE_2D, memoryTexture);
+    gl.uniform1i(sightShader.memory, 4);
+    bindTerrainMaterials(sightShader);
+    gl.uniform1f(sightShader.memoryCellSize, memory.cellSize);
+    gl.uniform2f(sightShader.terrainSize, caveWidth, caveHeight);
     gl.uniform4fv(sightShader.eye, sight.eye);
     gl.uniform2fv(sightShader.cone, sight.cone);
     gl.uniform4fv(sightShader.ranges, sight.ranges);
@@ -1724,11 +1781,7 @@ export function createWebGLArenaRenderer(deps) {
     const shownPlayer = displayPosition(playerId, playerPosition);
     const facing = world.get(playerId, Facing)?.angle ?? 0;
     const fov = world.get(playerId, FOV) ?? FOV.defaults;
-    if (sight?.update(shownPlayer, facing, fov)) {
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, sightTexture);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, sight.distances.length, 1, gl.RED, gl.FLOAT, sight.distances);
-    }
+    if (sight) updateSight(shownPlayer, facing, fov);
     const { width, height, ratio } = device.resize();
     view[0] = cam.x - cam.shakeX + punch.x;
     view[1] = cam.y - cam.shakeY + punch.y;
@@ -1753,17 +1806,8 @@ export function createWebGLArenaRenderer(deps) {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, fieldTexture);
     gl.uniform1i(caveLocations.field, 0);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, waterTexture);
-    gl.uniform1i(caveLocations.water, 1);
-    gl.activeTexture(gl.TEXTURE2);
-    gl.bindTexture(gl.TEXTURE_2D, stoneTexture);
-    gl.uniform1i(caveLocations.stone, 2);
-    gl.activeTexture(gl.TEXTURE3);
-    gl.bindTexture(gl.TEXTURE_2D, lavaTexture);
-    gl.uniform1i(caveLocations.lava, 3);
+    bindTerrainMaterials(caveLocations);
     gl.uniform1f(caveLocations.terrainTime, motionPreference.matches ? 0 : now);
-    gl.activeTexture(gl.TEXTURE0);
     gl.uniform2i(caveLocations.gridSize, grid.cols, grid.rows);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     drawWaterWakes?.(world, view, now, inView, motionPreference.matches, displayPosition);
