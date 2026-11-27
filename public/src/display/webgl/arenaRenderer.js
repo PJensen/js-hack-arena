@@ -47,6 +47,7 @@ import { AGONY_AURA_FRAGMENT } from './shaders/agonyAura.frag.js';
 import { WORLD_VERTEX } from './shaders/world.vert.js';
 import { CAVE_VERTEX } from './shaders/cave.vert.js';
 import { CAVE_FRAGMENT } from './shaders/cave.frag.js';
+import { LAVA_DROPLET_FRAGMENT } from './shaders/lavaDroplet.frag.js';
 import { DISC_FRAGMENT } from './shaders/disc.frag.js';
 import { GLYPH_FRAGMENT } from './shaders/glyph.frag.js';
 import { PARTICLE_VERTEX } from './shaders/particle.vert.js';
@@ -206,6 +207,8 @@ export function createWebGLArenaRenderer(deps) {
   const disc = worldProgram(device, DISC_FRAGMENT);
   disc.color = uniform(gl, disc.program, 'u_color');
   disc.stroke = uniform(gl, disc.program, 'u_stroke');
+  const lavaDroplet = grid.lavaGrid ? worldProgram(device, LAVA_DROPLET_FRAGMENT) : null;
+  if (lavaDroplet) lavaDroplet.fade = uniform(gl, lavaDroplet.program, 'u_fade');
   const goblinFlash = worldProgram(device, LOOT_GOBLIN_FLASH_FRAGMENT);
   goblinFlash.age = uniform(gl, goblinFlash.program, 'u_age');
   goblinFlash.strength = uniform(gl, goblinFlash.program, 'u_strength');
@@ -1091,13 +1094,16 @@ export function createWebGLArenaRenderer(deps) {
 
   function drawLavaDroplets(now) {
     const { lavaGrid, cellSize, cols, rows, moveGrid } = grid;
-    if (!lavaGrid || motionPreference.matches) return;
+    if (!lavaDroplet || motionPreference.matches) return;
     const stride = Math.max(1, Math.round(70 / cellSize));
     const spacing = stride * cellSize;
     const left = Math.max(0, Math.floor((view[0] - view[2] / 2 - 25) / spacing));
     const top = Math.max(0, Math.floor((view[1] - view[3] / 2 - 25) / spacing));
     const right = Math.min(Math.ceil(cols / stride), Math.ceil((view[0] + view[2] / 2 + 25) / spacing));
     const bottom = Math.min(Math.ceil(rows / stride), Math.ceil((view[1] + view[3] / 2 + 25) / spacing));
+    gl.useProgram(lavaDroplet.program);
+    gl.bindVertexArray(quadVao);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     for (let row = top; row < bottom; row++) {
       for (let col = left; col < right; col++) {
         const noise = Math.sin(col * 127.1 + row * 311.7 + 18.2) * 43758.5453;
@@ -1115,9 +1121,13 @@ export function createWebGLArenaRenderer(deps) {
         const height = 180 * age * (hangTime - age);
         const fade = Math.min(1, (hangTime - age) * 18);
         const drift = (seed - 0.5) * 26 * age;
-        drawDisc(x + drift, y - height, 1.7 + seed * 1.1, [1, 0.72, 0.19, fade], [0.99, 0.27, 0.025, fade]);
+        const size = (1.7 + seed * 1.1) * 8;
+        setWorld(lavaDroplet, x + drift, y - height, size, size);
+        gl.uniform1f(lavaDroplet.fade, fade);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
       }
     }
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
   function drawActivePowerups(powerups, position, collider, now) {

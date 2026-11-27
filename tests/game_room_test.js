@@ -7,6 +7,7 @@ import { SIM_DT, SIM_MODE } from '../public/src/rules/sim/arenaSim.js';
 import { createArenaDungeonSimulation } from '../public/src/rules/sim/arenaDungeon.js';
 import { GAZE_CHARGE_SECONDS } from '../public/src/rules/components/AI.js';
 import { getMiningMaterial } from '../public/src/rules/data/miningMaterials.js';
+import { createHandCarvedCave } from '../public/src/rules/geometry/handCarvedDungeon.js';
 import { generateArenaCave } from '../public/src/rules/geometry/caveGen.js';
 import { canMineOre } from '../public/src/rules/geometry/oreSites.js';
 import { sweepMaxFree } from '../public/src/rules/geometry/sweep.js';
@@ -205,6 +206,60 @@ Deno.test('game room: Regeneration uses the selected ally from the socket input'
   } finally {
     room.leave(caster);
     room.leave(ally);
+  }
+});
+
+Deno.test('game room: authored lava burns on contact, lingers on exit, and can kill', async () => {
+  const room = new GameRoom(makeRoomState(), makeEnv());
+  room.caveData = createHandCarvedCave({
+    schema: 'hack-arena.hand-carved-dungeon', version: 1, id: 'lava-test', name: 'Lava Test',
+    width: 1000, height: 1000, start: { x: 500, y: 500 },
+    strokes: [
+      { id: 'room', type: 'rect', x: 200, y: 200, w: 600, h: 600 },
+      { id: 'pool', type: 'rect', x: 520, y: 420, w: 200, h: 160, floor: 'lava' },
+    ],
+  });
+  const socket = new FakeSocket();
+  await room.accept(socket, { userId: 'user-1', displayName: 'First' });
+  try {
+    const { peerId } = socket.sent.find(({ type }) => type === MESSAGE.WELCOME);
+    const sim = room.ensureSim();
+    const player = sim.getPlayerEntity(peerId);
+    const position = sim.world.get(player, Position);
+    const snapshot = () => sim.getPlayerSnapshot(peerId).state;
+    const isBurning = () => snapshot().conditions.some(({ id }) => id === 'burning');
+
+    room.step();
+    assertEquals(snapshot().hp, 100);
+    assert(!isBurning());
+    room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, { input: { seq: 1, moveX: 1 } }));
+    room.step();
+    assertEquals(snapshot().hp, 100);
+    room.step();
+    assertEquals(snapshot().hp, 86);
+    assert(isBurning());
+    room.handleMessage(socket, encodeMessage(MESSAGE.INPUT, { input: { seq: 2, moveX: 0 } }));
+    for (let i = 0; i < 5; i++) room.step();
+    assertEquals(snapshot().hp, 72);
+
+    position.x = 500;
+    room.step();
+    assertEquals(snapshot().hp, 72);
+    assert(isBurning());
+    for (let i = 0; i < 65; i++) room.step();
+    const recovered = snapshot().hp;
+    assert(recovered < 72 && recovered > 55);
+    assert(!isBurning());
+    for (let i = 0; i < 10; i++) room.step();
+    assertEquals(snapshot().hp, recovered);
+
+    position.x = 560;
+    for (let i = 0; i < 32; i++) room.step();
+    const serverPlayer = latestSnapshot(socket).entities.find(({ owner }) => owner === peerId);
+    assertEquals(serverPlayer.state.hp, 0);
+    assertEquals(serverPlayer.state.dead, true);
+  } finally {
+    room.leave(socket);
   }
 });
 

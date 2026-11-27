@@ -76,6 +76,7 @@ import { createBumpSystem } from '../systems/bumpSystem.js';
 import { deathSystem } from '../systems/deathSystem.js';
 import { lootTossSystem, tossLoot } from '../systems/lootTossSystem.js';
 import { installLootGoblinRules } from '../systems/lootGoblinSystem.js';
+import { createLavaHazardSystem } from '../systems/lavaHazardSystem.js';
 import { createMovementSystem } from '../systems/movementSystem.js';
 import { installManaCombatDelay, manaSystem } from '../systems/manaSystem.js';
 import { createOreMining } from '../systems/oreMining.js';
@@ -866,6 +867,7 @@ function installAuthoritativeRules(world, grid, mining, collectGear) {
   const systems = [
     effectSystem,
     createMovementSystem({ grid }),
+    ...(grid.lavaGrid ? [createLavaHazardSystem(grid)] : []),
     manaSystem,
     staminaSystem,
     powerupSystem,

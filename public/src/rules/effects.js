@@ -117,7 +117,7 @@ export function effectSystem(world, dt) {
   }
 }
 
-function refreshCondition(world, targetId, sourceId, { conditionId, duration }) {
+export function refreshCondition(world, targetId, sourceId, { conditionId, duration }) {
   const health = world.get(targetId, Health);
   const definition = conditionCatalog[conditionId];
   if (!definition || !health || health.dead || health.hp <= 0) return;
