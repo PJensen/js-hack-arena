@@ -159,6 +159,10 @@ Deno.test('water paint stays on the floor and dry paint clears it without changi
   assertEquals(sample(360, 400), 255);
   assertEquals(sample(480, 400), 0);
   assertEquals(sample(128, 400), 0);
+  assertEquals(grid.stoneGrid[50 * grid.cols + 60], 255);
+  assertEquals(grid.stoneGrid[50 * grid.cols + 45], 0);
+  const stoneOnly = bakeHandCarvedGrid({ ...draft, strokes: [room, dry] });
+  assertEquals(stoneOnly.stoneGrid[50 * grid.cols + 60], 255);
   assertEquals(grid.moveGrid, bakeHandCarvedGrid({ ...layout, strokes: [room] }).moveGrid);
 });
 
