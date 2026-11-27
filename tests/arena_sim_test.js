@@ -1554,6 +1554,32 @@ Deno.test('arena sim: goblin closes at 90 units per second and replicated melee 
   assertEquals(swings, [replicaGoblin]);
 });
 
+Deno.test('arena sim: a spider faces along its patrol and replicates the turn', () => {
+  const sim = makeOpenSim(921, { enemyCount: 0 });
+  sim.addPlayer('peer-a');
+  const spider = spawnSpider(sim.world, { distanceMove: () => 100 }, 520, 100, null, [
+    { x: 520, y: 160 }, { x: 610, y: 143 },
+  ]);
+  const facing = sim.world.get(spider, Facing);
+  const position = sim.world.get(spider, Position);
+  assertAlmostEquals(facing.angle, Math.PI / 2);
+  sim.step();
+  assert(position.y > 100);
+  assertAlmostEquals(facing.angle, Math.PI / 2);
+  const ai = sim.world.get(spider, AI);
+  for (let i = 0; i < 50 && ai.patrolIndex === 0; i++) sim.step();
+  assertEquals(ai.patrolIndex, 1);
+  const before = { ...position };
+  sim.step();
+  assert(position.x > before.x);
+  assertAlmostEquals(facing.angle, Math.atan2(position.y - before.y, position.x - before.x));
+  assertEquals(ai.target, null);
+  const replica = makeOpenSim(921, { mode: SIM_MODE.REPLICA });
+  replica.applySnapshot(sim.captureSnapshot());
+  const [, replicatedFacing] = [...replica.world.query(Facing, AI)][0];
+  assertAlmostEquals(replicatedFacing.angle, facing.angle);
+});
+
 Deno.test("arena sim: a spider patrols, chases, poisons on contact, and stays dead", () => {
   const sim = makeOpenSim(921, { enemyCount: 0 });
   const player = sim.addPlayer('peer-a');

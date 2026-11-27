@@ -53,7 +53,7 @@ export function createAISystem(ctx) {
       const moveLocked = isActionLocked(world, id, 'move');
       if (ai.behavior === AIBehavior.PASSIVE) {
         ai.target = null;
-        patrol(grid, pos, vel, ai, movementSpeed, moveLocked, dt, col.radius);
+        patrol(grid, pos, vel, fac, ai, movementSpeed, moveLocked, dt, col.radius);
         continue;
       }
       const castLocked = isActionLocked(world, id, 'cast');
@@ -84,7 +84,7 @@ export function createAISystem(ctx) {
       }
 
       if (ai.target == null) {
-        patrol(grid, pos, vel, ai, movementSpeed, moveLocked, dt, col.radius);
+        patrol(grid, pos, vel, fac, ai, movementSpeed, moveLocked, dt, col.radius);
         continue;
       }
 
@@ -109,7 +109,7 @@ export function createAISystem(ctx) {
       if (bat && !ai.sight) {
         ai.target = null;
         ai.shriekWindup = 0;
-        patrol(grid, pos, vel, ai, movementSpeed, moveLocked, dt, col.radius);
+        patrol(grid, pos, vel, fac, ai, movementSpeed, moveLocked, dt, col.radius);
         continue;
       }
 
@@ -117,7 +117,7 @@ export function createAISystem(ctx) {
         if (!ai.sight) {
           ai.target = null;
           ai.gazeCharge = 0;
-          patrol(grid, pos, vel, ai, movementSpeed, moveLocked, dt, col.radius);
+          patrol(grid, pos, vel, fac, ai, movementSpeed, moveLocked, dt, col.radius);
         } else {
           vel.vx = 0;
           vel.vy = 0;
@@ -377,7 +377,7 @@ function stepWebSpit(world, id, ai, pos, facing, dx, dy, distance, dt, castLocke
   return true;
 }
 
-function patrol(grid, pos, vel, ai, movementSpeed, moveLocked, dt, radius) {
+function patrol(grid, pos, vel, facing, ai, movementSpeed, moveLocked, dt, radius) {
   if (ai.investigate) {
     const point = ai.investigate;
     point.remaining -= dt;
@@ -385,7 +385,7 @@ function patrol(grid, pos, vel, ai, movementSpeed, moveLocked, dt, radius) {
     if (point.remaining > 0 && distance > 18 && !moveLocked) {
       vel.vx = (point.x - pos.x) / distance * movementSpeed * 0.55;
       vel.vy = (point.y - pos.y) / distance * movementSpeed * 0.55;
-      Object.assign(pos, moveWithSlide(grid, pos.x, pos.y, vel.vx * dt, vel.vy * dt, radius));
+      movePatrol(grid, pos, vel, facing, dt, radius);
       return;
     }
     if (point.remaining <= 0 || distance <= 18) ai.investigate = null;
@@ -406,7 +406,12 @@ function patrol(grid, pos, vel, ai, movementSpeed, moveLocked, dt, radius) {
   }
   vel.vx = (dx / distance) * movementSpeed * 0.35;
   vel.vy = (dy / distance) * movementSpeed * 0.35;
+  movePatrol(grid, pos, vel, facing, dt, radius);
+}
+
+function movePatrol(grid, pos, vel, facing, dt, radius) {
   const moved = moveWithSlide(grid, pos.x, pos.y, vel.vx * dt, vel.vy * dt, radius);
-  pos.x = moved.x;
-  pos.y = moved.y;
+  const dx = moved.x - pos.x, dy = moved.y - pos.y;
+  if (Math.hypot(dx, dy) > 1e-4) facing.angle = Math.atan2(dy, dx);
+  Object.assign(pos, moved);
 }

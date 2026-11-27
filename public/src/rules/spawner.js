@@ -228,13 +228,14 @@ function defineMob(config) {
 
 function spawnMob(world, grid, nearX, nearY, targetId, config, patrolPoints) {
   const pos = findOpenNear(grid, nearX, nearY, config.searchRadius ?? 400);
+  const waypoint = patrolPoints?.find(({ x, y }) => Math.hypot(x - pos.x, y - pos.y) >= 18);
   const rare = world.rand() < 0.09;
   const healthScale = rare ? 1.65 : 1;
   const damageScale = rare ? 1.35 : 1;
   const id = world.create();
   world.add(id, Position, { x: pos.x, y: pos.y });
   world.add(id, Velocity, { vx: 0, vy: 0 });
-  world.add(id, Facing,   { angle: 0 });
+  world.add(id, Facing,   { angle: waypoint ? Math.atan2(waypoint.y - pos.y, waypoint.x - pos.x) : 0 });
   world.add(id, Collider, { radius: config.radius });
   world.add(id, Speed,    { max: config.speed });
   world.add(id, Actor,    { kind: ActorKind.MOB, team: 'hostile', name: config.name, glyph: config.glyph, theme: config.theme, rare });
