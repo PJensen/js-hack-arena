@@ -29,26 +29,26 @@ Deno.test('player sight turns in place, limits rear awareness, and stops at wall
   assert(sight.contains(65, 0));
   assert(sight.contains(72, -86)); // 50° off center.
   assert(!sight.contains(50, -107)); // 65° off center.
-  assert(!sight.contains(120, 0));
+  assert(!sight.contains(300, 0));
   assert(sight.contains(-40, 0));
   assert(!sight.contains(-100, 0));
   assert(!sight.update(origin, Math.PI, fov));
   assert(sight.contains(-100, 0));
   assert(!sight.contains(65, 0));
-  assert(!sight.contains(-240, 0));
+  assert(!sight.contains(-370, 0));
 
   wall = false;
   sight.invalidate();
   assert(sight.update(origin, 0, fov));
-  assert(sight.contains(120, 0));
+  assert(sight.contains(320, 0));
   assert(sight.update({ x: 16, y: 0 }, 0, fov));
-  assert(sight.contains(208, 0));
+  assert(sight.contains(336, 0));
 });
 
 Deno.test('dungeon memory retains observed terrain and refreshes only in sight', () => {
   const bounds = { w: 640, h: 480 };
   const player = { x: 260, y: 244 };
-  const fov = { distance: 220, angle: 1.4 };
+  const fov = FOV.defaults;
   let floorClearance = 20;
   const grid = {
     cellSize: 8,
@@ -65,6 +65,7 @@ Deno.test('dungeon memory retains observed terrain and refreshes only in sight',
   const dirty = update(0);
   assert(dirty.x <= 40 && dirty.x + dirty.width > 40);
   assertEquals(read(324, 244), new Uint8Array([255, 80]));
+  assertEquals(read(500, 60), new Uint8Array([255, 80]));
   assertEquals(read(420, 244), new Uint8Array([0, 0]));
   assertEquals(read(156, 244), new Uint8Array([0, 0]));
   assertEquals(update(0), null);
@@ -73,6 +74,7 @@ Deno.test('dungeon memory retains observed terrain and refreshes only in sight',
   assertEquals(read(156, 244), new Uint8Array([255, 128]));
   assert(!sight.contains(324, 244));
   assertEquals(read(324, 244), new Uint8Array([255, 80]));
+  assertEquals(read(500, 60), new Uint8Array([255, 80]));
   floorClearance = 44;
   sight.invalidate();
   update(Math.PI);
