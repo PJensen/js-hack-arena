@@ -38,6 +38,8 @@ const names = [
   'old_key', 'keyring', 'torch', 'lantern', 'rope', 'coin_pouch', 'skeletal_remains', 'burning_hand', 'weakened', 'cursed', 'blind', 'fortified',
   // Row 13: newly added icons
   'runed_copper_signet',
+  // Row 13: newly added icons
+  'copper_band_of_embers',
 ];
 
 export const icons = Object.freeze(Object.fromEntries(names.map((id, index) => {
