@@ -30,12 +30,6 @@ const recipes = [
   { kind: 'gold', minutes: 45, locked: true },
 ];
 
-const runs = [
-  { name: 'The Quarry', levels: '8–14', icon: 'crystal blue' },
-  { name: 'Gloomroot Caverns', levels: '12–18', icon: 'crystal violet' },
-  { name: 'Irondeep Mine', levels: '16–22', icon: 'flame' },
-];
-
 const party = [
   { name: 'Ssera', role: 'leader', status: 'Lv 12' },
   { name: 'Vale', role: 'scout', status: 'Ready' },
@@ -70,7 +64,7 @@ const requestedView = params.get('view');
 const view = ['craft', 'smelting', 'queue', 'inventory'].includes(requestedView) ? requestedView : 'run';
 const completed = params.get('status') === 'completed';
 const offline = params.has('offline');
-const title = { run: 'Select a Run', craft: 'Crafting', smelting: 'Smelting', queue: 'Crafting Queue', inventory: 'Inventory' };
+const title = { run: 'Dungeons', craft: 'Crafting', smelting: 'Smelting', queue: 'Crafting Queue', inventory: 'Inventory' };
 const gameParams = new URLSearchParams();
 for (const name of ['room', 'offline']) {
   if (params.has(name)) gameParams.set(name, params.get(name));
@@ -226,21 +220,50 @@ function runScreen() {
         </div>
       </section>
       <section aria-labelledby="run-title">
-        <div class="section-heading"><h1 id="run-title">${icon('run')} Select a Run</h1></div>
-        <ul class="run-list">
-          ${runs.map(({ name, levels, icon: glyph }, index) => `
-            <li class="row run-card ${index === 0 ? 'selected' : ''}">
-              ${icon(glyph)}
-              <span class="row-copy">
-                <strong>${name}</strong><small>Lv ${levels} ${icon('party')}</small>
-              </span>
-              ${index === 0 ? '<span class="sr-only">Selected</span>' : ''}
-              <span class="chevron" aria-hidden="true"></span>
-            </li>`).join('')}
+        <div class="section-heading"><h1 id="run-title">${icon('run')} Dungeons</h1></div>
+        <ul class="run-list" id="run-list">
+          <li class="row run-card selected">
+            ${icon('crystal blue')}
+            <span class="row-copy"><strong>The Quarry</strong></span>
+            <span class="sr-only">Selected</span>
+          </li>
         </ul>
+        <p class="dungeon-status" id="dungeon-status" role="status">${offline ? '' : 'Loading saved dungeons…'}</p>
         <a class="primary start-run" href="${gameHref(launchParams)}">${icon('run')} Start Run</a>
       </section>
     </div>`;
+}
+
+async function loadDungeons() {
+  const list = document.querySelector('#run-list');
+  const status = document.querySelector('#dungeon-status');
+  try {
+    const response = await fetch('/api/dungeons', { credentials: 'same-origin', cache: 'no-store' });
+    if (response.status === 401) {
+      const signIn = document.createElement('a');
+      signIn.href = `/auth/login?return=${encodeURIComponent(location.pathname + location.search)}`;
+      signIn.textContent = 'Sign in';
+      status.replaceChildren(signIn, ' to see saved dungeons.');
+      return;
+    }
+    if (!response.ok) throw new Error('Could not load saved dungeons');
+    const { dungeons } = await response.json();
+    for (const { name } of dungeons) {
+      const row = document.createElement('li');
+      row.className = 'row run-card';
+      const label = document.createElement('span');
+      label.className = 'row-copy dungeon-name';
+      const title = document.createElement('strong');
+      title.textContent = name;
+      label.append(title);
+      row.innerHTML = icon('crystal violet');
+      row.append(label);
+      list.append(row);
+    }
+    status.textContent = dungeons.length ? '' : 'No saved dungeons yet.';
+  } catch {
+    status.textContent = 'Saved dungeons unavailable. Reload to try again.';
+  }
 }
 
 function craftModes(compact = false) {
@@ -499,6 +522,7 @@ document.querySelector('#queue-craft')?.addEventListener('click', async () => {
 });
 
 loadBalance();
+if (view === 'run' && !offline) loadDungeons();
 setInterval(() => {
   const jobs = outstandingJobs();
   if (!jobs.length) return;

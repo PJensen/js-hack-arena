@@ -84,16 +84,20 @@ export default {
       });
     }
 
+    if (url.pathname === '/api/dungeons') {
+      const session = await readSession(request, env);
+      if (!session) return json({ error: 'login required' }, { status: 401 });
+      if (request.method !== 'GET') return json({ error: 'method not allowed' }, { status: 405, headers: { allow: 'GET' } });
+      if (!env.DUNGEONS) return json({ error: 'dungeon storage is not configured' }, { status: 503 });
+      const dungeons = await listDungeons(env.DUNGEONS);
+      return json({ dungeons: dungeons.map(({ id, name }) => ({ id, name })) });
+    }
+
     if (url.pathname === '/api/editor/dungeons') {
       const session = await requireDungeonEditor(request, env);
       if (session instanceof Response) return session;
       if (request.method !== 'GET') return json({ error: 'method not allowed' }, { status: 405, headers: { allow: 'GET' } });
-      const result = await env.DUNGEONS.list({ prefix: 'hand-carved:', limit: 1000 });
-      return json({ dungeons: result.keys.flatMap(({ metadata }) => metadata?.dungeonId ? [{
-        id: metadata.dungeonId,
-        name: metadata.name,
-        updatedAt: metadata.updatedAt,
-      }] : []) });
+      return json({ dungeons: await listDungeons(env.DUNGEONS) });
     }
 
     const dungeonEditorPath = /^\/api\/editor\/dungeons\/([a-z0-9][a-z0-9_-]{0,47})$/.exec(url.pathname);
@@ -184,6 +188,21 @@ export default {
     return env.ASSETS.fetch(request);
   },
 };
+
+async function listDungeons(storage) {
+  const dungeons = [];
+  let cursor;
+  do {
+    const page = await storage.list({ prefix: 'hand-carved:', cursor });
+    for (const { metadata } of page.keys) {
+      if (metadata?.dungeonId) {
+        dungeons.push({ id: metadata.dungeonId, name: metadata.name, updatedAt: metadata.updatedAt });
+      }
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return dungeons;
+}
 
 async function requireDungeonEditor(request, env) {
   const session = await readSession(request, env);

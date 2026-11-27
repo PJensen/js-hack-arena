@@ -25,7 +25,10 @@ function makeKv() {
       return record ? JSON.parse(record.value) : null;
     },
     async list({ prefix }) {
-      return { keys: [...records.entries()].filter(([key]) => key.startsWith(prefix)).map(([name, record]) => ({ name, metadata: record.metadata })) };
+      return {
+        keys: [...records.entries()].filter(([key]) => key.startsWith(prefix)).map(([name, record]) => ({ name, metadata: record.metadata })),
+        list_complete: true,
+      };
     },
   };
 }
@@ -103,4 +106,18 @@ Deno.test('dungeon editor API stores and loads normalized layouts for the author
   assertEquals((await listed.json()).dungeons.map(({ id }) => id), ['test-cave']);
   const loaded = await app.fetch(request('/api/editor/dungeons/test-cave', { cookie }), env);
   assertEquals((await loaded.json()).layout, savedBody.layout);
+
+  const second = await app.fetch(request('/api/editor/dungeons/second-cave', {
+    method: 'PUT', cookie, body: { ...layout, id: 'second-cave', name: 'Second Cave' },
+  }), env);
+  assertEquals(second.status, 200);
+  const catalog = await app.fetch(request('/api/dungeons', { cookie: unauthorizedCookie }), env);
+  assertEquals(catalog.status, 200);
+  assertEquals(await catalog.json(), { dungeons: [
+    { id: 'test-cave', name: 'Test Cave' },
+    { id: 'second-cave', name: 'Second Cave' },
+  ] });
+  assertEquals((await app.fetch(request('/api/dungeons'), env)).status, 401);
+  assertEquals((await app.fetch(request('/api/dungeons', { method: 'PUT', cookie }), env)).status, 405);
+  assertEquals((await app.fetch(request('/api/editor/dungeons/test-cave', { cookie: unauthorizedCookie }), env)).status, 403);
 });

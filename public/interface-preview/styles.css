@@ -190,6 +190,10 @@ a:hover { border-color: #74c9dd; }
 .row-copy small { margin-top: 2px; }
 .run-list, .craft-modes, .jobs { display: grid; gap: 6px; }
 .run-card { min-height: 56px; }
+.dungeon-name { overflow-wrap: anywhere; }
+.dungeon-status { margin-top: 6px; font-size: .875rem; }
+.dungeon-status:empty { display: none; }
+.dungeon-status a { text-decoration: underline; }
 
 .primary {
   display: flex;
